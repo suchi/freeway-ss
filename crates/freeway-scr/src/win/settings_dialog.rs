@@ -31,7 +31,7 @@ const SIDE_LABEL: i32 = 109;
 const LANGUAGE_LABEL: i32 = 110;
 
 /// The texts of the controls that are set from the string table, by ID.
-const CONTROL_TEXTS: [(i32, Text); 8] = [
+const CONTROL_TEXTS: [(i32, Text); 9] = [
     (SPEED_LABEL, Text::SpeedLabel),
     (SIDE_LABEL, Text::DrivingSideLabel),
     (LEFT_HAND, Text::LeftHandTraffic),
@@ -41,6 +41,7 @@ const CONTROL_TEXTS: [(i32, Text); 8] = [
     (LANGUAGE_LABEL, Text::LanguageLabel),
     // OK and Cancel use the IDs of the standard buttons.
     (IDOK.0, Text::Ok),
+    (IDCANCEL.0, Text::Cancel),
 ];
 
 /// The items of the language drop-down, in the order of `Language::ALL`.
@@ -175,7 +176,6 @@ fn apply_language(hwnd: HWND, selected: Language) {
         for (id, text) in CONTROL_TEXTS {
             let _ = SetDlgItemTextW(hwnd, id, &HSTRING::from(text.get(language)));
         }
-        let _ = SetDlgItemTextW(hwnd, IDCANCEL.0, &HSTRING::from(Text::Cancel.get(language)));
         SendDlgItemMessageW(hwnd, LANGUAGE, CB_RESETCONTENT, WPARAM(0), LPARAM(0));
         for text in LANGUAGE_TEXTS {
             let item = HSTRING::from(text.get(language));
