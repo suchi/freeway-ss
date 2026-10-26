@@ -1,4 +1,4 @@
-//! The scene: advances the journey and draws the sky and the lights of the road.
+//! The scene: advances the journey and draws the sky, the lights of the road and other cars.
 
 use std::f64::consts::TAU;
 
@@ -6,6 +6,7 @@ use crate::canvas::{Canvas, GLOW_HALO_RATIO, Rgb};
 use crate::projection::{CAMERA_HEIGHT, NEAR_DISTANCE, Projector, VIEW_DISTANCE};
 use crate::road::{RoadShape, RoadView};
 use crate::sky::{Sky, SkyView};
+use crate::traffic::Traffic;
 
 /// Longest time step the scene accepts, in seconds. A longer pause (for
 /// example after the machine slept) must not make the road jump.
@@ -16,6 +17,8 @@ const MIN_CORE_RADIUS: f32 = 0.9;
 /// Largest core radius, in pixels at 100% scale. Lights close to the camera
 /// would otherwise swell into blobs.
 const MAX_CORE_RADIUS: f32 = 7.0;
+/// Largest core radius of a glare, the dazzle of a close headlight.
+const MAX_GLARE_RADIUS: f32 = 28.0;
 /// Alphas below this are invisible and not worth a draw call.
 const MIN_ALPHA: f32 = 0.004;
 
@@ -49,6 +52,8 @@ pub struct Viewport {
 enum Kind {
     /// A point light of the given physical size in meters.
     Glow { size: f32 },
+    /// A point light that may swell larger than a `Glow` when close.
+    Glare { size: f32 },
     /// A pool of light on the road with the given radius in meters.
     Pool { radius: f32 },
 }
@@ -192,6 +197,7 @@ pub struct Scene {
     /// Seconds of (capped) steps since the start.
     time: f64,
     sky: Sky,
+    traffic: Traffic,
 }
 
 impl Scene {
@@ -203,6 +209,7 @@ impl Scene {
             heading: 0.0,
             time: 0.0,
             sky: Sky::new(config.seed),
+            traffic: Traffic::new(config.seed),
         }
     }
 
@@ -233,6 +240,7 @@ impl Scene {
         self.track_s += step;
         self.time += f64::from(dt);
         self.sky.update(self.time, self.heading);
+        self.traffic.update(dt, self.config.speed_kmh / 3.6);
     }
 
     /// Draws the sky, then the lights of the road from far to near.
@@ -278,10 +286,15 @@ impl Scene {
                 continue;
             };
             match light.kind {
-                Kind::Glow { size } => {
+                Kind::Glow { size } | Kind::Glare { size } => {
+                    let largest = if matches!(light.kind, Kind::Glare { .. }) {
+                        MAX_GLARE_RADIUS
+                    } else {
+                        MAX_CORE_RADIUS
+                    };
                     let natural = size * p.scale;
                     let minimum = MIN_CORE_RADIUS * viewport.pixel_scale;
-                    let radius = natural.clamp(minimum, MAX_CORE_RADIUS * viewport.pixel_scale);
+                    let radius = natural.clamp(minimum, largest * viewport.pixel_scale);
                     let alpha = (light.alpha * (natural / minimum).min(1.0)).min(1.0);
                     let halo = radius * GLOW_HALO_RATIO;
                     if alpha >= MIN_ALPHA && touches(viewport, p.x, p.y, halo, halo) {
@@ -337,6 +350,18 @@ impl Scene {
             color: WHITE,
             alpha,
             kind: Kind::Pool { radius },
+        }));
+        lights.extend(self.traffic.lights().into_iter().map(|car| Light {
+            d: car.d,
+            lateral: car.lateral,
+            height: car.height,
+            color: car.color,
+            alpha: car.alpha,
+            kind: if car.glare {
+                Kind::Glare { size: car.size }
+            } else {
+                Kind::Glow { size: car.size }
+            },
         }));
         lights.sort_by(|a, b| b.d.total_cmp(&a.d));
         lights
@@ -616,6 +641,21 @@ mod tests {
                 .iter()
                 .all(|l| (NEAR_DISTANCE..VIEW_DISTANCE).contains(&l.d))
         );
+    }
+
+    #[test]
+    fn other_cars_are_part_of_the_picture() {
+        let mut scene = Scene::new(SceneConfig::default());
+        let (mut red, mut white_near_lane) = (false, false);
+        for _ in 0..400 {
+            scene.update(0.05);
+            for light in scene.lights() {
+                red |= light.color == Rgb::new(255, 35, 20);
+                // Only oncoming cars drive beyond the median at 7 m.
+                white_near_lane |= light.lateral > 6.0 && light.height == 0.65;
+            }
+        }
+        assert!(red && white_near_lane);
     }
 
     #[test]
