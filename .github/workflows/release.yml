@@ -1,0 +1,84 @@
+name: Release
+
+# Why: manual dispatch lets us release any past commit (for example a phase
+# that was merged before this workflow existed), since a tag push would run
+# the workflow file stored at the tagged commit.
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to create (vMAJOR.MINOR.PATCH)"
+        required: true
+        type: string
+      ref:
+        description: "Commit SHA or branch to build and tag"
+        required: true
+        type: string
+      title:
+        description: "Release title (for example: Phase 1: screensaver skeleton)"
+        required: true
+        type: string
+      prerelease:
+        description: "Mark as pre-release"
+        required: true
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Build and publish
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ inputs.tag }}
+      TITLE: ${{ inputs.title }}
+      PRERELEASE: ${{ inputs.prerelease }}
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Validate tag
+        shell: pwsh
+        run: |
+          if ($env:TAG -notmatch '^v\d+\.\d+\.\d+$') {
+            throw "Invalid tag name (expected vMAJOR.MINOR.PATCH)."
+          }
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+      - name: Install toolchain
+        run: |
+          rustup toolchain install
+          rustup target add x86_64-pc-windows-msvc
+      - name: Build and package
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $target = 'x86_64-pc-windows-msvc'
+          cargo build --release -p freeway-scr --locked --target $target
+          if ($LASTEXITCODE -ne 0) { throw "Build failed for $target" }
+          New-Item -ItemType Directory -Force dist, stage | Out-Null
+          Copy-Item "target/$target/release/freeway-scr.exe" stage/NightFreewaySS.scr
+          Copy-Item LICENSE, README.md stage
+          $zip = "dist/NightFreewaySS-$env:TAG-win-x64.zip"
+          Compress-Archive -Path 'stage/*' -DestinationPath $zip
+          $hash = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
+          "$hash  $(Split-Path $zip -Leaf)" | Set-Content -Encoding ascii dist/SHA256SUMS.txt
+      - name: Create release
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $sha = (git rev-parse HEAD).Trim()
+          $ghArgs = @('release', 'create', $env:TAG, '--target', $sha, '--title', $env:TITLE, '--generate-notes')
+          if ($env:PRERELEASE -eq 'true') { $ghArgs += '--prerelease' }
+          $ghArgs += (Get-ChildItem dist/* | ForEach-Object { $_.FullName })
+          gh @ghArgs
+          if ($LASTEXITCODE -ne 0) { throw "gh release create failed" }
