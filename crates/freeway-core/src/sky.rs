@@ -166,6 +166,9 @@ pub struct Sky {
     city: Vec<CityLight>,
     meteors: Vec<Meteor>,
     mountains: Option<Mountains>,
+    /// How tall the mountains stand now, `0..1`; the city lights that they
+    /// hide come back as they sink.
+    mountain_level: f32,
     /// Number of meteors started so far; also the index of the next one.
     started: i64,
     next_start: f64,
@@ -236,6 +239,7 @@ impl Sky {
             stars,
             city,
             mountains,
+            mountain_level: 1.0,
             meteors: Vec::new(),
             started: 0,
             next_start: 0.0,
@@ -260,6 +264,20 @@ impl Sky {
     /// The mountains, if there are any.
     pub fn mountains(&self) -> Option<&Mountains> {
         self.mountains.as_ref()
+    }
+
+    /// Sets how tall the mountains stand, from 0 (flat) to 1 (full height).
+    /// The city lights that the mountains hide fade in as they sink.
+    pub fn set_mountain_level(&mut self, level: f32) {
+        let level = if level.is_finite() {
+            level.clamp(0.0, 1.0)
+        } else {
+            1.0
+        };
+        self.mountain_level = level;
+        if let Some(mountains) = &mut self.mountains {
+            mountains.set_level(level);
+        }
     }
 
     /// Number of meteors that have started so far.
@@ -356,17 +374,26 @@ impl Sky {
         let k = view.scale();
         let size = (1.2 * k).max(view.pixel_scale);
         let core = (1.1 * k).max(0.9 * view.pixel_scale);
-        for light in self.city.iter().filter(|light| !light.thinned) {
+        for light in &self.city {
+            // A light behind the mountains shows as they sink.
+            let shown = if light.thinned {
+                1.0 - self.mountain_level
+            } else {
+                1.0
+            };
+            if shown <= 0.0 {
+                continue;
+            }
             let x = view.screen_x(f64::from(light.turn) * TAU);
             let y = view.y(light.elevation);
             let (alpha, margin) = match light.kind {
-                CityKind::Dot(_) => (light.brightness, size),
-                CityKind::Glow => (light.brightness * 0.8, core * GLOW_HALO_RATIO),
+                CityKind::Dot(_) => (light.brightness * shown, size),
+                CityKind::Glow => (light.brightness * 0.8 * shown, core * GLOW_HALO_RATIO),
                 CityKind::Beacon => {
                     let cycle =
                         (view.time / BEACON_PERIOD + f64::from(light.phase)).rem_euclid(1.0);
                     let on = cycle < BEACON_ON / BEACON_PERIOD;
-                    (if on { 0.9 } else { 0.0 }, core * GLOW_HALO_RATIO)
+                    (if on { 0.9 * shown } else { 0.0 }, core * GLOW_HALO_RATIO)
                 }
             };
             if alpha < MIN_ALPHA || !view.contains(x, y, margin) {
@@ -412,7 +439,7 @@ impl Sky {
 mod tests {
     use super::*;
 
-    #[derive(Debug)]
+    #[derive(Debug, PartialEq)]
     enum Command {
         Dot {
             x: f32,
@@ -817,6 +844,64 @@ mod tests {
         // A quarter stays; the bound leaves room for chance.
         assert!(kept * 5 < all * 2, "{kept} of {all}");
         assert!(kept > 0, "{kept} of {all}");
+    }
+
+    #[test]
+    fn flat_mountains_leave_the_sky_as_if_there_were_none() {
+        let mut with = Sky::new(23, true);
+        let without = Sky::new(23, false);
+        with.set_mountain_level(0.0);
+        let mut v = view(1920.0, 1080.0);
+        v.heading = facing_the_first_range(&with);
+        // No silhouette, and the city lights that the mountains would hide
+        // are all there.
+        assert_eq!(record(&with, &v), record(&without, &v));
+    }
+
+    #[test]
+    fn city_lights_return_as_the_mountains_sink() {
+        let mut sky = Sky::new(23, true);
+        let mut v = view(1920.0, 1080.0);
+        v.heading = facing_the_first_range(&sky);
+        let lit = |sky: &Sky| {
+            record(sky, &v)
+                .iter()
+                .filter(|c| matches!(c, Command::Dot { .. } | Command::Glow { .. }))
+                .count()
+        };
+        let counts: Vec<usize> = [1.0, 0.75, 0.5, 0.25, 0.0]
+            .iter()
+            .map(|&level| {
+                sky.set_mountain_level(level);
+                lit(&sky)
+            })
+            .collect();
+        // Lights are dimmed, not removed, until the mountains are gone, so
+        // the count does not fall; it grows when the level reaches 0.
+        assert!(counts.windows(2).all(|p| p[0] <= p[1]), "{counts:?}");
+        assert!(counts[4] > counts[0], "{counts:?}");
+        // A half-sunk range shows the hidden lights at half strength.
+        sky.set_mountain_level(0.5);
+        let dimmest = record(&sky, &v)
+            .iter()
+            .filter_map(|c| match c {
+                Command::Dot { alpha, .. } => Some(*alpha),
+                _ => None,
+            })
+            .fold(f32::MAX, f32::min);
+        assert!(dimmest < 0.2, "{dimmest}");
+    }
+
+    #[test]
+    fn a_bad_mountain_level_is_ignored() {
+        let mut sky = Sky::new(23, true);
+        let mut v = view(1920.0, 1080.0);
+        v.heading = facing_the_first_range(&sky);
+        let full = record(&sky, &v);
+        for level in [f32::NAN, f32::INFINITY, 3.0] {
+            sky.set_mountain_level(level);
+            assert_eq!(record(&sky, &v), full);
+        }
     }
 
     #[test]

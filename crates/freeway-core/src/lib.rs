@@ -13,6 +13,7 @@ pub mod projection;
 pub mod rng;
 pub mod road;
 pub mod scene;
+pub mod scenery;
 pub mod settings;
 pub mod sky;
 pub mod traffic;

@@ -12,6 +12,7 @@ use crate::canvas::{Canvas, Rgb};
 use crate::projection::{NEAR_DISTANCE, Projector, VIEW_DISTANCE};
 use crate::rng::hash01;
 use crate::road::RoadView;
+use crate::scenery::{BLEND_HALF, ZoneKind, Zones};
 
 /// Length of a tunnel, in meters: 20 to 60 seconds at 100 km/h.
 const LENGTH: (f64, f64) = (550.0, 1650.0);
@@ -20,6 +21,12 @@ const MIN_GAP: f64 = 1000.0;
 /// Mean of the part of the gap beyond `MIN_GAP`, in meters. With the length,
 /// about one tunnel in three minutes at 100 km/h.
 const GAP_EXCESS_MEAN: f64 = 3000.0;
+/// In the mountains of the scenery zones the road between two tunnels is at
+/// least `ZONED_MIN_GAP` long, and `ZONED_GAP_EXCESS_MEAN` longer on average.
+/// The plains in between have no tunnels, so over a whole journey there are
+/// about as many tunnels as without zones.
+const ZONED_MIN_GAP: f64 = 1000.0;
+const ZONED_GAP_EXCESS_MEAN: f64 = 1000.0;
 /// Tunnels are made this far ahead of the camera, in meters.
 const LOOKAHEAD: f64 = VIEW_DISTANCE as f64 + 100.0;
 
@@ -198,9 +205,11 @@ fn mix(from: Rgb, to: Rgb, t: f32) -> Rgb {
 pub struct Tunnels {
     seed: u64,
     lighting: TunnelLighting,
+    /// Where tunnels may be; the same zones as the scene sees.
+    zones: Zones,
     /// Tunnels in order, those the camera has not left yet.
     ahead: VecDeque<Tunnel>,
-    /// Number of tunnels made so far.
+    /// Number of tunnels tried so far; also the number of the next one.
     made: i64,
     /// The first tunnel not in `ahead` yet; `None` when there are no tunnels.
     next: Option<Tunnel>,
@@ -208,16 +217,21 @@ pub struct Tunnels {
 
 impl Tunnels {
     pub fn new(seed: u64, lighting: TunnelLighting) -> Self {
+        Self::with_zones(seed, lighting, false)
+    }
+
+    /// Tunnels that, with `scenery_zones`, are made only in the mountains.
+    pub fn with_zones(seed: u64, lighting: TunnelLighting, scenery_zones: bool) -> Self {
         let mut tunnels = Self {
             seed,
             lighting,
+            zones: Zones::new(seed, scenery_zones),
             ahead: VecDeque::new(),
             made: 0,
             next: None,
         };
         if lighting != TunnelLighting::None {
-            tunnels.next = Some(tunnels.make(0, 0.0));
-            tunnels.made = 1;
+            tunnels.next = Some(tunnels.make_next(0.0));
         }
         tunnels.update(0.0);
         tunnels
@@ -231,8 +245,7 @@ impl Tunnels {
             .filter(|tunnel| tunnel.start < track_s + LOOKAHEAD)
         {
             self.ahead.push_back(next);
-            self.next = Some(self.make(self.made, next.end));
-            self.made += 1;
+            self.next = Some(self.make_next(next.end));
         }
         while self
             .ahead
@@ -280,11 +293,43 @@ impl Tunnels {
         })
     }
 
-    /// The tunnel number `index`, which comes after the road up to `after`.
-    fn make(&self, index: i64, after: f64) -> Tunnel {
+    /// The tunnel after the road up to `after`. With zones it lies in the
+    /// mountains, clear of the stretch where the mountains rise or sink, so
+    /// it never crosses the boundary of a zone.
+    fn make_next(&mut self, after: f64) -> Tunnel {
+        if !self.zones.enabled() {
+            let index = self.made;
+            self.made += 1;
+            return self.make(index, after, (MIN_GAP, GAP_EXCESS_MEAN));
+        }
+        let mut cursor = after;
+        loop {
+            let zone = self.zones.zone_at(cursor);
+            if zone.kind == ZoneKind::Plains {
+                cursor = zone.end;
+                continue;
+            }
+            let index = self.made;
+            self.made += 1;
+            let tunnel = self.make(
+                index,
+                cursor.max(zone.start + BLEND_HALF),
+                (ZONED_MIN_GAP, ZONED_GAP_EXCESS_MEAN),
+            );
+            if tunnel.end <= zone.end - BLEND_HALF {
+                return tunnel;
+            }
+            // It does not fit in this zone any more; try the next one.
+            cursor = zone.end;
+        }
+    }
+
+    /// The tunnel number `index`, which comes after the road up to `after`
+    /// with a gap of `gap.0` meters and `gap.1` more on average.
+    fn make(&self, index: i64, after: f64, gap: (f64, f64)) -> Tunnel {
         let roll = |part: u32| hash01(self.seed, STREAM_TUNNEL | (part << 8), index);
         // An exponential distribution gives irregular gaps; `1 - roll` is above 0.
-        let gap = MIN_GAP - GAP_EXCESS_MEAN * f64::from(1.0 - roll(PART_GAP)).ln();
+        let gap = gap.0 - gap.1 * f64::from(1.0 - roll(PART_GAP)).ln();
         let start = after + gap;
         let length = LENGTH.0 + f64::from(roll(PART_LENGTH)) * (LENGTH.1 - LENGTH.0);
         let lamp = match self.lighting {
@@ -313,7 +358,18 @@ mod tests {
 
     /// Every tunnel of the first `meters` of the road, in order.
     fn collect(seed: u64, lighting: TunnelLighting, meters: f64) -> Vec<Tunnel> {
-        let mut tunnels = Tunnels::new(seed, lighting);
+        collect_from(Tunnels::new(seed, lighting), meters)
+    }
+
+    /// Every tunnel of the first `meters` of a road with scenery zones.
+    fn collect_zoned(seed: u64, meters: f64) -> Vec<Tunnel> {
+        collect_from(
+            Tunnels::with_zones(seed, TunnelLighting::Mixed, true),
+            meters,
+        )
+    }
+
+    fn collect_from(mut tunnels: Tunnels, meters: f64) -> Vec<Tunnel> {
         let mut all: Vec<Tunnel> = Vec::new();
         let mut s = 0.0;
         while s < meters {
@@ -446,6 +502,96 @@ mod tests {
     fn no_tunnels_are_made_when_they_are_off() {
         for seed in 0..20 {
             assert!(collect(seed, TunnelLighting::None, 500_000.0).is_empty());
+        }
+    }
+
+    #[test]
+    fn zoned_tunnels_stay_in_the_mountains_and_clear_of_the_boundaries() {
+        for seed in 0..8 {
+            let tunnels = collect_zoned(seed, 2_000_000.0);
+            assert!(tunnels.len() > 100, "{}", tunnels.len());
+            let mut zones = Zones::new(seed, true);
+            for tunnel in &tunnels {
+                let zone = zones.zone_at(tunnel.start);
+                assert_eq!(zone.kind, ZoneKind::Mountains, "{tunnel:?}");
+                assert!(tunnel.start >= zone.start + BLEND_HALF, "{tunnel:?}");
+                assert!(tunnel.end <= zone.end - BLEND_HALF, "{tunnel:?}");
+                let length = tunnel.end - tunnel.start;
+                assert!((LENGTH.0..=LENGTH.1).contains(&length), "{length}");
+            }
+            for pair in tunnels.windows(2) {
+                assert!(pair[1].start - pair[0].end >= ZONED_MIN_GAP);
+            }
+        }
+    }
+
+    #[test]
+    fn there_are_no_tunnels_on_the_plains() {
+        let mut zones = Zones::new(3, true);
+        let tunnels = collect_zoned(3, 3_000_000.0);
+        let mut s = 0.0;
+        while s < 3_000_000.0 {
+            let zone = zones.zone_at(s);
+            if zone.kind == ZoneKind::Plains {
+                assert!(
+                    !tunnels
+                        .iter()
+                        .any(|t| t.start < zone.end && t.end > zone.start),
+                    "{zone:?}"
+                );
+            }
+            s = zone.end;
+        }
+    }
+
+    #[test]
+    fn the_mountains_have_more_tunnels_than_the_old_road() {
+        // Inside a mountain zone the tunnels are close together.
+        let tunnels = collect_zoned(2, 3_000_000.0);
+        let close = tunnels
+            .windows(2)
+            .filter(|p| p[1].start - p[0].end < 3_000.0)
+            .count();
+        assert!(close * 2 > tunnels.len(), "{close} of {}", tunnels.len());
+    }
+
+    #[test]
+    fn zones_keep_about_the_same_number_of_tunnels_over_a_whole_journey() {
+        let meters = 20_000_000.0;
+        let plain = collect(6, TunnelLighting::Mixed, meters).len() as f64;
+        let zoned = collect_zoned(6, meters).len() as f64;
+        // The mountains take half of the road, so tunnels come about as often
+        // as without zones; the edges of the zones cost a little.
+        let ratio = zoned / plain;
+        assert!((0.65..1.1).contains(&ratio), "{ratio}");
+    }
+
+    #[test]
+    fn zoned_tunnels_are_the_same_whichever_way_the_road_is_driven() {
+        let mut fine = Tunnels::with_zones(5, TunnelLighting::Mixed, true);
+        let mut coarse = Tunnels::with_zones(5, TunnelLighting::Mixed, true);
+        let (mut a, mut b) = (Vec::new(), Vec::new());
+        for step in 0..6000 {
+            fine.update(f64::from(step) * 20.0);
+            a.extend(fine.ahead().map(|t| t.start));
+            if step % 7 == 0 {
+                coarse.update(f64::from(step) * 20.0);
+                b.extend(coarse.ahead().map(|t| t.start));
+            }
+        }
+        a.sort_by(f64::total_cmp);
+        a.dedup();
+        b.sort_by(f64::total_cmp);
+        b.dedup();
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn zoned_tunnels_are_not_made_when_they_are_off() {
+        let mut tunnels = Tunnels::with_zones(1, TunnelLighting::None, true);
+        for step in 0..2000 {
+            tunnels.update(f64::from(step) * 100.0);
+            assert_eq!(tunnels.ahead().count(), 0);
         }
     }
 

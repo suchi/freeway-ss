@@ -6,6 +6,7 @@ use crate::canvas::{Canvas, GLOW_HALO_RATIO, Rgb};
 use crate::cruise::Drift;
 use crate::projection::{CAMERA_HEIGHT, NEAR_DISTANCE, Projector, VIEW_DISTANCE};
 use crate::road::{RoadShape, RoadView};
+use crate::scenery::Zones;
 use crate::sky::{Sky, SkyView};
 use crate::traffic::{MINUTES_PER_DAY, Traffic, TrafficLevel, TruckStyle};
 use crate::tunnel::{Tunnel, TunnelLighting, Tunnels, draw_entrance};
@@ -291,6 +292,9 @@ pub struct Scene {
     ufo: Ufo,
     tunnels: Tunnels,
     drift: Drift,
+    zones: Zones,
+    /// How tall the mountains stand at the current position, `0..1`.
+    mountain_level: f32,
 }
 
 /// The local time after `time` seconds of driving, in minutes after
@@ -312,18 +316,24 @@ fn traffic_level(config: &SceneConfig, time: f64) -> TrafficLevel {
 
 impl Scene {
     pub fn new(config: SceneConfig) -> Self {
+        let mut zones = Zones::new(config.seed, config.scenery_zones);
+        let mountain_level = zones.mountain_level(0.0);
+        let mut sky = Sky::new(config.seed, config.mountains);
+        sky.set_mountain_level(mountain_level);
         Self {
             config,
             road: RoadShape::new(config.seed),
             track_s: 0.0,
             heading: 0.0,
             time: 0.0,
-            sky: Sky::new(config.seed, config.mountains),
+            sky,
             // The cars start out as busy as the road is at the start time.
             traffic: Traffic::with_level(config.seed, config.trucks, traffic_level(&config, 0.0)),
             ufo: Ufo::new(config.seed, config.ufo_mean_interval),
-            tunnels: Tunnels::new(config.seed, config.tunnels),
+            tunnels: Tunnels::with_zones(config.seed, config.tunnels, config.scenery_zones),
             drift: Drift::new(config.seed, config.speed_kmh, config.vary_speed),
+            zones,
+            mountain_level,
         }
     }
 
@@ -336,6 +346,11 @@ impl Scene {
     /// time plus the time driven.
     pub fn minute_of_day(&self) -> f32 {
         minute_of_day(&self.config, self.time)
+    }
+
+    /// How tall the mountains stand now, from 0 (plains) to 1 (mountains).
+    pub fn mountain_level(&self) -> f32 {
+        self.mountain_level
     }
 
     pub fn track_s(&self) -> f64 {
@@ -394,6 +409,8 @@ impl Scene {
             .set_level(traffic_level(&self.config, self.time));
         self.traffic.update(dt, speed_kmh / 3.6);
         self.tunnels.update(self.track_s);
+        self.mountain_level = self.zones.mountain_level(self.track_s);
+        self.sky.set_mountain_level(self.mountain_level);
     }
 
     /// Draws the sky, then the lights of the road from far to near.
@@ -1538,6 +1555,7 @@ mod tests {
         for _ in 0..20_000 {
             scene.update(0.05);
             assert_eq!(scene.speed_kmh(), 120.0);
+            assert_eq!(scene.mountain_level(), 1.0);
         }
         // 1,000 seconds at 120 km/h.
         assert!((scene.track_s() - 120.0 / 3.6 * 1000.0).abs() < 1.0);
@@ -1646,6 +1664,66 @@ mod tests {
             scene.update(0.05);
         }
         assert_eq!(scene.traffic.running_count(), scene.traffic.car_count());
+    }
+
+    /// A scene that starts on plains, and the distance at which they end.
+    fn on_plains() -> (Scene, f64) {
+        for seed in 0.. {
+            let config = varying(seed);
+            let mut zones = Zones::new(seed, true);
+            let zone = zones.zone_at(0.0);
+            if zone.kind == crate::scenery::ZoneKind::Plains {
+                let _ = config;
+                return (Scene::new(config), zone.end);
+            }
+        }
+        unreachable!()
+    }
+
+    #[test]
+    fn the_plains_have_no_mountains_no_tunnels_and_the_mountains_come_back() {
+        let (mut scene, plains_end) = on_plains();
+        assert_eq!(scene.mountain_level(), 0.0);
+        let (mut tunnel_on_plains, mut risen) = (false, false);
+        while scene.track_s() < plains_end + 2000.0 {
+            scene.update(0.05);
+            if scene.track_s() < plains_end - 1000.0 {
+                assert_eq!(scene.mountain_level(), 0.0);
+                tunnel_on_plains |= scene.in_tunnel() || scene.tunnel_entrance_ahead().is_some();
+            }
+            risen |= scene.mountain_level() == 1.0;
+        }
+        assert!(!tunnel_on_plains);
+        assert!(risen);
+    }
+
+    #[test]
+    fn the_sky_over_the_plains_has_no_silhouette() {
+        let (mut scene, _) = on_plains();
+        for _ in 0..200 {
+            scene.update(0.05);
+        }
+        assert!(silhouettes(&record(&scene, VIEWPORT)).is_empty());
+    }
+
+    #[test]
+    fn zones_and_tunnels_agree_on_where_the_mountains_are() {
+        // Whenever the car is in a tunnel, the mountains stand at full height.
+        for seed in 0..4 {
+            let mut scene = Scene::new(SceneConfig {
+                speed_kmh: 160.0,
+                ..varying(seed)
+            });
+            let mut seen = 0;
+            for _ in 0..(3.0 * 3600.0 / 0.05) as usize {
+                scene.update(0.05);
+                if scene.in_tunnel() {
+                    seen += 1;
+                    assert_eq!(scene.mountain_level(), 1.0, "{seed}");
+                }
+            }
+            assert!(seen > 0, "{seed}");
+        }
     }
 
     #[test]
