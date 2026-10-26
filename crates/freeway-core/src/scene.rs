@@ -211,6 +211,16 @@ impl Scene {
 
     /// Draws the lights of the road from far to near.
     pub fn draw(&self, viewport: Viewport, canvas: &mut dyn Canvas) {
+        // `clamp` below panics on a negative or NaN scale.
+        let pixel_scale = if viewport.pixel_scale.is_finite() && viewport.pixel_scale > 0.0 {
+            viewport.pixel_scale
+        } else {
+            1.0
+        };
+        let viewport = Viewport {
+            pixel_scale,
+            ..viewport
+        };
         let projector = Projector::new(
             viewport.width,
             viewport.height,
@@ -409,13 +419,16 @@ mod tests {
         });
         let (a, b) = (record(&left, VIEWPORT), record(&right, VIEWPORT));
         assert_eq!(a.len(), b.len());
-        // On a straight, level start the headlight pools lie on the center line.
-        let on_center = |commands: &[Command]| {
-            commands
-                .iter()
-                .any(|c| matches!(c, Command::Pool { x, .. } if (x - 640.0).abs() < 0.01))
-        };
-        assert!(on_center(&a) && on_center(&b));
+        // Every light lands on the mirrored side of the screen center.
+        for (left, right) in a.iter().zip(&b) {
+            match (left, right) {
+                (Command::Glow { x: xl, y: yl, .. }, Command::Glow { x: xr, y: yr, .. })
+                | (Command::Pool { x: xl, y: yl, .. }, Command::Pool { x: xr, y: yr, .. }) => {
+                    assert!((xl + xr - VIEWPORT.width).abs() < 1e-2 && yl == yr);
+                }
+                _ => panic!("commands differ in kind"),
+            }
+        }
     }
 
     #[test]
@@ -453,6 +466,20 @@ mod tests {
             if let Command::Glow { radius, .. } = command {
                 assert!(radius >= MIN_CORE_RADIUS - 1e-6);
             }
+        }
+    }
+
+    #[test]
+    fn invalid_pixel_scales_do_not_panic() {
+        let scene = Scene::new(SceneConfig::default());
+        for pixel_scale in [0.0, -1.0, f32::NAN, f32::INFINITY] {
+            record(
+                &scene,
+                Viewport {
+                    pixel_scale,
+                    ..VIEWPORT
+                },
+            );
         }
     }
 
