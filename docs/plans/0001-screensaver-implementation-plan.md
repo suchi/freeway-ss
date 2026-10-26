@@ -206,8 +206,8 @@ MVPの項目は、本家の実行中の操作と表示(速度・通行方向・H
 | Phase 1: スクリーンセイバーの骨格 | 完了(実機確認済み) | - | [#3](https://github.com/suchi/freeway-ss/pull/3) | [v0.1.0](https://github.com/suchi/freeway-ss/releases/tag/v0.1.0) |
 | Phase 2: 道路と投影 | 完了(実機確認済み) | [0002](0002-phase2-road-and-projection.md) | [#5](https://github.com/suchi/freeway-ss/pull/5)、[#7](https://github.com/suchi/freeway-ss/pull/7) | [v0.2.0](https://github.com/suchi/freeway-ss/releases/tag/v0.2.0) |
 | Phase 3: 背景 | 完了(実機確認済み) | [0003](0003-phase3-background.md) | [#8](https://github.com/suchi/freeway-ss/pull/8) | [v0.3.0](https://github.com/suchi/freeway-ss/releases/tag/v0.3.0) |
-| Phase 4: 他車 | 実装中 | [0004](0004-phase4-traffic.md) | [#11](https://github.com/suchi/freeway-ss/pull/11) | 未リリース |
-| Phase 5: 設定画面と保存 | 未着手 | - | - | - |
+| Phase 4: 他車 | 完了(実機確認済み) | [0004](0004-phase4-traffic.md) | [#11](https://github.com/suchi/freeway-ss/pull/11) | [v0.4.0](https://github.com/suchi/freeway-ss/releases/tag/v0.4.0) |
+| Phase 5: 設定画面と保存 | 実装中 | [0005](0005-phase5-settings.md) | (作成後に記入) | 未リリース |
 | Phase 6: リリース | 未着手 | - | - | - |
 | Phase 7: 任意機能 | 未着手 | - | - | - |
 
