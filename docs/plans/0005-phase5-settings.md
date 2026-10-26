@@ -1,6 +1,6 @@
 # Phase 5 詳細設計: 設定画面と保存
 
-- ステータス: 作成済み(実装前)
+- ステータス: 実装済み(CI・実機確認待ち)
 - 日付: 2026-10-26
 - 親計画: [実装計画](0001-screensaver-implementation-plan.md)の6章 Phase 5
 - 関連する決定: [ADR-0004](../adr/0004-store-settings-in-registry.md)(設定はレジストリに保存)、[ADR-0005](../adr/0005-embed-windows-resources-with-embed-resource.md)(リソースの埋め込みに`embed-resource`を使う。2026-10-26のユーザー判断)
@@ -105,6 +105,15 @@ flowchart TB
 - 文字はDirectWrite(`Win32_Graphics_DirectWrite`)で描く。大きさは`pixel_scale`に比例させる
 - 速度計は場面(`Scene`)ではなく、レンダラーが場面の上に重ねて描く。加算合成ではなく通常の合成で描く
 - 巡航速度は実行中に変わらないので、表示する数字は一定でよい
+
+### 3.7 実装での決定(設計書からの具体化)
+
+- 検証の方針: 範囲外・刻みに合わない速度、0と1以外のフラグは、近い有効値に丸めずその項目の既定値に戻す。壊れた値や手で編集された値を、別の有効な値として扱わないため(ADR-0004の「その項目を既定値に戻す」に合わせた)
+- トラックバーは0〜13の14段階とし、位置と速度の変換(`speed_to_position`・`position_to_speed`)は`freeway-core`の`settings.rs`に置いてLinuxでもテストする
+- リソースは`crates/freeway-scr/resources/`(`freeway.rc`・`freeway.manifest`)に置く。`.rc`にWindowsヘッダーを`#include`しないため、スタイルやID以外の定数は`.rc`の先頭に数値で書いている(`embed-resource`は`INCLUDE`環境変数を設定しないので、Visual Studioの開発者コマンドプロンプト以外でもビルドできるようにするため)
+- `build.rs`は、Windowsで実行したときはリソースの埋め込みに失敗するとビルドを失敗させ(`manifest_required`)、Windows以外ではリソースを省略して警告を出す(`manifest_optional`)
+- レジストリの読み書きは、キーを開く処理が不要な`RegGetValueW`(`RRF_RT_REG_DWORD`で型違いを検出)と`RegSetKeyValueW`(キーがなければ作成)で行う
+- 速度計は、数字(56 px)と単位`km/h`(20 px)を琥珀色(#ffb000)で左下から28 pxの余白に描き、サイズと余白は`pixel_scale`に比例させる。2つの文字列は同じベースラインにそろえる
 
 ## 4. テスト
 
