@@ -39,6 +39,9 @@ Windowsの「インストール」はファイルをコピーせず、展開し�
 | 通行方向 | Driving side | 左側通行 / 右側通行 | 左側通行 |
 | 速度計の表示 | Show speedometer | オン / オフ | オフ |
 | UFOの表示 | Show a UFO now and then | オン / オフ(オンのとき、平均10分に1回、UFOが現れる) | オフ |
+| 表示言語 | Language | 自動(Windowsの表示言語) / English / 日本語 | 自動 |
+
+表示言語は、設定画面とエラーメッセージの言語です。「自動」のときは、Windowsの表示言語が日本語なら日本語、それ以外は英語で表示します。設定画面で言語を選ぶと、その場で表示が切り替わります(保存するには「OK」を押します)。
 
 設定は、レジストリの`HKEY_CURRENT_USER\Software\NightFreewaySS`に保存されます。
 
@@ -103,6 +106,9 @@ Select "Night Freeway SS" in the screensaver settings and click "Settings" to ch
 | Driving side | Left-hand traffic / Right-hand traffic | Left-hand traffic |
 | Show speedometer | On / Off | Off |
 | Show a UFO now and then | On / Off (when on, a UFO appears about once every 10 minutes on average) | Off |
+| Language | Automatic (Windows display language) / English / 日本語 | Automatic |
+
+The language is used for the settings dialog and error messages. With "Automatic", Japanese is shown when the Windows display language is Japanese, and English otherwise. When you choose a language in the dialog, the display changes at once (click "OK" to save it).
 
 The settings are saved in the registry under `HKEY_CURRENT_USER\Software\NightFreewaySS`.
 
