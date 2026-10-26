@@ -12,7 +12,7 @@
 | --- | --- |
 | `crates/freeway-core` | OS非依存のシーン計算(道路形状・投影・道路の光・背景・他車・設定値の検証を実装済み)。すべてのプラットフォームでテストできる |
 | `crates/freeway-scr` | Windows固有部分(引数処理・ウィンドウ・Direct2D描画・設定画面とレジストリへの保存。ダイアログ・マニフェスト・表示名・アイコンは`freeway.rc`から`build.rs`で埋め込む)。配布物の`.scr`になる |
-| `packaging/README.md` | 配布用zipに入れる、利用者向けの説明書(日本語と英語)。本ファイルは開発者向けで、zipには入れない |
+| `packaging/` | 配布用zipに入れる、利用者向けの説明書(`README.md`。日本語と英語)と、`.scr`に組み込まれる第三者のソフトウェアの著作権表示(`THIRD-PARTY-NOTICES.txt`)。本ファイルは開発者向けで、zipには入れない |
 | `xtask` | 開発用コマンド(`cargo xtask dist`: 配布物の作成、`cargo xtask icon`: アイコンの生成)。標準ライブラリだけで書いている |
 | `.github/workflows/` | CI(`ci.yml`)と、成果物をGitHub Releaseに公開するワークフロー(`release.yml`。手順は`AGENTS.md`) |
 | `docs/plans/` | 実装計画(進捗表を含む)とフェーズの詳細設計 |
@@ -60,7 +60,7 @@ Windows固有のコードはWindows以外の環境(Linuxで確認済み)でも`-
 | ファイル | 内容 |
 | --- | --- |
 | `x64\NightFreewaySS.scr` | そのまま使える`.scr`(ARM64は`arm64\`) |
-| `NightFreewaySS-v<バージョン>-win-x64.zip` | `.scr`・LICENSE・利用者向けの説明書(`packaging/README.md`を`README.md`として格納)をまとめた配布用zip(ARM64は`win-arm64`) |
+| `NightFreewaySS-v<バージョン>-win-x64.zip` | `.scr`・LICENSE・第三者の著作権表示(`packaging/THIRD-PARTY-NOTICES.txt`)・利用者向けの説明書(`packaging/README.md`を`README.md`として格納)をまとめた配布用zip(ARM64は`win-arm64`) |
 | `SHA256SUMS.txt` | zipのSHA-256(`sha256sum -c`の書式。複数のアーキテクチャを順に作ると追記される) |
 
 ARM64向けは`cargo xtask dist --target aarch64-pc-windows-msvc`で作る。`.scr`はWindows以外ではビルドできない(`cargo xtask dist`はその旨のエラーで終わる)。

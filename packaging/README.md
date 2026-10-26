@@ -17,6 +17,7 @@
 | --- | --- |
 | `NightFreewaySS.scr` | スクリーンセイバー本体 |
 | `LICENSE` | ライセンス(MIT) |
+| `THIRD-PARTY-NOTICES.txt` | 本体に組み込まれている第三者のソフトウェアの著作権表示とライセンス |
 | `README.md` | この説明書 |
 
 ### インストール
@@ -79,6 +80,7 @@ Night Freeway SS is a screensaver for Windows that draws a freeway at night with
 | --- | --- |
 | `NightFreewaySS.scr` | The screensaver |
 | `LICENSE` | License (MIT) |
+| `THIRD-PARTY-NOTICES.txt` | Copyright notices and licenses of the third-party software included in the screensaver |
 | `README.md` | This document |
 
 ### Installation

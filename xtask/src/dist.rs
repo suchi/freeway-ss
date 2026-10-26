@@ -17,6 +17,9 @@ const PACKAGE_NAME: &str = "freeway-scr";
 /// The README for end users, packaged as `README.md`. The README at the
 /// workspace root is for developers and is not packaged.
 const DIST_README: &str = "packaging/README.md";
+/// The copyright notices of the third-party code linked into the `.scr`.
+const NOTICES_NAME: &str = "THIRD-PARTY-NOTICES.txt";
+const NOTICES: &str = "packaging/THIRD-PARTY-NOTICES.txt";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Arch {
@@ -135,8 +138,9 @@ pub struct Packaged {
     pub hash: String,
 }
 
-/// Copies `exe` to the `.scr` path, zips it with `LICENSE` and the end-user
-/// README (`DIST_README`) from `root`, and records the checksum of the zip.
+/// Copies `exe` to the `.scr` path, zips it with `LICENSE`, the third-party
+/// notices and the end-user README (`DIST_README`) from `root`, and records
+/// the checksum of the zip.
 pub fn package(
     root: &Path,
     exe: &Path,
@@ -146,6 +150,7 @@ pub fn package(
 ) -> Result<Packaged, String> {
     let exe_data = fs::read(exe).map_err(|e| format!("cannot read {}: {e}", exe.display()))?;
     let license = read_text(&root.join("LICENSE"))?;
+    let notices = read_text(&root.join(NOTICES))?;
     let readme = read_text(&root.join(DIST_README))?;
 
     write(&layout.scr, &exe_data)?;
@@ -157,6 +162,10 @@ pub fn package(
         Entry {
             name: "LICENSE",
             data: &license,
+        },
+        Entry {
+            name: NOTICES_NAME,
+            data: &notices,
         },
         Entry {
             name: "README.md",
@@ -219,6 +228,12 @@ pub fn run(root: &Path, arch: Arch) -> Result<(), String> {
             "--target",
         ])
         .arg(arch.target())
+        // Why: the build must write where the .scr is packaged from. Cargo
+        // also reads the target directory from CARGO_BUILD_TARGET_DIR and
+        // config files, which this command does not resolve, so a stale
+        // executable could otherwise be packaged.
+        .arg("--target-dir")
+        .arg(&target_dir)
         .status()
         .map_err(|e| format!("cannot run cargo: {e}"))?;
     if !status.success() {
@@ -314,7 +329,7 @@ mod tests {
     }
 
     #[test]
-    fn packages_the_scr_license_and_readme() {
+    fn packages_the_scr_license_notices_and_readme() {
         let dir = std::env::temp_dir().join(format!("xtask-dist-test-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
@@ -322,6 +337,7 @@ mod tests {
         fs::write(dir.join("README.md"), "developer readme").unwrap();
         fs::create_dir_all(dir.join("packaging")).unwrap();
         fs::write(dir.join(DIST_README), "readme text").unwrap();
+        fs::write(dir.join(NOTICES), "notices text").unwrap();
         let exe = dir.join("freeway-scr.exe");
         fs::write(&exe, b"MZ fake executable").unwrap();
 
@@ -337,6 +353,7 @@ mod tests {
             vec![
                 (SCR_NAME.to_owned(), b"MZ fake executable".to_vec()),
                 ("LICENSE".to_owned(), b"license text".to_vec()),
+                (NOTICES_NAME.to_owned(), b"notices text".to_vec()),
                 ("README.md".to_owned(), b"readme text".to_vec()),
             ]
         );
