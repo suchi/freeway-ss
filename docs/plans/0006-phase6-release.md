@@ -19,7 +19,7 @@
 
 完了条件:
 
-- `cargo xtask dist`で、`NightFreewaySS.scr`と配布用zip(`.scr`・LICENSE・利用者向けの説明書`README.md`)とSHA-256チェックサムが得られる。x64とARM64のどちらも指定できる
+- `cargo xtask dist`で、`NightFreewaySS.scr`と配布用zip(`.scr`・LICENSE・第三者の著作権表示・利用者向けの説明書`README.md`)とSHA-256チェックサムが得られる。x64とARM64のどちらも指定できる
 - スクリーンセイバーの一覧に「Night Freeway SS」と表示される(実行ファイルのファイル名ではなく、埋め込んだ表示名)
 - エクスプローラーで`.scr`にアイコンが表示される
 - 速度計がBahnschriftで描かれる。プレビューのような小さな画面でも、速度計が画面の大半を占めない
@@ -67,7 +67,7 @@ flowchart LR
 - `cargo xtask dist [--target x86_64-pc-windows-msvc|aarch64-pc-windows-msvc]`(省略時はx64):
   1. `cargo build --release --locked -p freeway-scr --target <target>`を実行する
   2. `target/dist/<arch>/NightFreewaySS.scr`へコピーする
-  3. `.scr`・LICENSE・利用者向けの説明書(`packaging/README.md`。zip内では`README.md`)をzipにまとめ、`target/dist/NightFreewaySS-v<version>-win-<arch>.zip`とする(`<version>`は`Cargo.toml`のワークスペースのバージョン)
+  3. `.scr`・LICENSE・第三者の著作権表示(`packaging/THIRD-PARTY-NOTICES.txt`)・利用者向けの説明書(`packaging/README.md`。zip内では`README.md`)をzipにまとめ、`target/dist/NightFreewaySS-v<version>-win-<arch>.zip`とする(`<version>`は`Cargo.toml`のワークスペースのバージョン)
   4. `target/dist/SHA256SUMS.txt`にzipのSHA-256を追記する
 - zipの作成とSHA-256の計算は外部コマンドに頼らずに済む方法を選ぶ。標準ライブラリだけで書くのが難しい場合(zipの圧縮など)は、依存を追加する前に調整役に伝える(依存の追加はユーザーの判断が必要)。たとえば、zipは無圧縮(格納のみ)で書けば標準ライブラリとCRC-32の自前実装で作れる
 - Windows以外では、`.scr`のビルドができない旨のエラーで終わってよい。ただし、パス・ファイル名・チェックサムなどOSに依存しない部分はLinuxでもテストする
@@ -107,6 +107,19 @@ flowchart LR
 - 速度計の書体: 数字はBahnschriftのSemiLight(`DWRITE_FONT_WEIGHT_SEMI_LIGHT`)・標準の字幅・等幅の数字(`tnum`)、単位は標準の太さ。実機で見た目を確認して調整する余地がある
 - 速度計の大きさ: `min(pixel_scale, 画面の高さ / 540)`(`crates/freeway-scr/src/speedometer.rs`)。論理540 px未満の高さでだけ高さに比例して小さくなり、それ以上は従来と同じ
 - 表示名とアイコンの確認は、`crates/freeway-scr/tests/resources.rs`(Windowsの統合テスト)で、ビルドした実行ファイルから文字列ID 1とアイコングループを読み出して行う
+
+### 3.8 リリース前の点検(2026-10-26)
+
+ユーザーの依頼により、v1.0.0の前に、文書と実装の整合性・セキュリティ・使っている技術の新しさを点検した。点検の結果、見つかった問題はいずれも小さく、v1.0.0の前に直すことにした(修正が大きければv1.0.0を見送り、v1.1.0を最初の正式版にする方針だった)。
+
+- 配布用の説明書: 実機確認で、zipにリポジトリの開発者向けREADMEが入っていると分かったため、利用者向けの`packaging/README.md`に替えた(3.5節)
+- 整合性: 設計書のステータス・計画書の古い記述・コメントのずれを直した。リリース手順の記述は、ワークフローの変更と合わせて直す
+- 技術の新しさ: ツールチェーン(1.99.1)・windowsクレート(0.62.2)・actions/checkout(v7.0.1)は、クールダウン(7日)を満たす最新版だった。ビルド依存のcc 1.10.0は公開から7日未満だったため、1.9.0に戻した。Dependabotのcooldownはローカルでの依存の解決には効かない
+- セキュリティ(コード):
+  - `.scr`の静的なDLLの読み込みをSystem32に限る(`/DEPENDENTLOADFLAG:0x800`。`build.rs`)。展開先のフォルダーに置かれたDLLを読み込まないため。効果は実機で確かめる
+  - マニフェストに`requestedExecutionLevel`(`asInvoker`)を明示した
+  - `cargo xtask`のエイリアスに`--locked`を付け、`Cargo.lock`が書き換わらないようにした。内側のビルドには`--target-dir`を明示し、梱包元とずれないようにした
+  - `.scr`に組み込まれる第三者のソフトウェア(windows-rs・Rustの標準ライブラリ)の著作権表示を`packaging/THIRD-PARTY-NOTICES.txt`にまとめ、zipに入れた(MITライセンスの表示の条件)
 
 ## 4. テスト
 
