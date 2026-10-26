@@ -12,7 +12,7 @@
 | --- | --- |
 | `crates/freeway-core` | OS非依存のシーン計算(道路・背景・交通をPhase 2以降で実装予定)。すべてのプラットフォームでテストできる |
 | `crates/freeway-scr` | Windows固有部分(引数処理・ウィンドウ・Direct2D描画。設定画面はPhase 5で実装予定)。配布物の`.scr`になる |
-| `docs/plans/` | 実装計画 |
+| `docs/plans/` | 実装計画(進捗表を含む)とフェーズの詳細設計 |
 | `docs/adr/` | アーキテクチャ決定記録 |
 
 ## 開発
