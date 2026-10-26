@@ -213,7 +213,7 @@ flowchart LR
 
 ### Phase 0: 開発基盤
 
-- 内容: `rust-toolchain.toml`、Cargoワークスペース、`rustfmt`/`clippy`設定、AGENTS.mdの検証コマンド表の記入、README更新、LICENSEと謝辞(本家・原作FreeWay)
+- 内容: `rust-toolchain.toml`、Cargoワークスペース、`rustfmt`/`clippy`の運用(既定設定を使い、CIで警告をエラーにする)、AGENTS.mdの検証コマンド表の記入、README更新、LICENSEと謝辞(本家・原作FreeWay)
 - ユーザー承認が必要な変更: GitHub Actionsのワークフロー追加、`.github/dependabot.yml`への`cargo`エコシステム追加(いずれもAGENTS.mdのセキュリティ設定に該当)
 - 完了条件: 空のワークスペースで検証コマンドがすべて成功し、CIがグリーン
 
@@ -274,7 +274,7 @@ flowchart LR
 
 | 用途 | コマンド |
 | --- | --- |
-| セットアップ | `rustup show`(`rust-toolchain.toml`のツールチェーンを導入) |
+| セットアップ | `rustup toolchain install`(`rust-toolchain.toml`のツールチェーンを導入) |
 | テスト | `cargo test --workspace` |
 | リント・フォーマット | `cargo fmt --all --check` と `cargo clippy --workspace --all-targets -- -D warnings` |
 | 型チェック | `cargo check --workspace --all-targets` |

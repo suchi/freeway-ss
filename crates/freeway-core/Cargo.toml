@@ -1,0 +1,9 @@
+[package]
+name = "freeway-core"
+description = "Platform-independent scene logic for the Night Freeway SS screensaver"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false

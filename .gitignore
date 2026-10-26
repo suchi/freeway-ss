@@ -4,3 +4,6 @@ _work
 .env
 .env.*
 !.env.example
+
+# Rust build output
+/target

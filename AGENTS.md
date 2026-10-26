@@ -16,15 +16,15 @@ GitHub Copilot・Claude Code・Codexすべてに対する指示の単一ソー�
 
 ## 検証コマンド
 
-<!-- TODO(project): 実際のコマンドに置き換える -->
-
 | 用途                 | コマンド |
 | -------------------- | -------- |
-| セットアップ         | (未設定) |
-| テスト               | (未設定) |
-| リント・フォーマット | (未設定) |
-| 型チェック           | (未設定) |
-| ビルド               | (未設定) |
+| セットアップ         | `rustup toolchain install`(`rust-toolchain.toml`のツールチェーンとWindowsターゲットを導入) |
+| テスト               | `cargo test --workspace` |
+| リント・フォーマット | `cargo fmt --all --check` と `cargo clippy --workspace --all-targets -- -D warnings` |
+| 型チェック           | `cargo check --workspace --all-targets` と `cargo check --workspace --all-targets --target x86_64-pc-windows-msvc` |
+| ビルド               | `cargo build --release -p freeway-scr`(配布用バイナリはWindows上でビルドする) |
+
+Windows固有のコードはLinux上でも`--target x86_64-pc-windows-msvc`付きの`cargo check`で型チェックできる(リンクはしない)。
 
 コミット前に必ずテスト・リントを実行する。この表が未設定のままなら、実装を始める前にユーザーへ設定を促す。
 
