@@ -1,6 +1,6 @@
 # Phase 7.3 詳細設計: 遠くの山並み
 
-- ステータス: 実装済み(実機確認待ち。[#18](https://github.com/suchi/freeway-ss/pull/18))
+- ステータス: 完了(実機確認済み。[#18](https://github.com/suchi/freeway-ss/pull/18))
 - 日付: 2026-10-26
 - 親計画: [Phase 7 計画](0007-phase7-optional-features.md)
 
