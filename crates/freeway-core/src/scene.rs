@@ -214,6 +214,11 @@ impl Scene {
         self.heading
     }
 
+    /// Number of shooting stars in the sky now.
+    pub fn meteors_visible(&self) -> usize {
+        self.sky.meteors_visible()
+    }
+
     /// Moves the car forward by `dt` seconds (capped at `MAX_STEP_SECONDS`).
     pub fn update(&mut self, dt: f32) {
         let dt = if dt.is_finite() {

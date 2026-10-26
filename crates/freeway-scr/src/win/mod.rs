@@ -161,16 +161,24 @@ mod tests {
 
     #[test]
     fn renders_and_resizes_a_hidden_window() -> Result<()> {
-        let hwnd = window::create_hidden_window(64, 48)?;
+        // Large enough for stars and city lights to land inside.
+        let hwnd = window::create_hidden_window(640, 360)?;
         let mut renderer = Renderer::new()?;
         let mut target = renderer.create_target(hwnd)?;
         let mut scene = create_scenes(1).remove(0);
+        // Run until a shooting star burns, so that every kind of sky command
+        // (dot, sky band, streak) reaches Direct2D.
+        let mut steps = 0;
+        while scene.meteors_visible() == 0 {
+            scene.update(0.05);
+            steps += 1;
+            assert!(steps < 2000, "no shooting star within 100 seconds");
+        }
         for _ in 0..3 {
-            scene.update(0.016);
             renderer.draw_scene(&mut target, &scene, true)?;
         }
 
-        unsafe { SetWindowPos(hwnd, None, 0, 0, 80, 60, SWP_NOMOVE | SWP_NOZORDER)? };
+        unsafe { SetWindowPos(hwnd, None, 0, 0, 800, 450, SWP_NOMOVE | SWP_NOZORDER)? };
         renderer.draw_scene(&mut target, &scene, true)?;
         Ok(())
     }
