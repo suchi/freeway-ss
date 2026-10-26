@@ -210,7 +210,7 @@ MVPの項目は、本家の実行中の操作と表示(速度・通行方向・H
 | Phase 4: 他車 | 完了(実機確認済み) | [0004](0004-phase4-traffic.md) | [#11](https://github.com/suchi/freeway-ss/pull/11) | [v0.4.0](https://github.com/suchi/freeway-ss/releases/tag/v0.4.0) |
 | Phase 5: 設定画面と保存 | 完了(実機確認済み) | [0005](0005-phase5-settings.md) | [#12](https://github.com/suchi/freeway-ss/pull/12) | [v0.5.0](https://github.com/suchi/freeway-ss/releases/tag/v0.5.0) |
 | Phase 6: リリース | 完了(実機確認済み) | [0006](0006-phase6-release.md) | [#14](https://github.com/suchi/freeway-ss/pull/14) | [v1.0.0](https://github.com/suchi/freeway-ss/releases/tag/v1.0.0)(正式版) |
-| Phase 7: 任意機能 | 実装中(7.1 UFO・7.2 多言語化は完了。次は7.3) | [0007](0007-phase7-optional-features.md)、[0008](0008-phase7-1-ufo.md)、[0009](0009-phase7-2-localization.md) | [#16](https://github.com/suchi/freeway-ss/pull/16)(7.1)、[#17](https://github.com/suchi/freeway-ss/pull/17)(7.2) | 機能ごとに`v1.N.0`。7.1は[v1.1.0](https://github.com/suchi/freeway-ss/releases/tag/v1.1.0)、7.2は[v1.2.0](https://github.com/suchi/freeway-ss/releases/tag/v1.2.0) |
+| Phase 7: 任意機能 | 実装中(7.1 UFO・7.2 多言語化は完了。7.3 山並みを実装中) | [0007](0007-phase7-optional-features.md)、[0008](0008-phase7-1-ufo.md)、[0009](0009-phase7-2-localization.md)、[0010](0010-phase7-3-mountains.md) | [#16](https://github.com/suchi/freeway-ss/pull/16)(7.1)、[#17](https://github.com/suchi/freeway-ss/pull/17)(7.2) | 機能ごとに`v1.N.0`。7.1は[v1.1.0](https://github.com/suchi/freeway-ss/releases/tag/v1.1.0)、7.2は[v1.2.0](https://github.com/suchi/freeway-ss/releases/tag/v1.2.0) |
 
 ```mermaid
 flowchart LR
@@ -342,6 +342,7 @@ flowchart LR
 | D11 | Phase 7の範囲と進め方 | 候補(UFO・多言語化・山並み・トラック・トンネル・設定値の時間的な変化)をすべて扱い、1機能ずつ順にPRとマイナーリリースにする。2026-10-26のユーザー判断 | [0007](0007-phase7-optional-features.md) |
 | D12 | UFOの出現の頻度 | 設定がオンのとき平均10分に1回(間隔はランダム)。2026-10-26のユーザー判断 | [0008](0008-phase7-1-ufo.md) |
 | D13 | 設定画面の言語 | 日本語と英語。設定画面で選べる(自動・English・日本語、既定は自動)。2026-10-26のユーザー判断 | [0009](0009-phase7-2-localization.md)、[ADR-0007](../adr/0007-localize-ui-strings-in-code.md) |
+| D14 | 遠くの山並み | 稜線より下のシルエットと、山頂の赤い灯火。周囲のところどころに連峰を置く。設定項目にし、既定はオン。2026-10-26のユーザー判断 | [0010](0010-phase7-3-mountains.md) |
 
 検討時の選択肢:
 
