@@ -11,6 +11,7 @@ use freeway_core::{DisplayLanguage, Language, Scene, Settings, Text};
 
 use windows::Win32::Foundation::HWND;
 use windows::Win32::Globalization::GetUserDefaultUILanguage;
+use windows::Win32::System::SystemInformation::GetLocalTime;
 use windows::Win32::UI::HiDpi::{
     DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, SetProcessDpiAwarenessContext,
 };
@@ -21,6 +22,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 use windows::core::{HSTRING, Result, w};
 
 use crate::args::Mode;
+use crate::speedometer;
 use renderer::{Renderer, Target, is_device_lost};
 
 /// Runs the screensaver in the requested mode until it should exit.
@@ -90,7 +92,6 @@ pub fn show_error(message: &str) {
 
 fn animate(windows: &[HWND], preview_parent: Option<HWND>) -> Result<()> {
     let settings = settings_store::load();
-    let speedometer = settings.show_speedometer.then_some(settings.speed_kmh);
     let mut renderer = Renderer::new()?;
     let mut targets = create_targets(&renderer, windows)?;
     // Why: each window gets its own scene (docs/adr/0003); the scenes live
@@ -113,7 +114,12 @@ fn animate(windows: &[HWND], preview_parent: Option<HWND>) -> Result<()> {
         for scene in &mut scenes {
             scene.update(dt);
         }
-        match draw_frame(&mut renderer, &mut targets, &scenes, speedometer) {
+        match draw_frame(
+            &mut renderer,
+            &mut targets,
+            &scenes,
+            settings.show_speedometer,
+        ) {
             Ok(true) => {}
             // Nothing is visible (for example, the session is locked).
             Ok(false) => std::thread::sleep(Duration::from_millis(100)),
@@ -134,7 +140,7 @@ fn draw_frame(
     renderer: &mut Renderer,
     targets: &mut [Target],
     scenes: &[Scene],
-    speedometer: Option<u32>,
+    show_speedometer: bool,
 ) -> Result<bool> {
     let last = targets.len().saturating_sub(1);
     let mut visible = false;
@@ -142,7 +148,9 @@ fn draw_frame(
         // Why: waiting for vertical sync only on the last window paces the
         // loop once per frame; waiting on every window would divide the
         // frame rate by the number of monitors.
-        visible |= renderer.draw_scene(target, scene, speedometer, index == last)?;
+        // The speed of a scene drifts, so each frame shows its current speed.
+        let speed = show_speedometer.then(|| speedometer::displayed_speed(scene.speed_kmh()));
+        visible |= renderer.draw_scene(target, scene, speed, index == last)?;
     }
     Ok(visible)
 }
@@ -151,15 +159,25 @@ fn draw_frame(
 #[cfg(feature = "ufo-demo")]
 const UFO_DEMO_MEAN_SECONDS: f32 = 20.0;
 
+/// The local time of day in minutes after midnight, for the traffic.
+fn local_minute_of_day() -> u32 {
+    let time = unsafe { GetLocalTime() };
+    u32::from(time.wHour) * 60 + u32::from(time.wMinute)
+}
+
 /// One scene per window, each with its own road.
 fn create_scenes(count: usize, settings: &Settings) -> Vec<Scene> {
+    let start_minute = local_minute_of_day();
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |elapsed| elapsed.as_nanos() as u64);
     (0..count)
         .map(|index| {
             let seed = nanos ^ (index as u64 + 1).wrapping_mul(0x9E37_79B9_7F4A_7C15);
-            let config = settings.scene_config(seed);
+            let config = freeway_core::SceneConfig {
+                start_minute,
+                ..settings.scene_config(seed)
+            };
             #[cfg(feature = "ufo-demo")]
             let config = freeway_core::SceneConfig {
                 ufo_mean_interval: config.ufo_mean_interval.map(|_| UFO_DEMO_MEAN_SECONDS),
@@ -222,6 +240,47 @@ mod tests {
         unsafe { SetWindowPos(hwnd, None, 0, 0, 800, 450, SWP_NOMOVE | SWP_NOZORDER)? };
         renderer.draw_scene(&mut target, &scene, Some(160), true)?;
         Ok(())
+    }
+
+    #[test]
+    fn draws_the_speedometer_at_the_speed_of_a_drifting_scene() -> Result<()> {
+        let hwnd = window::create_hidden_window(640, 360)?;
+        let mut renderer = Renderer::new()?;
+        let mut target = renderer.create_target(hwnd)?;
+        let mut scene = Scene::new(freeway_core::SceneConfig {
+            seed: 3,
+            vary_speed: true,
+            ..Default::default()
+        });
+        // Ten minutes of driving, drawn every five seconds: the speed shown
+        // changes, and a new speed needs its text to be laid out.
+        let mut shown = std::collections::BTreeSet::new();
+        for step in 0..12_000 {
+            scene.update(0.05);
+            if step % 100 == 99 {
+                let speed = speedometer::displayed_speed(scene.speed_kmh());
+                assert!((80..=120).contains(&speed), "{speed}");
+                shown.insert(speed);
+                renderer.draw_scene(&mut target, &scene, Some(speed), false)?;
+            }
+        }
+        assert!(shown.len() > 1, "{shown:?}");
+        Ok(())
+    }
+
+    #[test]
+    fn the_local_time_is_a_minute_of_the_day() {
+        assert!(local_minute_of_day() < 24 * 60);
+    }
+
+    #[test]
+    fn scenes_start_at_the_local_time() {
+        let scene = create_scenes(1, &Settings::default()).remove(0);
+        let minute = scene.minute_of_day();
+        let now = local_minute_of_day() as f32;
+        // Within a minute of now, also across midnight.
+        let apart = (minute - now).abs().min(1440.0 - (minute - now).abs());
+        assert!(apart <= 1.0, "{minute} {now}");
     }
 
     #[test]
