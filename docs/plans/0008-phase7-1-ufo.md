@@ -1,6 +1,6 @@
 # Phase 7.1 詳細設計: UFO
 
-- ステータス: 実装済み(レビューと実機確認の待ち)
+- ステータス: 完了(実機確認済み)
 - 日付: 2026-10-26
 - 親計画: [Phase 7 計画](0007-phase7-optional-features.md)、[実装計画](0001-screensaver-implementation-plan.md)の5.4節と11章 D7
 
@@ -94,7 +94,7 @@ UFOは光の点(`glow`)の集まりで描く。光線だけは新しい描画命
 平均10分に1回では、実機で確かめにくい。`freeway-scr`にCargoのフィーチャー`ufo-demo`(既定は無効)を加え、有効にしたビルドでは平均の間隔を20秒にする。設定画面のオン・オフはそのまま効く。
 
 - 実機確認の手順: `cargo build --release -p freeway-scr --features ufo-demo`でビルドし、`target\release\freeway-scr.exe /s`で確かめる
-- 配布物(`cargo xtask dist`・リリース)では有効にしない。CIでは`--features ufo-demo`のビルドとテストも行い、壊れていないことを確かめる(`ci.yml`の変更が要る場合は、調整役がユーザーの承認を得て行う)
+- 配布物(`cargo xtask dist`・リリース)では有効にしない。CIでは、WindowsとUbuntuの両方で`--features ufo-demo`付きのclippyを実行し、壊れていないことを確かめる(ユーザーの承認を得て`ci.yml`に追加した)
 
 ## 4. テスト
 
