@@ -375,3 +375,7 @@ dependencies = [
  "cfg-if",
  "windows-sys",
 ]
+
+[[package]]
+name = "xtask"
+version = "1.0.0"
