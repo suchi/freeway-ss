@@ -1,6 +1,6 @@
 # Phase 7.2 詳細設計: 設定画面の多言語化
 
-- ステータス: 実装済み(実機確認待ち。[#17](https://github.com/suchi/freeway-ss/pull/17))
+- ステータス: 完了(実機確認済み。[#17](https://github.com/suchi/freeway-ss/pull/17))
 - 日付: 2026-10-26
 - 親計画: [Phase 7 計画](0007-phase7-optional-features.md)
 - 関連する決定: [ADR-0007](../adr/0007-localize-ui-strings-in-code.md)(画面の文字列をコードの表に持つ)
