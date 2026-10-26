@@ -5,6 +5,8 @@ argument-hint: <PR番号>
 
 PR #$ARGUMENTS の未解決レビュースレッドと最新レビューを確認し、対応する。
 
+注意: 現在の標準フローではCopilotにレビューを依頼せず、エージェント自身が敵対的にレビューする(AGENTS.md「PR・レビュー・マージ」)。本コマンドのCopilot再レビュー手順は、ユーザーが明示的にCopilotレビューを依頼した場合にのみ使う。
+
 ## 手順
 
 1. 最新レビューを取得: `gh api repos/{owner}/{repo}/pulls/$ARGUMENTS/reviews`
