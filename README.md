@@ -4,14 +4,14 @@
 
 ## 状態
 
-開発中(Phase 0: 開発基盤)。まだスクリーンセイバーとしては動作しない。計画と進捗は[実装計画](docs/plans/0001-screensaver-implementation-plan.md)、技術判断は[ADR](docs/adr/README.md)を参照。
+開発中(Phase 1: スクリーンセイバーの骨格)。スクリーンセイバーとして起動・プレビュー・終了できるが、表示は動作確認用の光の点が横切るだけで、道路などの場面はまだ描かない。設定画面も未実装で、設定ボタンでは案内を表示するだけである。計画と進捗は[実装計画](docs/plans/0001-screensaver-implementation-plan.md)、技術判断は[ADR](docs/adr/README.md)を参照。
 
 ## 構成
 
 | パス | 内容 |
 | --- | --- |
 | `crates/freeway-core` | OS非依存のシーン計算(道路・背景・交通をPhase 2以降で実装予定)。すべてのプラットフォームでテストできる |
-| `crates/freeway-scr` | Windows固有部分(引数処理・ウィンドウ・Direct2D描画・設定画面をPhase 1以降で実装予定)。配布物の`.scr`になる |
+| `crates/freeway-scr` | Windows固有部分(引数処理・ウィンドウ・Direct2D描画。設定画面はPhase 5で実装予定)。配布物の`.scr`になる |
 | `docs/plans/` | 実装計画 |
 | `docs/adr/` | アーキテクチャ決定記録 |
 
@@ -28,7 +28,15 @@ cargo check --workspace --all-targets --target x86_64-pc-windows-msvc
 cargo build --release -p freeway-scr
 ```
 
-Windows固有のコードはWindows以外の環境(Linuxで確認済み)でも`--target x86_64-pc-windows-msvc`付きの`cargo check`で型チェックできる。配布用のバイナリはWindows上でビルドする。
+Windows固有のコードはWindows以外の環境(Linuxで確認済み)でも`--target x86_64-pc-windows-msvc`付きの`cargo check`で型チェックできる。配布用のバイナリはWindows上でビルドする。Windows向けのビルドではC runtimeを静的リンクする(`.cargo/config.toml`)。
+
+### Windowsで試す
+
+1. `cargo build --release -p freeway-scr`でビルドする。
+2. `target\release\freeway-scr.exe`を`NightFreewaySS.scr`という名前でコピーする。
+3. 次のいずれかで動かす。
+   - `NightFreewaySS.scr /s`: 全画面で実行する。キー入力・クリック・マウス移動で終了する
+   - `.scr`ファイルを右クリックして「インストール」: スクリーンセイバーの設定画面に追加され、プレビューと待機時間後の起動を確認できる
 
 AIコーディングエージェントへの指示は`AGENTS.md`にある。
 

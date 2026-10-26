@@ -1,0 +1,4 @@
+# Link the C runtime statically on Windows so that the screensaver runs
+# without the Visual C++ Redistributable (docs/adr/0001-use-rust-windows-crate-and-direct2d.md).
+[target.'cfg(all(windows, target_env = "msvc"))']
+rustflags = ["-C", "target-feature=+crt-static"]
