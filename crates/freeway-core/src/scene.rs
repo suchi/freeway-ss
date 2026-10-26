@@ -187,7 +187,7 @@ pub struct Scene {
     road: RoadShape,
     /// Distance travelled. `f64` so that hours of driving keep sub-meter precision.
     track_s: f64,
-    /// How far the car has turned, in radians within `0..TAU`.
+    /// How far the car has turned, in radians, kept near `0..TAU` (float rounding can give `TAU` itself).
     heading: f64,
     /// Seconds of (capped) steps since the start.
     time: f64,
