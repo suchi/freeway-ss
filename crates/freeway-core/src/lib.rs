@@ -11,6 +11,7 @@ pub mod rng;
 pub mod road;
 pub mod scene;
 pub mod sky;
+pub mod traffic;
 
 pub use canvas::{Canvas, Rgb};
 pub use scene::{Scene, SceneConfig, Viewport};
