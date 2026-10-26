@@ -209,7 +209,7 @@ MVPの項目は、本家の実行中の操作と表示(速度・通行方向・H
 | Phase 4: 他車 | 完了(実機確認済み) | [0004](0004-phase4-traffic.md) | [#11](https://github.com/suchi/freeway-ss/pull/11) | [v0.4.0](https://github.com/suchi/freeway-ss/releases/tag/v0.4.0) |
 | Phase 5: 設定画面と保存 | 完了(実機確認済み) | [0005](0005-phase5-settings.md) | [#12](https://github.com/suchi/freeway-ss/pull/12) | [v0.5.0](https://github.com/suchi/freeway-ss/releases/tag/v0.5.0) |
 | Phase 6: リリース | 完了(実機確認済み) | [0006](0006-phase6-release.md) | [#14](https://github.com/suchi/freeway-ss/pull/14) | [v1.0.0](https://github.com/suchi/freeway-ss/releases/tag/v1.0.0)(正式版) |
-| Phase 7: 任意機能 | 未着手 | - | - | - |
+| Phase 7: 任意機能 | 実装中(7.1 UFO) | [0007](0007-phase7-optional-features.md)、[0008](0008-phase7-1-ufo.md) | 7.1は作成後に記入 | 機能ごとに`v1.N.0`(7.1は`v1.1.0`) |
 
 ```mermaid
 flowchart LR
@@ -267,6 +267,7 @@ flowchart LR
 
 - 候補: UFO、設定値の時間的な変化、本家READMEにあるトンネル・山並み・トラック等(本家の実装状況を確認してから)、UIの多言語化
 - 着手前に別途計画書を作成して合意を得る
+- 計画: [Phase 7 計画](0007-phase7-optional-features.md)。候補をすべて扱い、1機能ずつ順にPRとマイナーリリースにする(D11)
 
 ## 7. テスト・検証方針
 
@@ -337,6 +338,8 @@ flowchart LR
 | D8 | 対応アーキテクチャ | x64とARM64。ARM64版の配布はVer.1.0から。それまでの各フェーズのリリースはx64のみ | 本書 |
 | D9 | フェーズごとのリリース | Phase Nを`v0.N.0`のプレリリースとし、手動実行のワークフローで作成する(当時のAGENTS.mdの「フェーズごとのリリース」。Ver.1.0以降は「リリース」) | 本書 |
 | D10 | Phase 6の成果物のバージョン | 正式版`v1.0.0`(プレリリースにしない。x64とARM64を含む)。2026-10-26のユーザー判断 | [0006](0006-phase6-release.md) |
+| D11 | Phase 7の範囲と進め方 | 候補(UFO・多言語化・山並み・トラック・トンネル・設定値の時間的な変化)をすべて扱い、1機能ずつ順にPRとマイナーリリースにする。2026-10-26のユーザー判断 | [0007](0007-phase7-optional-features.md) |
+| D12 | UFOの出現の頻度 | 設定がオンのとき平均10分に1回(間隔はランダム)。2026-10-26のユーザー判断 | [0008](0008-phase7-1-ufo.md) |
 
 検討時の選択肢:
 
