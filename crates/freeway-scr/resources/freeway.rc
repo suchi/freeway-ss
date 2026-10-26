@@ -1,0 +1,35 @@
+// Resources of the screensaver: the settings dialog and the manifest.
+//
+// Why: no #include of Windows headers. The resource compiler is found by
+// embed-resource without the Visual Studio environment, so INCLUDE may be
+// unset; the constants that are needed are written out here instead. The
+// control IDs must match crates/freeway-scr/src/win/settings_dialog.rs.
+
+// STYLE of the dialog: WS_POPUP | WS_CAPTION | WS_SYSMENU | DS_MODALFRAME |
+// DS_SHELLFONT | DS_CENTER
+#define DIALOG_STYLE 0x80C808C8
+// WS_CHILD | WS_VISIBLE | WS_TABSTOP | TBS_AUTOTICKS
+#define SLIDER_STYLE 0x50010001
+// WS_CHILD | WS_VISIBLE | WS_GROUP | SS_RIGHT
+#define VALUE_STYLE 0x50020002
+// WS_TABSTOP | WS_GROUP, for the first radio button
+#define GROUP_START 0x00030000
+
+// RT_MANIFEST (24) with the ID of a manifest for the executable (1)
+1 24 "freeway.manifest"
+
+100 DIALOGEX 0, 0, 224, 122
+STYLE DIALOG_STYLE
+CAPTION "Night Freeway SS Settings"
+FONT 9, "Segoe UI"
+BEGIN
+    LTEXT           "Cruising speed:", -1, 12, 12, 100, 8
+    CONTROL         "", 101, "msctls_trackbar32", SLIDER_STYLE, 8, 24, 150, 20
+    CONTROL         "", 102, "STATIC", VALUE_STYLE, 164, 28, 48, 8
+    LTEXT           "Driving side:", -1, 12, 50, 100, 8
+    AUTORADIOBUTTON "Left-hand traffic", 103, 12, 62, 96, 10, GROUP_START
+    AUTORADIOBUTTON "Right-hand traffic", 104, 112, 62, 96, 10
+    AUTOCHECKBOX    "Show speedometer", 105, 12, 80, 120, 10
+    DEFPUSHBUTTON   "OK", 1, 108, 100, 50, 14
+    PUSHBUTTON      "Cancel", 2, 162, 100, 50, 14
+END
