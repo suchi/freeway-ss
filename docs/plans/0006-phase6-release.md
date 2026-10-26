@@ -1,6 +1,6 @@
 # Phase 6 詳細設計: リリース(Ver.1.0)
 
-- ステータス: 実装済み(3.2〜3.5節。ワークフローの変更と実機確認は調整役が担当)
+- ステータス: 完了(実機確認済み)
 - 日付: 2026-10-26
 - 親計画: [実装計画](0001-screensaver-implementation-plan.md)の6章 Phase 6
 
@@ -116,7 +116,7 @@ flowchart LR
 - 整合性: 設計書のステータス・計画書の古い記述・コメントのずれを直した。リリース手順の記述は、ワークフローの変更と合わせて直す
 - 技術の新しさ: ツールチェーン(1.99.1)・windowsクレート(0.62.2)・actions/checkout(v7.0.1)は、クールダウン(7日)を満たす最新版だった。ビルド依存のcc 1.10.0は公開から7日未満だったため、1.9.0に戻した。Dependabotのcooldownはローカルでの依存の解決には効かない
 - セキュリティ(コード):
-  - `.scr`の静的なDLLの読み込みをSystem32に限る(`/DEPENDENTLOADFLAG:0x800`。`build.rs`)。展開先のフォルダーに置かれたDLLを読み込まないため。効果は実機で確かめる
+  - `.scr`の静的なDLLの読み込みをSystem32に限る(`/DEPENDENTLOADFLAG:0x800`。`build.rs`)。展開先のフォルダーに置かれたDLLを読み込まないため。偽の`dwrite.dll`を隣に置いても起動することを実機で確認した
   - マニフェストに`requestedExecutionLevel`(`asInvoker`)を明示した
   - `cargo xtask`のエイリアスに`--locked`を付け、`Cargo.lock`が書き換わらないようにした。内側のビルドには`--target-dir`を明示し、梱包元とずれないようにした
   - `.scr`に組み込まれる第三者のソフトウェア(windows-rs・Rustの標準ライブラリ)の著作権表示を`packaging/THIRD-PARTY-NOTICES.txt`にまとめ、zipに入れた(MITライセンスの表示の条件)
