@@ -16,15 +16,15 @@ GitHub Copilot・Claude Code・Codexすべてに対する指示の単一ソー�
 
 ## 検証コマンド
 
-<!-- TODO(project): 実際のコマンドに置き換える -->
-
 | 用途                 | コマンド |
 | -------------------- | -------- |
-| セットアップ         | (未設定) |
-| テスト               | (未設定) |
-| リント・フォーマット | (未設定) |
-| 型チェック           | (未設定) |
-| ビルド               | (未設定) |
+| セットアップ         | `rustup toolchain install`(`rust-toolchain.toml`のツールチェーンとWindowsターゲットを導入) |
+| テスト               | `cargo test --workspace` |
+| リント・フォーマット | `cargo fmt --all --check` と `cargo clippy --workspace --all-targets -- -D warnings` |
+| 型チェック           | `cargo check --workspace --all-targets` と `cargo check --workspace --all-targets --target x86_64-pc-windows-msvc` |
+| ビルド               | `cargo build --release -p freeway-scr`(配布用バイナリはWindows上でビルドする) |
+
+Windows固有のコードはLinux上でも`--target x86_64-pc-windows-msvc`付きの`cargo check`で型チェックできる(リンクはしない)。
 
 コミット前に必ずテスト・リントを実行する。この表が未設定のままなら、実装を始める前にユーザーへ設定を促す。
 
@@ -93,9 +93,9 @@ feat: add todo filter feature      ← 1行目: 英語・命令形・50文字以
 ## PR・レビュー・マージ
 
 1. フィーチャーブランチからPRを作成する(タイトル英語・本文日本語。本文に`\n`リテラルを書かず実際の改行を使う。`--body-file`推奨)。
-2. Copilotにレビューを依頼する(`gh pr edit <番号> --add-reviewer @copilot`)。
-3. 指摘は修正コミットで対応し、各スレッドに対応内容を返信してからresolveする。
-4. 再レビューを依頼し、新規指摘ゼロ(No New Comment)になるまで3〜4を繰り返す。
+2. 実装したエージェント自身が、敵対的なレビュアーとして差分をレビューする。前提を疑い、壊れる入力・環境・手順を具体的に探す。指摘と対応方針はPRコメントに記録する。Copilotにはレビューを依頼しない(2026-10-26のユーザー指示)。
+3. 指摘は修正コミットで対応し、PRコメントに対応内容を記録する。人間のレビュアーからのスレッドには対応内容を返信してからresolveする。
+4. 修正後の差分を再度敵対的にレビューし、新規指摘ゼロになるまで3〜4を繰り返す。
 5. レビュー完了・CI全ジョブグリーン・ユーザー承認の3つがそろってからマージする。
 
 禁止:

@@ -213,7 +213,7 @@ flowchart LR
 
 ### Phase 0: 開発基盤
 
-- 内容: `rust-toolchain.toml`、Cargoワークスペース、`rustfmt`/`clippy`設定、AGENTS.mdの検証コマンド表の記入、README更新、LICENSEと謝辞(本家・原作FreeWay)
+- 内容: `rust-toolchain.toml`、Cargoワークスペース、`rustfmt`/`clippy`の運用(既定設定を使い、CIで警告をエラーにする)、AGENTS.mdの検証コマンド表の記入、README更新、LICENSEと謝辞(本家・原作FreeWay)
 - ユーザー承認が必要な変更: GitHub Actionsのワークフロー追加、`.github/dependabot.yml`への`cargo`エコシステム追加(いずれもAGENTS.mdのセキュリティ設定に該当)
 - 完了条件: 空のワークスペースで検証コマンドがすべて成功し、CIがグリーン
 
@@ -274,7 +274,7 @@ flowchart LR
 
 | 用途 | コマンド |
 | --- | --- |
-| セットアップ | `rustup show`(`rust-toolchain.toml`のツールチェーンを導入) |
+| セットアップ | `rustup toolchain install`(`rust-toolchain.toml`のツールチェーンを導入) |
 | テスト | `cargo test --workspace` |
 | リント・フォーマット | `cargo fmt --all --check` と `cargo clippy --workspace --all-targets -- -D warnings` |
 | 型チェック | `cargo check --workspace --all-targets` |
@@ -303,7 +303,7 @@ flowchart LR
 
 ## 10. ライセンスと謝辞
 
-本家はMITライセンスである。本プロジェクトはコードを移植せず独自に実装するが、挙動・見た目・パラメータ感を参考にするため、README・LICENSEに本家への謝辞と著作権表示を記載する。本家の謝辞にならい、原作FreeWayの作者FKS氏、Windows移植のYoshihiro Sugahara氏、soyokaze2000.comの再現版にも言及する。本リポジトリ自身のライセンスはMITとした([ADR-0002](../adr/0002-license-under-mit.md))。
+本家はMITライセンスである。本プロジェクトはコードを移植せず独自に実装するが、挙動・見た目・パラメータ感を参考にするため、READMEに本家への謝辞と著作権表示を記載する(LICENSEは本プロジェクトのMITライセンス本文のみとする)。本家の謝辞にならい、原作FreeWayの作者FKS氏、Windows移植のYoshihiro Sugahara氏、soyokaze2000.comの再現版にも言及する。本リポジトリ自身のライセンスはMITとした([ADR-0002](../adr/0002-license-under-mit.md))。
 
 ## 11. 決定事項
 
