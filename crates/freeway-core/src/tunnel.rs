@@ -26,7 +26,7 @@ const GAP_EXCESS_MEAN: f64 = 3000.0;
 /// The plains in between have no tunnels, so over a whole journey there are
 /// about as many tunnels as without zones.
 const ZONED_MIN_GAP: f64 = 1000.0;
-const ZONED_GAP_EXCESS_MEAN: f64 = 1000.0;
+const ZONED_GAP_EXCESS_MEAN: f64 = 500.0;
 /// Tunnels are made this far ahead of the camera, in meters.
 const LOOKAHEAD: f64 = VIEW_DISTANCE as f64 + 100.0;
 
@@ -563,7 +563,7 @@ mod tests {
         // The mountains take half of the road, so tunnels come about as often
         // as without zones; the edges of the zones cost a little.
         let ratio = zoned / plain;
-        assert!((0.65..1.1).contains(&ratio), "{ratio}");
+        assert!((0.8..1.1).contains(&ratio), "{ratio}");
     }
 
     #[test]
