@@ -28,3 +28,7 @@
 | 番号 | タイトル | ステータス | 日付 |
 | --- | --- | --- | --- |
 | [0000](0000-template.md) | テンプレート | - | - |
+| [0001](0001-use-rust-windows-crate-and-direct2d.md) | use-rust-windows-crate-and-direct2d | 採用 | 2026-10-26 |
+| [0002](0002-license-under-mit.md) | license-under-mit | 採用 | 2026-10-26 |
+| [0003](0003-render-independent-scene-per-monitor.md) | render-independent-scene-per-monitor | 採用 | 2026-10-26 |
+| [0004](0004-store-settings-in-registry.md) | store-settings-in-registry | 採用 | 2026-10-26 |
