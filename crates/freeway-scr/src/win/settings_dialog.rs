@@ -4,7 +4,7 @@
 //! IDs below must match it.
 
 use freeway_core::settings::{SPEED_CHOICES, position_to_speed, speed_to_position};
-use freeway_core::{Language, Settings, Text};
+use freeway_core::{DisplayLanguage, Language, Settings, Text, TruckStyle};
 use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::Controls::{
@@ -30,9 +30,11 @@ const SPEED_LABEL: i32 = 108;
 const SIDE_LABEL: i32 = 109;
 const LANGUAGE_LABEL: i32 = 110;
 const MOUNTAINS: i32 = 111;
+const TRUCKS_LABEL: i32 = 112;
+const TRUCKS: i32 = 113;
 
 /// The texts of the controls that are set from the string table, by ID.
-const CONTROL_TEXTS: [(i32, Text); 10] = [
+const CONTROL_TEXTS: [(i32, Text); 11] = [
     (SPEED_LABEL, Text::SpeedLabel),
     (SIDE_LABEL, Text::DrivingSideLabel),
     (LEFT_HAND, Text::LeftHandTraffic),
@@ -40,6 +42,7 @@ const CONTROL_TEXTS: [(i32, Text); 10] = [
     (SPEEDOMETER, Text::Speedometer),
     (UFO, Text::Ufo),
     (MOUNTAINS, Text::Mountains),
+    (TRUCKS_LABEL, Text::TrucksLabel),
     (LANGUAGE_LABEL, Text::LanguageLabel),
     // OK and Cancel use the IDs of the standard buttons.
     (IDOK.0, Text::Ok),
@@ -51,6 +54,13 @@ const LANGUAGE_TEXTS: [Text; 3] = [
     Text::LanguageAuto,
     Text::LanguageEnglish,
     Text::LanguageJapanese,
+];
+
+/// The items of the trucks drop-down, in the order of `TruckStyle::ALL`.
+const TRUCK_TEXTS: [Text; 3] = [
+    Text::TrucksNone,
+    Text::TrucksJapanese,
+    Text::TrucksNorthAmerican,
 ];
 
 /// `WM_USER`; the windows crate does not define this message.
@@ -107,6 +117,8 @@ unsafe extern "system" fn dialog_proc(
             if let Some(state) = unsafe { state_of(hwnd) } {
                 init_controls(hwnd, &state.settings);
                 apply_language(hwnd, state.settings.language);
+                // The drop-down is empty until the language is applied.
+                select_trucks(hwnd, state.settings.trucks);
             }
             // Let the dialog manager give the focus to the first control.
             1
@@ -169,6 +181,29 @@ fn selected_language(hwnd: HWND) -> Language {
         .unwrap_or_default()
 }
 
+/// The truck style selected in the drop-down; the default while the
+/// drop-down is still empty.
+fn selected_trucks(hwnd: HWND) -> TruckStyle {
+    let index = unsafe { SendDlgItemMessageW(hwnd, TRUCKS, CB_GETCURSEL, WPARAM(0), LPARAM(0)) }.0;
+    // CB_ERR (-1) means nothing is selected.
+    u32::try_from(index)
+        .ok()
+        .and_then(|index| TruckStyle::from_raw(Some(index)))
+        .unwrap_or_default()
+}
+
+fn select_trucks(hwnd: HWND, trucks: TruckStyle) {
+    unsafe {
+        SendDlgItemMessageW(
+            hwnd,
+            TRUCKS,
+            CB_SETCURSEL,
+            WPARAM(trucks.to_raw() as usize),
+            LPARAM(0),
+        );
+    }
+}
+
 /// Shows the dialog in the language that `selected` means, and selects it in
 /// the drop-down.
 fn apply_language(hwnd: HWND, selected: Language) {
@@ -178,24 +213,29 @@ fn apply_language(hwnd: HWND, selected: Language) {
         for (id, text) in CONTROL_TEXTS {
             let _ = SetDlgItemTextW(hwnd, id, &HSTRING::from(text.get(language)));
         }
-        SendDlgItemMessageW(hwnd, LANGUAGE, CB_RESETCONTENT, WPARAM(0), LPARAM(0));
-        for text in LANGUAGE_TEXTS {
+    }
+    // The drop-down is refilled, so the chosen truck style is kept across it.
+    let trucks = selected_trucks(hwnd);
+    fill_dropdown(hwnd, LANGUAGE, &LANGUAGE_TEXTS, language, selected.to_raw());
+    fill_dropdown(hwnd, TRUCKS, &TRUCK_TEXTS, language, trucks.to_raw());
+}
+
+/// Replaces the items of a drop-down by `texts` in `language`, and selects
+/// the item at `selected`.
+fn fill_dropdown(hwnd: HWND, id: i32, texts: &[Text], language: DisplayLanguage, selected: u32) {
+    unsafe {
+        SendDlgItemMessageW(hwnd, id, CB_RESETCONTENT, WPARAM(0), LPARAM(0));
+        for text in texts {
             let item = HSTRING::from(text.get(language));
             SendDlgItemMessageW(
                 hwnd,
-                LANGUAGE,
+                id,
                 CB_ADDSTRING,
                 WPARAM(0),
                 LPARAM(item.as_ptr() as isize),
             );
         }
-        SendDlgItemMessageW(
-            hwnd,
-            LANGUAGE,
-            CB_SETCURSEL,
-            WPARAM(selected.to_raw() as usize),
-            LPARAM(0),
-        );
+        SendDlgItemMessageW(hwnd, id, CB_SETCURSEL, WPARAM(selected as usize), LPARAM(0));
     }
 }
 
@@ -240,6 +280,7 @@ fn read_controls(hwnd: HWND) -> Settings {
         show_speedometer: unsafe { IsDlgButtonChecked(hwnd, SPEEDOMETER) } == BST_CHECKED.0,
         show_ufo: unsafe { IsDlgButtonChecked(hwnd, UFO) } == BST_CHECKED.0,
         show_mountains: unsafe { IsDlgButtonChecked(hwnd, MOUNTAINS) } == BST_CHECKED.0,
+        trucks: selected_trucks(hwnd),
         language: selected_language(hwnd),
     }
 }

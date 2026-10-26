@@ -16,6 +16,7 @@ const LEFT_HAND_TRAFFIC: PCWSTR = w!("LeftHandTraffic");
 const SHOW_SPEEDOMETER: PCWSTR = w!("ShowSpeedometer");
 const SHOW_UFO: PCWSTR = w!("ShowUfo");
 const SHOW_MOUNTAINS: PCWSTR = w!("ShowMountains");
+const TRUCKS: PCWSTR = w!("Trucks");
 const LANGUAGE: PCWSTR = w!("Language");
 
 /// Reads the saved settings; anything missing or invalid is the default.
@@ -35,6 +36,7 @@ fn load_from(root: HKEY, key: PCWSTR) -> Settings {
         read_dword(root, key, SHOW_SPEEDOMETER),
         read_dword(root, key, SHOW_UFO),
         read_dword(root, key, SHOW_MOUNTAINS),
+        read_dword(root, key, TRUCKS),
         read_dword(root, key, LANGUAGE),
     )
 }
@@ -60,6 +62,7 @@ fn save_to(root: HKEY, key: PCWSTR, settings: &Settings) -> Result<()> {
         SHOW_MOUNTAINS,
         u32::from(settings.show_mountains),
     )?;
+    write_dword(root, key, TRUCKS, settings.trucks.to_raw())?;
     write_dword(root, key, LANGUAGE, settings.language.to_raw())
 }
 
@@ -100,8 +103,8 @@ fn write_dword(root: HKEY, key: PCWSTR, name: PCWSTR, value: u32) -> Result<()> 
 
 #[cfg(test)]
 mod tests {
-    use freeway_core::Language;
     use freeway_core::settings::DEFAULT_SPEED_KMH;
+    use freeway_core::{Language, TruckStyle};
     use windows::Win32::System::Registry::{REG_SZ, RegDeleteTreeW};
     use windows::core::HSTRING;
 
@@ -155,6 +158,7 @@ mod tests {
             show_speedometer: true,
             show_ufo: true,
             show_mountains: false,
+            trucks: TruckStyle::NorthAmerican,
             language: Language::Japanese,
         };
         save_to(HKEY_CURRENT_USER, test.key(), &settings)?;
@@ -174,6 +178,7 @@ mod tests {
         write_dword(HKEY_CURRENT_USER, test.key(), SHOW_SPEEDOMETER, 9)?;
         write_dword(HKEY_CURRENT_USER, test.key(), SHOW_UFO, 2)?;
         write_dword(HKEY_CURRENT_USER, test.key(), SHOW_MOUNTAINS, 2)?;
+        write_dword(HKEY_CURRENT_USER, test.key(), TRUCKS, 3)?;
         write_dword(HKEY_CURRENT_USER, test.key(), LANGUAGE, 3)?;
         let settings = test.load();
         assert_eq!(settings.speed_kmh, DEFAULT_SPEED_KMH);
@@ -181,6 +186,7 @@ mod tests {
         assert!(!settings.show_speedometer);
         assert!(!settings.show_ufo);
         assert!(settings.show_mountains);
+        assert_eq!(settings.trucks, TruckStyle::Japanese);
         assert_eq!(settings.language, Language::Auto);
         Ok(())
     }
@@ -200,6 +206,30 @@ mod tests {
         let missing = TestKey::new("mountains-missing");
         write_dword(HKEY_CURRENT_USER, missing.key(), SPEED, 60)?;
         assert!(missing.load().show_mountains);
+        Ok(())
+    }
+
+    #[test]
+    fn every_truck_style_is_read_back() -> Result<()> {
+        let test = TestKey::new("trucks");
+        for trucks in TruckStyle::ALL {
+            let settings = Settings {
+                trucks,
+                ..Settings::default()
+            };
+            save_to(HKEY_CURRENT_USER, test.key(), &settings)?;
+            assert_eq!(test.load().trucks, trucks);
+        }
+        // Without the value, or with one out of range, the default (Japanese
+        // style) is used.
+        let missing = TestKey::new("trucks-missing");
+        write_dword(HKEY_CURRENT_USER, missing.key(), SPEED, 60)?;
+        assert_eq!(missing.load().trucks, TruckStyle::Japanese);
+        let invalid = TestKey::new("trucks-invalid");
+        for raw in [3, u32::MAX] {
+            write_dword(HKEY_CURRENT_USER, invalid.key(), TRUCKS, raw)?;
+            assert_eq!(invalid.load().trucks, TruckStyle::Japanese, "{raw}");
+        }
         Ok(())
     }
 
