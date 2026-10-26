@@ -6,7 +6,7 @@ use crate::canvas::{Canvas, GLOW_HALO_RATIO, Rgb};
 use crate::projection::{CAMERA_HEIGHT, NEAR_DISTANCE, Projector, VIEW_DISTANCE};
 use crate::road::{RoadShape, RoadView};
 use crate::sky::{Sky, SkyView};
-use crate::traffic::Traffic;
+use crate::traffic::{Traffic, TruckStyle};
 use crate::ufo::Ufo;
 
 /// Longest time step the scene accepts, in seconds. A longer pause (for
@@ -31,6 +31,8 @@ pub struct SceneConfig {
     pub ufo_mean_interval: Option<f32>,
     /// Whether mountains stand on the horizon.
     pub mountains: bool,
+    /// How the trucks among the other cars are lit; `None` means no trucks.
+    pub trucks: TruckStyle,
     pub seed: u64,
 }
 
@@ -41,6 +43,7 @@ impl Default for SceneConfig {
             left_hand_traffic: true,
             ufo_mean_interval: None,
             mountains: true,
+            trucks: TruckStyle::default(),
             seed: 0,
         }
     }
@@ -217,7 +220,7 @@ impl Scene {
             heading: 0.0,
             time: 0.0,
             sky: Sky::new(config.seed, config.mountains),
-            traffic: Traffic::new(config.seed),
+            traffic: Traffic::new(config.seed, config.trucks),
             ufo: Ufo::new(config.seed, config.ufo_mean_interval),
         }
     }

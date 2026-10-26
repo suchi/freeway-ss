@@ -21,7 +21,7 @@
 
 ## 2. 前提(Phase 2までの状態)
 
-- `freeway-core`: `rng`(`hash01(seed, salt, index)`)、`road`(`RoadShape::curvature_at(s)`など)、`projection`(`Projector`、焦点距離は`max(幅/2, 高さ*0.55)`、消失点は画面中心)、`canvas`(`Canvas`トレイト: `glow`・`light_pool`)、`scene`(`Scene`・`SceneConfig`・`Viewport`)
+- `freeway-core`: `rng`(`hash01(seed, stream, index)`)、`road`(`RoadShape::curvature_at(s)`など)、`projection`(`Projector`、焦点距離は`max(幅/2, 高さ*0.55)`、消失点は画面中心)、`canvas`(`Canvas`トレイト: `glow`・`light_pool`)、`scene`(`Scene`・`SceneConfig`・`Viewport`)
 - `Scene`は走行距離`track_s`(`f64`)だけを状態に持つ。`update(dt)`は`dt`を50 msで打ち切る
 - 道路の曲がりは横位置に足してから投影するため、右側通行ではカーブの向きも画面上で左右反転する(`Projector::project`の`side`)
 - `freeway-scr`: `win/renderer.rs`の`D2dCanvas`が`Canvas`を実装する。色ごとに放射グラデーションブラシをキャッシュし、加算合成(`D2D1_PRIMITIVE_BLEND_ADD`)で描く

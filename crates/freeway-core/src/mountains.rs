@@ -12,7 +12,7 @@ use crate::canvas::{Canvas, GLOW_HALO_RATIO, Rgb};
 use crate::rng::hash01;
 use crate::sky::{REF_FOCAL, SkyView};
 
-const SALT_MOUNTAIN: u32 = 0x40;
+const STREAM_MOUNTAIN: u32 = 0x40;
 const PART_RANGES: u32 = 0;
 const PART_WIDTH: u32 = 1;
 const PART_GAP: u32 = 2;
@@ -132,7 +132,7 @@ pub struct Mountains {
 
 impl Mountains {
     pub fn new(seed: u64) -> Self {
-        let h = |part: u32, index: i64| hash01(seed, SALT_MOUNTAIN | (part << 8), index);
+        let h = |part: u32, index: i64| hash01(seed, STREAM_MOUNTAIN | (part << 8), index);
         let count =
             RANGE_COUNT.0 + (h(PART_RANGES, 0) * (RANGE_COUNT.1 - RANGE_COUNT.0 + 1) as f32) as u32;
         let count = count.min(RANGE_COUNT.1) as usize;
@@ -181,7 +181,7 @@ impl Mountains {
     /// the lights of a small town at the foot of the mountains.
     pub fn thins_city_light(&self, turn: f32, index: i64) -> bool {
         self.ranges.iter().any(|r| r.contains_turn(f64::from(turn)))
-            && hash01(self.seed, SALT_MOUNTAIN | (PART_THIN << 8), index) >= CITY_KEPT
+            && hash01(self.seed, STREAM_MOUNTAIN | (PART_THIN << 8), index) >= CITY_KEPT
     }
 
     /// Draws the silhouettes of the ranges that are in view.
@@ -237,7 +237,7 @@ fn value_noise(seed: u64, range: usize, octave: usize, x: f32) -> f32 {
     let cell = x.floor();
     let lattice = |i: f32| {
         let index = range as i64 * RANGE_STRIDE + octave as i64 * OCTAVE_STRIDE + i as i64;
-        hash01(seed, SALT_MOUNTAIN | (PART_NOISE << 8), index)
+        hash01(seed, STREAM_MOUNTAIN | (PART_NOISE << 8), index)
     };
     let t = smoothstep(x - cell);
     lattice(cell) + (lattice(cell + 1.0) - lattice(cell)) * t
@@ -263,7 +263,7 @@ fn build_range(seed: u64, index: usize, start: f64, width_degrees: f32, peak: f3
 
     // Lights go on the highest peaks: the highest sample, and for some
     // ranges another that is well apart from it.
-    let h = |part: u32, i: i64| hash01(seed, SALT_MOUNTAIN | (part << 8), index as i64 * 8 + i);
+    let h = |part: u32, i: i64| hash01(seed, STREAM_MOUNTAIN | (part << 8), index as i64 * 8 + i);
     let wanted = 1 + usize::from(h(PART_LIGHTS, 0) < 0.5);
     let apart = samples / 4;
     let mut chosen: Vec<usize> = Vec::new();

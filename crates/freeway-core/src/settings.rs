@@ -6,6 +6,7 @@
 
 use crate::i18n::DisplayLanguage;
 use crate::scene::SceneConfig;
+use crate::traffic::TruckStyle;
 
 pub const MIN_SPEED_KMH: u32 = 30;
 pub const MAX_SPEED_KMH: u32 = 160;
@@ -57,6 +58,8 @@ pub struct Settings {
     pub show_ufo: bool,
     /// Whether mountains stand on the horizon.
     pub show_mountains: bool,
+    /// Whether some of the other cars are trucks, and how they are lit.
+    pub trucks: TruckStyle,
     pub language: Language,
 }
 
@@ -68,6 +71,7 @@ impl Default for Settings {
             show_speedometer: false,
             show_ufo: false,
             show_mountains: true,
+            trucks: TruckStyle::Japanese,
             language: Language::Auto,
         }
     }
@@ -78,13 +82,14 @@ impl Settings {
     ///
     /// A speed outside the range or off the step is not rounded to a nearby
     /// choice: it is a sign of a damaged or hand-edited value, so the default
-    /// is used. A flag is valid only as 0 or 1, a language only as 0, 1 or 2.
+    /// is used. A flag is valid only as 0 or 1, a truck style or language only as 0, 1 or 2.
     pub fn from_raw(
         speed_kmh: Option<u32>,
         left_hand_traffic: Option<u32>,
         show_speedometer: Option<u32>,
         show_ufo: Option<u32>,
         show_mountains: Option<u32>,
+        trucks: Option<u32>,
         language: Option<u32>,
     ) -> Self {
         let defaults = Self::default();
@@ -96,6 +101,7 @@ impl Settings {
             show_speedometer: flag(show_speedometer).unwrap_or(defaults.show_speedometer),
             show_ufo: flag(show_ufo).unwrap_or(defaults.show_ufo),
             show_mountains: flag(show_mountains).unwrap_or(defaults.show_mountains),
+            trucks: TruckStyle::from_raw(trucks).unwrap_or(defaults.trucks),
             language: Language::from_raw(language).unwrap_or(defaults.language),
         }
     }
@@ -112,6 +118,7 @@ impl Settings {
             left_hand_traffic: self.left_hand_traffic,
             ufo_mean_interval: self.show_ufo.then_some(UFO_MEAN_INTERVAL_SECONDS),
             mountains: self.show_mountains,
+            trucks: self.trucks,
             seed,
         }
     }
@@ -153,14 +160,22 @@ mod tests {
         assert!(settings.left_hand_traffic);
         assert!(!settings.show_speedometer);
         assert_eq!(
-            Settings::from_raw(None, None, None, None, None, None),
+            Settings::from_raw(None, None, None, None, None, None, None),
             settings
         );
     }
 
     #[test]
     fn valid_values_are_kept() {
-        let settings = Settings::from_raw(Some(160), Some(0), Some(1), Some(1), Some(0), Some(2));
+        let settings = Settings::from_raw(
+            Some(160),
+            Some(0),
+            Some(1),
+            Some(1),
+            Some(0),
+            Some(2),
+            Some(2),
+        );
         assert_eq!(
             settings,
             Settings {
@@ -169,11 +184,12 @@ mod tests {
                 show_speedometer: true,
                 show_ufo: true,
                 show_mountains: false,
+                trucks: TruckStyle::NorthAmerican,
                 language: Language::Japanese,
             }
         );
         assert_eq!(
-            Settings::from_raw(Some(30), None, None, None, None, None).speed_kmh,
+            Settings::from_raw(Some(30), None, None, None, None, None, None).speed_kmh,
             30
         );
     }
@@ -182,7 +198,7 @@ mod tests {
     fn invalid_speeds_fall_back_to_the_default() {
         for speed in [0, 20, 29, 35, 105, 161, 170, 1000, u32::MAX] {
             assert_eq!(
-                Settings::from_raw(Some(speed), None, None, None, None, None).speed_kmh,
+                Settings::from_raw(Some(speed), None, None, None, None, None, None).speed_kmh,
                 DEFAULT_SPEED_KMH,
                 "{speed}"
             );
@@ -193,14 +209,15 @@ mod tests {
     fn invalid_flags_fall_back_to_the_default() {
         for raw in [2, 3, u32::MAX] {
             let settings =
-                Settings::from_raw(None, Some(raw), Some(raw), Some(raw), Some(raw), None);
+                Settings::from_raw(None, Some(raw), Some(raw), Some(raw), Some(raw), None, None);
             assert_eq!(settings, Settings::default(), "{raw}");
         }
     }
 
     #[test]
     fn each_setting_is_checked_on_its_own() {
-        let settings = Settings::from_raw(Some(999), Some(0), Some(7), Some(1), Some(9), Some(1));
+        let settings =
+            Settings::from_raw(Some(999), Some(0), Some(7), Some(1), Some(9), None, Some(1));
         assert_eq!(settings.speed_kmh, DEFAULT_SPEED_KMH);
         assert!(!settings.left_hand_traffic);
         assert!(!settings.show_speedometer);
@@ -217,6 +234,7 @@ mod tests {
             show_speedometer: true,
             show_ufo: false,
             show_mountains: false,
+            trucks: TruckStyle::None,
             language: Language::Auto,
         };
         let config = settings.scene_config(42);
@@ -229,11 +247,11 @@ mod tests {
     #[test]
     fn ufo_is_off_by_default_and_the_flag_is_checked() {
         assert!(!Settings::default().show_ufo);
-        assert!(Settings::from_raw(None, None, None, Some(1), None, None).show_ufo);
-        assert!(!Settings::from_raw(None, None, None, Some(0), None, None).show_ufo);
+        assert!(Settings::from_raw(None, None, None, Some(1), None, None, None).show_ufo);
+        assert!(!Settings::from_raw(None, None, None, Some(0), None, None, None).show_ufo);
         for raw in [2, 3, u32::MAX] {
             assert!(
-                !Settings::from_raw(None, None, None, Some(raw), None, None).show_ufo,
+                !Settings::from_raw(None, None, None, Some(raw), None, None, None).show_ufo,
                 "{raw}"
             );
         }
@@ -253,13 +271,58 @@ mod tests {
     fn mountains_are_on_by_default_and_the_flag_is_checked() {
         assert!(Settings::default().show_mountains);
         assert!(Settings::default().scene_config(0).mountains);
-        assert!(Settings::from_raw(None, None, None, None, Some(1), None).show_mountains);
-        assert!(!Settings::from_raw(None, None, None, None, Some(0), None).show_mountains);
+        assert!(Settings::from_raw(None, None, None, None, Some(1), None, None).show_mountains);
+        assert!(!Settings::from_raw(None, None, None, None, Some(0), None, None).show_mountains);
         for raw in [2, 3, u32::MAX] {
             assert!(
-                Settings::from_raw(None, None, None, None, Some(raw), None).show_mountains,
+                Settings::from_raw(None, None, None, None, Some(raw), None, None).show_mountains,
                 "{raw}"
             );
+        }
+    }
+
+    #[test]
+    fn trucks_are_japanese_style_by_default() {
+        assert_eq!(Settings::default().trucks, TruckStyle::Japanese);
+        let settings = Settings::from_raw(None, None, None, None, None, None, None);
+        assert_eq!(settings.trucks, TruckStyle::Japanese);
+    }
+
+    #[test]
+    fn truck_values_map_to_the_choices() {
+        assert_eq!(TruckStyle::from_raw(Some(0)), Some(TruckStyle::None));
+        assert_eq!(TruckStyle::from_raw(Some(1)), Some(TruckStyle::Japanese));
+        assert_eq!(
+            TruckStyle::from_raw(Some(2)),
+            Some(TruckStyle::NorthAmerican)
+        );
+        for style in TruckStyle::ALL {
+            assert_eq!(TruckStyle::from_raw(Some(style.to_raw())), Some(style));
+        }
+    }
+
+    #[test]
+    fn an_invalid_truck_style_falls_back_to_the_default() {
+        assert_eq!(TruckStyle::from_raw(None), None);
+        for raw in [3, 4, 100, u32::MAX] {
+            assert_eq!(TruckStyle::from_raw(Some(raw)), None, "{raw}");
+            let settings = Settings::from_raw(None, None, None, None, None, Some(raw), None);
+            assert_eq!(settings.trucks, TruckStyle::Japanese, "{raw}");
+        }
+        // The other settings are not affected.
+        let settings = Settings::from_raw(Some(60), None, None, None, None, Some(9), Some(1));
+        assert_eq!(settings.speed_kmh, 60);
+        assert_eq!(settings.language, Language::English);
+    }
+
+    #[test]
+    fn scene_config_carries_the_truck_style() {
+        for trucks in TruckStyle::ALL {
+            let settings = Settings {
+                trucks,
+                ..Settings::default()
+            };
+            assert_eq!(settings.scene_config(1).trucks, trucks);
         }
     }
 
@@ -316,7 +379,7 @@ mod tests {
         assert_eq!(Language::from_raw(None), None);
         for raw in [3, 4, 100, u32::MAX] {
             assert_eq!(Language::from_raw(Some(raw)), None, "{raw}");
-            let settings = Settings::from_raw(None, None, None, None, None, Some(raw));
+            let settings = Settings::from_raw(None, None, None, None, None, None, Some(raw));
             assert_eq!(settings.language, Language::Auto, "{raw}");
         }
     }
