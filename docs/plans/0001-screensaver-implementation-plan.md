@@ -204,7 +204,7 @@ MVPの項目は、本家の実行中の操作と表示(速度・通行方向・H
 | --- | --- | --- |
 | Phase 0: 開発基盤 | 完了 | [suchi/freeway-ss#2](https://github.com/suchi/freeway-ss/pull/2) |
 | Phase 1: スクリーンセイバーの骨格 | 完了(実機確認済み) | [suchi/freeway-ss#3](https://github.com/suchi/freeway-ss/pull/3) |
-| Phase 2: 道路と投影 | 詳細設計済み・実装前 | [0002-phase2-road-and-projection.md](0002-phase2-road-and-projection.md) |
+| Phase 2: 道路と投影 | 実装済み・レビューと実機確認待ち([suchi/freeway-ss#5](https://github.com/suchi/freeway-ss/pull/5)) | [0002-phase2-road-and-projection.md](0002-phase2-road-and-projection.md) |
 | Phase 3: 背景 | 未着手 | - |
 | Phase 4: 他車 | 未着手 | - |
 | Phase 5: 設定画面と保存 | 未着手 | - |
