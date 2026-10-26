@@ -115,6 +115,17 @@ pub fn merge_checksum(existing: &str, zip_name: &str, hash: &str) -> String {
     lines.iter().map(|line| format!("{line}\n")).collect()
 }
 
+/// Keeps the checksum lines whose file exists in `dir`.
+fn existing_entries_only(sums: &str, dir: &Path) -> String {
+    sums.lines()
+        .filter(|line| {
+            line.split_once("  ")
+                .is_some_and(|(_, name)| dir.join(name).is_file())
+        })
+        .map(|line| format!("{line}\n"))
+        .collect()
+}
+
 #[derive(Debug)]
 pub struct Packaged {
     pub zip_name: String,
@@ -153,7 +164,11 @@ pub fn package(
 
     let name = zip_name(version, arch);
     let hash = sha256_hex(&archive);
+    // Why: target/dist outlives a release, so lines for zips that are no
+    // longer there (an older version) are dropped; `sha256sum -c` would fail.
+    let dist_dir = layout.zip.parent().unwrap_or(Path::new("."));
     let existing = fs::read_to_string(&layout.sums).unwrap_or_default();
+    let existing = existing_entries_only(&existing, dist_dir);
     write(
         &layout.sums,
         merge_checksum(&existing, &name, &hash).as_bytes(),
@@ -326,6 +341,18 @@ mod tests {
         assert_eq!(packaged.hash.len(), 64);
         let sums = fs::read_to_string(&paths.sums).unwrap();
         assert_eq!(sums, format!("{}  {}\n", packaged.hash, packaged.zip_name));
+
+        // A line for a zip that no longer exists (an older version) is dropped.
+        fs::write(
+            &paths.sums,
+            format!(
+                "{HASH_A}  NightFreewaySS-v0.9.0-win-x64.zip\n{}",
+                fs::read_to_string(&paths.sums).unwrap()
+            ),
+        )
+        .unwrap();
+        package(&dir, &exe, &paths, "1.0.0", Arch::X64).unwrap();
+        assert_eq!(fs::read_to_string(&paths.sums).unwrap().lines().count(), 1);
 
         // A second architecture adds to the same checksum file.
         let arm = layout(&target, "1.0.0", Arch::Arm64);
