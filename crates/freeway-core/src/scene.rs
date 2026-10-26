@@ -818,6 +818,53 @@ mod tests {
         assert!(beam < first_pool);
     }
 
+    /// Checks that a command is valid and not wholly off screen. The sky
+    /// keeps its own tests of the geometry; here only the road's lights are
+    /// checked for what lies off screen.
+    fn assert_valid(command: &Command) {
+        let (values, alpha, radii) = match *command {
+            Command::Glow {
+                x,
+                y,
+                radius,
+                alpha,
+            } => ([x, y], alpha, [radius * GLOW_HALO_RATIO; 2]),
+            Command::Pool {
+                x,
+                y,
+                rx,
+                ry,
+                alpha,
+            } => ([x, y], alpha, [rx, ry]),
+            Command::Dot { x, y, size, alpha } => ([x, y], alpha, [size; 2]),
+            Command::Silhouette { ref points, .. } => {
+                assert!(points.len() >= 3);
+                assert!(points.iter().all(|(x, y)| x.is_finite() && y.is_finite()));
+                return;
+            }
+            Command::Band { alpha, .. }
+            | Command::Streak { alpha, .. }
+            | Command::Beam { alpha, .. } => {
+                assert!(alpha > 0.0 && alpha <= 1.0, "{command:?}");
+                return;
+            }
+        };
+        assert!(
+            values.iter().chain(&radii).all(|v| v.is_finite()),
+            "{command:?}"
+        );
+        assert!(radii.iter().all(|r| *r > 0.0), "{command:?}");
+        assert!(alpha > 0.0 && alpha <= 1.0, "{command:?}");
+        // Nothing that lies completely off screen is emitted.
+        assert!(
+            values[0] + radii[0] >= 0.0
+                && values[0] - radii[0] <= VIEWPORT.width
+                && values[1] + radii[1] >= 0.0
+                && values[1] - radii[1] <= VIEWPORT.height,
+            "{command:?}"
+        );
+    }
+
     #[test]
     fn draws_something_with_valid_parameters() {
         let mut scene = Scene::new(SceneConfig {
@@ -828,48 +875,54 @@ mod tests {
             scene.update(0.016);
             let commands = record(&scene, VIEWPORT);
             assert!(!commands.is_empty());
-            for command in &commands {
-                // The sky keeps its own tests of the geometry; here only
-                // the road's lights are checked for what lies off screen.
-                let (values, alpha, radii) = match *command {
-                    Command::Glow {
-                        x,
-                        y,
-                        radius,
-                        alpha,
-                    } => ([x, y], alpha, [radius * GLOW_HALO_RATIO; 2]),
-                    Command::Pool {
-                        x,
-                        y,
-                        rx,
-                        ry,
-                        alpha,
-                    } => ([x, y], alpha, [rx, ry]),
-                    Command::Dot { x, y, size, alpha } => ([x, y], alpha, [size; 2]),
-                    Command::Silhouette { .. } => continue,
-                    Command::Band { alpha, .. }
-                    | Command::Streak { alpha, .. }
-                    | Command::Beam { alpha, .. } => {
-                        assert!(alpha > 0.0 && alpha <= 1.0, "{command:?}");
-                        continue;
+            commands.iter().for_each(assert_valid);
+        }
+    }
+
+    #[test]
+    fn a_whole_tunnel_draws_valid_commands() {
+        let mut scene = Scene::new(SceneConfig {
+            seed: 11,
+            speed_kmh: 160.0,
+            ..Default::default()
+        });
+        let (mut entrance, mut inside, mut checked) = (0, 0, 0);
+        for step in 0..40_000 {
+            scene.update(0.05);
+            if scene.tunnel_entrance_ahead().is_none() && !scene.in_tunnel() {
+                if inside > 0 {
+                    break;
+                }
+                continue;
+            }
+            // Every frame near the entrance, and every few inside.
+            if scene.in_tunnel() {
+                inside += 1;
+            } else {
+                entrance += 1;
+            }
+            if step % 3 == 0 || scene.tunnel_entrance_ahead().is_some_and(|d| d < 30.0) {
+                for viewport in [
+                    VIEWPORT,
+                    Viewport {
+                        width: 152.0,
+                        height: 112.0,
+                        pixel_scale: 1.0,
+                    },
+                ] {
+                    let commands = record(&scene, viewport);
+                    assert!(!commands.is_empty());
+                    if viewport.width == VIEWPORT.width {
+                        commands.iter().for_each(assert_valid);
                     }
-                };
-                assert!(
-                    values.iter().chain(&radii).all(|v| v.is_finite()),
-                    "{command:?}"
-                );
-                assert!(radii.iter().all(|r| *r > 0.0), "{command:?}");
-                assert!(alpha > 0.0 && alpha <= 1.0, "{command:?}");
-                // Nothing that lies completely off screen is emitted.
-                assert!(
-                    values[0] + radii[0] >= 0.0
-                        && values[0] - radii[0] <= VIEWPORT.width
-                        && values[1] + radii[1] >= 0.0
-                        && values[1] - radii[1] <= VIEWPORT.height,
-                    "{command:?}"
-                );
+                }
+                checked += 1;
             }
         }
+        assert!(
+            entrance > 100 && inside > 100 && checked > 100,
+            "{entrance} {inside} {checked}"
+        );
     }
 
     #[test]
