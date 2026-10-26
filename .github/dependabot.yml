@@ -17,7 +17,7 @@ updates:
     cooldown:
       default-days: 7
     assignees:
-      - "ej-uchiyama"
+      - "suchi"
     labels:
       - "dependencies"
     groups:
@@ -25,85 +25,31 @@ updates:
         update-types:
           - "minor"
           - "patch"
-  # TODO(project): uncomment the ecosystems this repository actually uses.
-  #
-  # - package-ecosystem: "npm"
-  #   directory: "/"
-  #  open-pull-requests-limit: 8
-  #  schedule:
-  #    interval: "weekly"
-  #  cooldown:
-  #    default-days: 7
-  #  assignees:
-  #    - "ej-uchiyama"
-  #  labels:
-  #    - "dependencies"
-  #  groups:
-  #    non-majors:
-  #      update-types:
-  #        - "minor"
-  #        - "patch"
-  #
-  # - package-ecosystem: "uv"          # Python (uv). Use "pip" for pip/requirements.txt.
-  #   directory: "/"
-  #  schedule:
-  #    interval: "weekly"
-  #  cooldown:
-  #    default-days: 7
-  #  assignees:
-  #    - "ej-uchiyama"
-  #  labels:
-  #    - "dependencies"
-  #  groups:
-  #    non-majors:
-  #      update-types:
-  #        - "minor"
-  #        - "patch"
-  #
-  # - package-ecosystem: "gomod"       # Go
-  #   directory: "/"
-  #  schedule:
-  #    interval: "weekly"
-  #  cooldown:
-  #    default-days: 7
-  #  assignees:
-  #    - "ej-uchiyama"
-  #  labels:
-  #    - "dependencies"
-  #  groups:
-  #    non-majors:
-  #      update-types:
-  #        - "minor"
-  #        - "patch"
-  #
-  # - package-ecosystem: "bundler"     # Ruby
-  #   directory: "/"
-  #  schedule:
-  #    interval: "weekly"
-  #  cooldown:
-  #    default-days: 7
-  #  assignees:
-  #    - "ej-uchiyama"
-  #  labels:
-  #    - "dependencies"
-  #  groups:
-  #    non-majors:
-  #      update-types:
-  #        - "minor"
-  #        - "patch"
-  #
-  # - package-ecosystem: "nuget"       # .NET
-  #   directory: "/"
-  #  schedule:
-  #    interval: "weekly"
-  #  cooldown:
-  #    default-days: 7
-  #  assignees:
-  #    - "ej-uchiyama"
-  #  labels:
-  #    - "dependencies"
-  #  groups:
-  #    non-majors:
-  #      update-types:
-  #        - "minor"
-  #        - "patch"
+  # Rust toolchain pinned in rust-toolchain.toml.
+  - package-ecosystem: "rust-toolchain"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 7
+    assignees:
+      - "suchi"
+    labels:
+      - "dependencies"
+  # Rust crates (Cargo workspace at the repository root).
+  - package-ecosystem: "cargo"
+    directory: "/"
+    open-pull-requests-limit: 8
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 7
+    assignees:
+      - "suchi"
+    labels:
+      - "dependencies"
+    groups:
+      non-majors:
+        update-types:
+          - "minor"
+          - "patch"
