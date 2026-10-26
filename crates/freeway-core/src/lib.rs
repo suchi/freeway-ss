@@ -6,12 +6,14 @@
 #![forbid(unsafe_code)]
 
 pub mod canvas;
+pub mod cruise;
 pub mod i18n;
 pub mod mountains;
 pub mod projection;
 pub mod rng;
 pub mod road;
 pub mod scene;
+pub mod scenery;
 pub mod settings;
 pub mod sky;
 pub mod traffic;

@@ -74,8 +74,9 @@ const MIN_ALPHA: f32 = 0.004;
 struct PeakLight {
     /// Angle along the range from its start, in radians.
     offset: f64,
-    /// Elevation in focal lengths, just above the ridge.
-    elevation: f32,
+    /// Height of the ridge under it, in focal lengths. The light stands
+    /// `LIGHT_LIFT` above the ridge, wherever the ridge is.
+    ridge: f32,
     /// Blink phase, `0..1` of a period.
     phase: f32,
 }
@@ -128,6 +129,8 @@ impl Range {
 pub struct Mountains {
     ranges: Vec<Range>,
     seed: u64,
+    /// How tall the ridges stand, from 0 (flat) to 1 (their full height).
+    level: f32,
 }
 
 impl Mountains {
@@ -164,11 +167,25 @@ impl Mountains {
             ranges.push(build_range(seed, i, start, width, peak));
             start += f64::from(width + gap).to_radians();
         }
-        Self { ranges, seed }
+        Self {
+            ranges,
+            seed,
+            level: 1.0,
+        }
     }
 
     pub fn ranges(&self) -> &[Range] {
         &self.ranges
+    }
+
+    /// Sets how tall the ridges stand, from 0 (flat) to 1 (their full
+    /// height). The warning lights follow the ridges and fade with them.
+    pub fn set_level(&mut self, level: f32) {
+        self.level = if level.is_finite() {
+            level.clamp(0.0, 1.0)
+        } else {
+            1.0
+        };
     }
 
     /// Whether a range stands in the direction `angle` (radians around the cylinder).
@@ -186,11 +203,16 @@ impl Mountains {
 
     /// Draws the silhouettes of the ranges that are in view.
     pub fn draw_silhouettes(&self, view: &SkyView, canvas: &mut dyn Canvas) {
+        if self.level <= 0.0 {
+            return;
+        }
         let foot = view.horizon_y() + FOOT_DEPTH * view.scale();
         for range in &self.ranges {
             for run in visible_runs(range, view) {
-                let mut points: Vec<(f32, f32)> =
-                    run.iter().map(|&(x, h)| (x, view.y(h))).collect();
+                let mut points: Vec<(f32, f32)> = run
+                    .iter()
+                    .map(|&(x, h)| (x, view.y(h * self.level)))
+                    .collect();
                 // Closed along the foot, which lies below the horizon.
                 points.push((run[run.len() - 1].0, foot));
                 points.push((run[0].0, foot));
@@ -201,6 +223,9 @@ impl Mountains {
 
     /// Draws the warning lights on the peaks.
     pub fn draw_lights(&self, view: &SkyView, canvas: &mut dyn Canvas) {
+        if self.level <= 0.0 {
+            return;
+        }
         let k = view.scale();
         let core = (LIGHT_CORE * k).max(0.9 * view.pixel_scale);
         for range in &self.ranges {
@@ -211,9 +236,10 @@ impl Mountains {
                     continue;
                 }
                 // It swells and fades smoothly instead of switching.
-                let alpha = LIGHT_ALPHA * (cycle / on * std::f64::consts::PI).sin() as f32;
+                let alpha =
+                    LIGHT_ALPHA * (cycle / on * std::f64::consts::PI).sin() as f32 * self.level;
                 let x = view.screen_x(range.start + light.offset);
-                let y = view.y(light.elevation);
+                let y = view.y(light.ridge * self.level + LIGHT_LIFT / REF_FOCAL);
                 if alpha >= MIN_ALPHA && view.contains(x, y, core * GLOW_HALO_RATIO) {
                     canvas.glow(x, y, core, LIGHT_COLOR, alpha);
                 }
@@ -281,7 +307,7 @@ fn build_range(seed: u64, index: usize, start: f64, width_degrees: f32, peak: f3
         .enumerate()
         .map(|(n, &i)| PeakLight {
             offset: i as f64 * step,
-            elevation: ridge[i] + LIGHT_LIFT / REF_FOCAL,
+            ridge: ridge[i],
             phase: h(PART_LIGHT_PHASE, n as i64),
         })
         .collect();
@@ -524,7 +550,7 @@ mod tests {
                 seen.insert(range.light_count());
                 assert!((1..=2).contains(&range.light_count()));
                 for light in &range.lights {
-                    assert!(light.elevation > 0.0);
+                    assert!(light.ridge > 0.0);
                     assert!((0.0..1.0).contains(&light.phase));
                     assert!(light.offset > 0.0 && light.offset < range.width);
                 }
@@ -670,6 +696,74 @@ mod tests {
         let next = mountains.ranges()[1].start();
         let end = range.start() + range.width();
         assert!(!mountains.has_range_at(end + (next - end).rem_euclid(TAU) * 0.5));
+    }
+
+    type Drawn = (Vec<Vec<(f32, f32)>>, Vec<(f32, f32, f32)>);
+
+    /// The silhouettes and lights of a range that stands in front of the car.
+    fn drawn(level: f32) -> Drawn {
+        let mut mountains = Mountains::new(7);
+        mountains.set_level(level);
+        let heading = facing(&mountains.ranges()[0]);
+        // The first moment at which a light blinks.
+        let v = (0..250)
+            .map(|step| view(1.0, heading, f64::from(step) * 0.01))
+            .find(|v| !lights(&Mountains::new(7), v).is_empty())
+            .unwrap();
+        (silhouettes(&mountains, &v), lights(&mountains, &v))
+    }
+
+    #[test]
+    fn the_full_level_is_the_range_as_it_always_was() {
+        let mut mountains = Mountains::new(7);
+        let v = view(1.0, facing(&mountains.ranges()[0]), 0.4);
+        let before = (silhouettes(&mountains, &v), lights(&mountains, &v));
+        mountains.set_level(1.0);
+        assert_eq!(
+            before,
+            (silhouettes(&mountains, &v), lights(&mountains, &v))
+        );
+    }
+
+    #[test]
+    fn a_flat_level_draws_no_mountains_and_no_lights() {
+        let (silhouettes, lights) = drawn(0.0);
+        assert!(silhouettes.is_empty() && lights.is_empty());
+    }
+
+    #[test]
+    fn a_half_level_halves_the_height_of_the_ridge_and_dims_the_lights() {
+        let (full, full_lights) = drawn(1.0);
+        let (half, half_lights) = drawn(0.5);
+        assert!(!full.is_empty() && !full_lights.is_empty());
+        assert_eq!(full.len(), half.len());
+        let horizon = view(1.0, 0.0, 0.0).horizon_y();
+        for (a, b) in full.iter().zip(&half) {
+            // All points but the two at the foot, which stay where they are.
+            for (p, q) in a.iter().zip(b).take(a.len() - 2) {
+                assert_eq!(p.0, q.0);
+                let (up, up_half) = (horizon - p.1, horizon - q.1);
+                assert!((up_half - up * 0.5).abs() < 1e-3, "{up} {up_half}");
+            }
+        }
+        assert_eq!(full_lights.len(), half_lights.len());
+        for (a, b) in full_lights.iter().zip(&half_lights) {
+            assert!((b.2 - a.2 * 0.5).abs() < 1e-5);
+            assert!(b.1 > a.1);
+        }
+    }
+
+    #[test]
+    fn the_level_is_kept_in_range() {
+        let mut mountains = Mountains::new(7);
+        let v = view(1.0, facing(&mountains.ranges()[0]), 0.4);
+        let full = silhouettes(&mountains, &v);
+        for level in [f32::NAN, f32::INFINITY, 7.0] {
+            mountains.set_level(level);
+            assert_eq!(silhouettes(&mountains, &v), full);
+        }
+        mountains.set_level(-3.0);
+        assert!(silhouettes(&mountains, &v).is_empty());
     }
 
     #[test]

@@ -64,6 +64,12 @@ pub struct Settings {
     /// Whether the road runs through tunnels, and how they are lit.
     pub tunnels: TunnelLighting,
     pub language: Language,
+    /// Whether the speed drifts slowly around `speed_kmh`.
+    pub vary_speed: bool,
+    /// Whether the traffic follows the time of day.
+    pub traffic_by_time: bool,
+    /// Whether the road alternates between mountains and plains.
+    pub scenery_zones: bool,
 }
 
 impl Default for Settings {
@@ -77,6 +83,9 @@ impl Default for Settings {
             trucks: TruckStyle::Japanese,
             tunnels: TunnelLighting::Mixed,
             language: Language::Auto,
+            vary_speed: true,
+            traffic_by_time: true,
+            scenery_zones: true,
         }
     }
 }
@@ -98,6 +107,9 @@ impl Settings {
         trucks: Option<u32>,
         tunnels: Option<u32>,
         language: Option<u32>,
+        vary_speed: Option<u32>,
+        traffic_by_time: Option<u32>,
+        scenery_zones: Option<u32>,
     ) -> Self {
         let defaults = Self::default();
         Self {
@@ -111,6 +123,9 @@ impl Settings {
             trucks: TruckStyle::from_raw(trucks).unwrap_or(defaults.trucks),
             tunnels: TunnelLighting::from_raw(tunnels).unwrap_or(defaults.tunnels),
             language: Language::from_raw(language).unwrap_or(defaults.language),
+            vary_speed: flag(vary_speed).unwrap_or(defaults.vary_speed),
+            traffic_by_time: flag(traffic_by_time).unwrap_or(defaults.traffic_by_time),
+            scenery_zones: flag(scenery_zones).unwrap_or(defaults.scenery_zones),
         }
     }
 
@@ -119,7 +134,8 @@ impl Settings {
         DisplayLanguage::resolve(self.language, windows_ui_language)
     }
 
-    /// The configuration of one scene; each window gets its own `seed`.
+    /// The configuration of one scene; each window gets its own `seed`. The
+    /// host sets `start_minute` to the local time.
     pub fn scene_config(&self, seed: u64) -> SceneConfig {
         SceneConfig {
             speed_kmh: self.speed_kmh as f32,
@@ -128,7 +144,11 @@ impl Settings {
             mountains: self.show_mountains,
             trucks: self.trucks,
             tunnels: self.tunnels,
+            vary_speed: self.vary_speed,
+            traffic_by_time: self.traffic_by_time,
+            scenery_zones: self.scenery_zones,
             seed,
+            ..SceneConfig::default()
         }
     }
 }
@@ -169,7 +189,9 @@ mod tests {
         assert!(settings.left_hand_traffic);
         assert!(!settings.show_speedometer);
         assert_eq!(
-            Settings::from_raw(None, None, None, None, None, None, None, None),
+            Settings::from_raw(
+                None, None, None, None, None, None, None, None, None, None, None
+            ),
             settings
         );
     }
@@ -185,6 +207,9 @@ mod tests {
             Some(2),
             Some(3),
             Some(2),
+            None,
+            None,
+            None,
         );
         assert_eq!(
             settings,
@@ -197,10 +222,26 @@ mod tests {
                 trucks: TruckStyle::NorthAmerican,
                 tunnels: TunnelLighting::Led,
                 language: Language::Japanese,
+                vary_speed: true,
+                traffic_by_time: true,
+                scenery_zones: true,
             }
         );
         assert_eq!(
-            Settings::from_raw(Some(30), None, None, None, None, None, None, None).speed_kmh,
+            Settings::from_raw(
+                Some(30),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None
+            )
+            .speed_kmh,
             30
         );
     }
@@ -209,7 +250,20 @@ mod tests {
     fn invalid_speeds_fall_back_to_the_default() {
         for speed in [0, 20, 29, 35, 105, 161, 170, 1000, u32::MAX] {
             assert_eq!(
-                Settings::from_raw(Some(speed), None, None, None, None, None, None, None).speed_kmh,
+                Settings::from_raw(
+                    Some(speed),
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None
+                )
+                .speed_kmh,
                 DEFAULT_SPEED_KMH,
                 "{speed}"
             );
@@ -225,6 +279,9 @@ mod tests {
                 Some(raw),
                 Some(raw),
                 Some(raw),
+                None,
+                None,
+                None,
                 None,
                 None,
                 None,
@@ -244,6 +301,9 @@ mod tests {
             None,
             None,
             Some(1),
+            None,
+            None,
+            None,
         );
         assert_eq!(settings.speed_kmh, DEFAULT_SPEED_KMH);
         assert!(!settings.left_hand_traffic);
@@ -264,6 +324,9 @@ mod tests {
             trucks: TruckStyle::None,
             tunnels: TunnelLighting::None,
             language: Language::Auto,
+            vary_speed: false,
+            traffic_by_time: false,
+            scenery_zones: false,
         };
         let config = settings.scene_config(42);
         assert_eq!(config.speed_kmh, 60.0);
@@ -275,11 +338,54 @@ mod tests {
     #[test]
     fn ufo_is_off_by_default_and_the_flag_is_checked() {
         assert!(!Settings::default().show_ufo);
-        assert!(Settings::from_raw(None, None, None, Some(1), None, None, None, None).show_ufo);
-        assert!(!Settings::from_raw(None, None, None, Some(0), None, None, None, None).show_ufo);
+        assert!(
+            Settings::from_raw(
+                None,
+                None,
+                None,
+                Some(1),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None
+            )
+            .show_ufo
+        );
+        assert!(
+            !Settings::from_raw(
+                None,
+                None,
+                None,
+                Some(0),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None
+            )
+            .show_ufo
+        );
         for raw in [2, 3, u32::MAX] {
             assert!(
-                !Settings::from_raw(None, None, None, Some(raw), None, None, None, None).show_ufo,
+                !Settings::from_raw(
+                    None,
+                    None,
+                    None,
+                    Some(raw),
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None
+                )
+                .show_ufo,
                 "{raw}"
             );
         }
@@ -300,24 +406,150 @@ mod tests {
         assert!(Settings::default().show_mountains);
         assert!(Settings::default().scene_config(0).mountains);
         assert!(
-            Settings::from_raw(None, None, None, None, Some(1), None, None, None).show_mountains
+            Settings::from_raw(
+                None,
+                None,
+                None,
+                None,
+                Some(1),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None
+            )
+            .show_mountains
         );
         assert!(
-            !Settings::from_raw(None, None, None, None, Some(0), None, None, None).show_mountains
+            !Settings::from_raw(
+                None,
+                None,
+                None,
+                None,
+                Some(0),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None
+            )
+            .show_mountains
         );
         for raw in [2, 3, u32::MAX] {
             assert!(
-                Settings::from_raw(None, None, None, None, Some(raw), None, None, None)
-                    .show_mountains,
+                Settings::from_raw(
+                    None,
+                    None,
+                    None,
+                    None,
+                    Some(raw),
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None
+                )
+                .show_mountains,
                 "{raw}"
             );
         }
     }
 
     #[test]
+    fn the_variations_are_on_by_default() {
+        let settings = Settings::default();
+        assert!(settings.vary_speed && settings.traffic_by_time && settings.scenery_zones);
+        let none = Settings::from_raw(
+            None, None, None, None, None, None, None, None, None, None, None,
+        );
+        assert!(none.vary_speed && none.traffic_by_time && none.scenery_zones);
+    }
+
+    #[test]
+    fn the_variation_flags_are_read_and_checked_one_by_one() {
+        let read = |vary, traffic, zones| {
+            let s = Settings::from_raw(
+                None, None, None, None, None, None, None, None, vary, traffic, zones,
+            );
+            (s.vary_speed, s.traffic_by_time, s.scenery_zones)
+        };
+        assert_eq!(read(Some(0), Some(0), Some(0)), (false, false, false));
+        assert_eq!(read(Some(1), Some(0), Some(1)), (true, false, true));
+        assert_eq!(read(Some(0), None, Some(0)), (false, true, false));
+        // A value other than 0 and 1 is the default (on) for that flag only.
+        for raw in [2, 3, u32::MAX] {
+            assert_eq!(
+                read(Some(raw), Some(0), Some(0)),
+                (true, false, false),
+                "{raw}"
+            );
+            assert_eq!(
+                read(Some(0), Some(raw), Some(0)),
+                (false, true, false),
+                "{raw}"
+            );
+            assert_eq!(
+                read(Some(0), Some(0), Some(raw)),
+                (false, false, true),
+                "{raw}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_variations_do_not_disturb_the_other_settings() {
+        let settings = Settings::from_raw(
+            Some(60),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some(1),
+            Some(0),
+            Some(0),
+            Some(0),
+        );
+        assert_eq!(settings.speed_kmh, 60);
+        assert_eq!(settings.language, Language::English);
+    }
+
+    #[test]
+    fn scene_config_carries_the_variations() {
+        for (vary, traffic, zones) in [
+            (true, true, true),
+            (false, false, false),
+            (true, false, true),
+        ] {
+            let settings = Settings {
+                vary_speed: vary,
+                traffic_by_time: traffic,
+                scenery_zones: zones,
+                ..Settings::default()
+            };
+            let config = settings.scene_config(9);
+            assert_eq!(
+                (
+                    config.vary_speed,
+                    config.traffic_by_time,
+                    config.scenery_zones
+                ),
+                (vary, traffic, zones)
+            );
+            assert_eq!(config.seed, 9);
+        }
+    }
+
+    #[test]
     fn trucks_are_japanese_style_by_default() {
         assert_eq!(Settings::default().trucks, TruckStyle::Japanese);
-        let settings = Settings::from_raw(None, None, None, None, None, None, None, None);
+        let settings = Settings::from_raw(
+            None, None, None, None, None, None, None, None, None, None, None,
+        );
         assert_eq!(settings.trucks, TruckStyle::Japanese);
     }
 
@@ -339,11 +571,35 @@ mod tests {
         assert_eq!(TruckStyle::from_raw(None), None);
         for raw in [3, 4, 100, u32::MAX] {
             assert_eq!(TruckStyle::from_raw(Some(raw)), None, "{raw}");
-            let settings = Settings::from_raw(None, None, None, None, None, Some(raw), None, None);
+            let settings = Settings::from_raw(
+                None,
+                None,
+                None,
+                None,
+                None,
+                Some(raw),
+                None,
+                None,
+                None,
+                None,
+                None,
+            );
             assert_eq!(settings.trucks, TruckStyle::Japanese, "{raw}");
         }
         // The other settings are not affected.
-        let settings = Settings::from_raw(Some(60), None, None, None, None, Some(9), None, Some(1));
+        let settings = Settings::from_raw(
+            Some(60),
+            None,
+            None,
+            None,
+            None,
+            Some(9),
+            None,
+            Some(1),
+            None,
+            None,
+            None,
+        );
         assert_eq!(settings.speed_kmh, 60);
         assert_eq!(settings.language, Language::English);
     }
@@ -362,7 +618,9 @@ mod tests {
     #[test]
     fn tunnels_are_mixed_by_default() {
         assert_eq!(Settings::default().tunnels, TunnelLighting::Mixed);
-        let settings = Settings::from_raw(None, None, None, None, None, None, None, None);
+        let settings = Settings::from_raw(
+            None, None, None, None, None, None, None, None, None, None, None,
+        );
         assert_eq!(settings.tunnels, TunnelLighting::Mixed);
         assert_eq!(
             Settings::default().scene_config(0).tunnels,
@@ -398,11 +656,35 @@ mod tests {
         assert_eq!(TunnelLighting::from_raw(None), None);
         for raw in [4, 5, 100, u32::MAX] {
             assert_eq!(TunnelLighting::from_raw(Some(raw)), None, "{raw}");
-            let settings = Settings::from_raw(None, None, None, None, None, None, Some(raw), None);
+            let settings = Settings::from_raw(
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                Some(raw),
+                None,
+                None,
+                None,
+                None,
+            );
             assert_eq!(settings.tunnels, TunnelLighting::Mixed, "{raw}");
         }
         // The other settings are not affected.
-        let settings = Settings::from_raw(Some(60), None, None, None, None, None, Some(9), Some(1));
+        let settings = Settings::from_raw(
+            Some(60),
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some(9),
+            Some(1),
+            None,
+            None,
+            None,
+        );
         assert_eq!(settings.speed_kmh, 60);
         assert_eq!(settings.language, Language::English);
     }
@@ -471,7 +753,19 @@ mod tests {
         assert_eq!(Language::from_raw(None), None);
         for raw in [3, 4, 100, u32::MAX] {
             assert_eq!(Language::from_raw(Some(raw)), None, "{raw}");
-            let settings = Settings::from_raw(None, None, None, None, None, None, None, Some(raw));
+            let settings = Settings::from_raw(
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                Some(raw),
+                None,
+                None,
+                None,
+            );
             assert_eq!(settings.language, Language::Auto, "{raw}");
         }
     }

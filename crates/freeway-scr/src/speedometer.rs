@@ -6,6 +6,17 @@
 /// screensaver settings (about 152 x 112 pixels).
 const FULL_SIZE_HEIGHT: f32 = 540.0;
 
+/// The speed to show for the actual speed, in whole km/h. The actual speed
+/// drifts continuously, so it is rounded to the nearest km/h; an invalid
+/// speed shows 0.
+pub fn displayed_speed(speed_kmh: f32) -> u32 {
+    if speed_kmh.is_finite() && speed_kmh > 0.0 {
+        speed_kmh.round() as u32
+    } else {
+        0
+    }
+}
+
 /// Returns the factor that the speedometer's sizes (defined in pixels at a
 /// scale of 1) are multiplied with, for a window of `height` physical pixels.
 ///
@@ -23,6 +34,22 @@ pub fn scale(height: f32, pixel_scale: f32) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_speed_is_rounded_to_whole_kmh() {
+        assert_eq!(displayed_speed(100.0), 100);
+        assert_eq!(displayed_speed(99.6), 100);
+        assert_eq!(displayed_speed(100.4), 100);
+        assert_eq!(displayed_speed(87.5), 88);
+        assert_eq!(displayed_speed(160.0), 160);
+    }
+
+    #[test]
+    fn an_invalid_speed_shows_zero() {
+        for speed in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY, -5.0, 0.2] {
+            assert_eq!(displayed_speed(speed), 0, "{speed}");
+        }
+    }
 
     #[test]
     fn full_screens_keep_the_size_of_their_dpi() {

@@ -34,9 +34,12 @@ const TRUCKS_LABEL: i32 = 112;
 const TRUCKS: i32 = 113;
 const TUNNELS_LABEL: i32 = 114;
 const TUNNELS: i32 = 115;
+const VARY_SPEED: i32 = 116;
+const TRAFFIC_BY_TIME: i32 = 117;
+const SCENERY_ZONES: i32 = 118;
 
 /// The texts of the controls that are set from the string table, by ID.
-const CONTROL_TEXTS: [(i32, Text); 12] = [
+const CONTROL_TEXTS: [(i32, Text); 15] = [
     (SPEED_LABEL, Text::SpeedLabel),
     (SIDE_LABEL, Text::DrivingSideLabel),
     (LEFT_HAND, Text::LeftHandTraffic),
@@ -44,6 +47,9 @@ const CONTROL_TEXTS: [(i32, Text); 12] = [
     (SPEEDOMETER, Text::Speedometer),
     (UFO, Text::Ufo),
     (MOUNTAINS, Text::Mountains),
+    (VARY_SPEED, Text::VarySpeed),
+    (TRAFFIC_BY_TIME, Text::TrafficByTime),
+    (SCENERY_ZONES, Text::SceneryZones),
     (TRUCKS_LABEL, Text::TrucksLabel),
     (TUNNELS_LABEL, Text::TunnelsLabel),
     (LANGUAGE_LABEL, Text::LanguageLabel),
@@ -303,6 +309,9 @@ fn init_controls(hwnd: HWND, settings: &Settings) {
             (SPEEDOMETER, settings.show_speedometer),
             (UFO, settings.show_ufo),
             (MOUNTAINS, settings.show_mountains),
+            (VARY_SPEED, settings.vary_speed),
+            (TRAFFIC_BY_TIME, settings.traffic_by_time),
+            (SCENERY_ZONES, settings.scenery_zones),
         ] {
             let _ = CheckDlgButton(hwnd, id, if checked { BST_CHECKED } else { BST_UNCHECKED });
         }
@@ -320,6 +329,9 @@ fn read_controls(hwnd: HWND) -> Settings {
         trucks: selected_trucks(hwnd),
         tunnels: selected_tunnels(hwnd),
         language: selected_language(hwnd),
+        vary_speed: unsafe { IsDlgButtonChecked(hwnd, VARY_SPEED) } == BST_CHECKED.0,
+        traffic_by_time: unsafe { IsDlgButtonChecked(hwnd, TRAFFIC_BY_TIME) } == BST_CHECKED.0,
+        scenery_zones: unsafe { IsDlgButtonChecked(hwnd, SCENERY_ZONES) } == BST_CHECKED.0,
     }
 }
 

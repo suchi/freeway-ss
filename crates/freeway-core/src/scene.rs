@@ -3,10 +3,12 @@
 use std::f64::consts::TAU;
 
 use crate::canvas::{Canvas, GLOW_HALO_RATIO, Rgb};
+use crate::cruise::Drift;
 use crate::projection::{CAMERA_HEIGHT, NEAR_DISTANCE, Projector, VIEW_DISTANCE};
 use crate::road::{RoadShape, RoadView};
+use crate::scenery::Zones;
 use crate::sky::{Sky, SkyView};
-use crate::traffic::{Traffic, TruckStyle};
+use crate::traffic::{MINUTES_PER_DAY, Traffic, TrafficLevel, TruckStyle};
 use crate::tunnel::{Tunnel, TunnelLighting, Tunnels, draw_entrance};
 use crate::ufo::Ufo;
 
@@ -36,6 +38,15 @@ pub struct SceneConfig {
     pub trucks: TruckStyle,
     /// How the lamps of the tunnels are colored; `None` means no tunnels.
     pub tunnels: TunnelLighting,
+    /// Whether the speed drifts slowly around `speed_kmh`.
+    pub vary_speed: bool,
+    /// Whether the traffic follows the time of day, given by `start_minute`.
+    pub traffic_by_time: bool,
+    /// Whether the road alternates between mountains and plains.
+    pub scenery_zones: bool,
+    /// The local time at the start of the journey, in minutes after
+    /// midnight. The scene does not read a clock: the host gives the time.
+    pub start_minute: u32,
     pub seed: u64,
 }
 
@@ -48,6 +59,12 @@ impl Default for SceneConfig {
             mountains: true,
             trucks: TruckStyle::default(),
             tunnels: TunnelLighting::default(),
+            // The three kinds of variation are off here, which is the road
+            // as it was before them. The settings turn them on by default.
+            vary_speed: false,
+            traffic_by_time: false,
+            scenery_zones: false,
+            start_minute: 12 * 60,
             seed: 0,
         }
     }
@@ -274,21 +291,66 @@ pub struct Scene {
     traffic: Traffic,
     ufo: Ufo,
     tunnels: Tunnels,
+    drift: Drift,
+    zones: Zones,
+    /// How tall the mountains stand at the current position, `0..1`.
+    mountain_level: f32,
+}
+
+/// The local time after `time` seconds of driving, in minutes after
+/// midnight (`0..1440`).
+fn minute_of_day(config: &SceneConfig, time: f64) -> f32 {
+    let day = f64::from(MINUTES_PER_DAY);
+    let start = f64::from(config.start_minute).rem_euclid(day);
+    (start + time / 60.0).rem_euclid(day) as f32
+}
+
+/// How busy the road is after `time` seconds of driving.
+fn traffic_level(config: &SceneConfig, time: f64) -> TrafficLevel {
+    if config.traffic_by_time {
+        TrafficLevel::at_minute(minute_of_day(config, time))
+    } else {
+        TrafficLevel::FULL
+    }
 }
 
 impl Scene {
     pub fn new(config: SceneConfig) -> Self {
+        let mut zones = Zones::new(config.seed, config.scenery_zones);
+        let mountain_level = zones.mountain_level(0.0);
+        let mut sky = Sky::new(config.seed, config.mountains);
+        sky.set_mountain_level(mountain_level);
         Self {
             config,
             road: RoadShape::new(config.seed),
             track_s: 0.0,
             heading: 0.0,
             time: 0.0,
-            sky: Sky::new(config.seed, config.mountains),
-            traffic: Traffic::new(config.seed, config.trucks),
+            sky,
+            // The cars start out as busy as the road is at the start time.
+            traffic: Traffic::with_level(config.seed, config.trucks, traffic_level(&config, 0.0)),
             ufo: Ufo::new(config.seed, config.ufo_mean_interval),
-            tunnels: Tunnels::new(config.seed, config.tunnels),
+            tunnels: Tunnels::with_zones(config.seed, config.tunnels, config.scenery_zones),
+            drift: Drift::new(config.seed, config.speed_kmh, config.vary_speed),
+            zones,
+            mountain_level,
         }
+    }
+
+    /// The speed now, in km/h: the chosen one, plus the drift if it is on.
+    pub fn speed_kmh(&self) -> f32 {
+        self.config.speed_kmh + self.drift.offset()
+    }
+
+    /// The local time now, in minutes after midnight (`0..1440`): the start
+    /// time plus the time driven.
+    pub fn minute_of_day(&self) -> f32 {
+        minute_of_day(&self.config, self.time)
+    }
+
+    /// How tall the mountains stand now, from 0 (plains) to 1 (mountains).
+    pub fn mountain_level(&self) -> f32 {
+        self.mountain_level
     }
 
     pub fn track_s(&self) -> f64 {
@@ -333,7 +395,9 @@ impl Scene {
         } else {
             0.0
         };
-        let step = f64::from(self.config.speed_kmh / 3.6 * dt);
+        self.drift.update(dt);
+        let speed_kmh = self.speed_kmh();
+        let step = f64::from(speed_kmh / 3.6 * dt);
         // The car turns by the curvature of the road it is driving on.
         let turn = f64::from(self.road.curvature_at(self.track_s)) * step;
         self.heading = (self.heading + turn).rem_euclid(TAU);
@@ -341,8 +405,12 @@ impl Scene {
         self.time += f64::from(dt);
         self.sky.update(self.time, self.heading);
         self.ufo.update(self.time, self.heading, self.side());
-        self.traffic.update(dt, self.config.speed_kmh / 3.6);
+        self.traffic
+            .set_level(traffic_level(&self.config, self.time));
+        self.traffic.update(dt, speed_kmh / 3.6);
         self.tunnels.update(self.track_s);
+        self.mountain_level = self.zones.mountain_level(self.track_s);
+        self.sky.set_mountain_level(self.mountain_level);
     }
 
     /// Draws the sky, then the lights of the road from far to near.
@@ -1459,6 +1527,203 @@ mod tests {
             }
         }
         assert!(left);
+    }
+
+    /// A scene with every kind of variation on.
+    fn varying(seed: u64) -> SceneConfig {
+        SceneConfig {
+            seed,
+            vary_speed: true,
+            traffic_by_time: true,
+            scenery_zones: true,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn the_variations_are_off_by_default_in_the_scene_config() {
+        let config = SceneConfig::default();
+        assert!(!config.vary_speed && !config.traffic_by_time && !config.scenery_zones);
+    }
+
+    #[test]
+    fn without_the_variations_the_speed_is_the_chosen_one() {
+        let mut scene = Scene::new(SceneConfig {
+            speed_kmh: 120.0,
+            ..Default::default()
+        });
+        for _ in 0..20_000 {
+            scene.update(0.05);
+            assert_eq!(scene.speed_kmh(), 120.0);
+            assert_eq!(scene.mountain_level(), 1.0);
+        }
+        // 1,000 seconds at 120 km/h.
+        assert!((scene.track_s() - 120.0 / 3.6 * 1000.0).abs() < 1.0);
+    }
+
+    #[test]
+    fn the_varying_speed_stays_within_twenty_and_drives_the_car() {
+        for (base, seed) in [(30.0, 1), (100.0, 2), (160.0, 3)] {
+            let mut scene = Scene::new(SceneConfig {
+                speed_kmh: base,
+                ..varying(seed)
+            });
+            let (mut travelled, mut lowest, mut highest) = (0.0, f32::MAX, f32::MIN);
+            for _ in 0..(3600.0 / 0.05) as usize {
+                let before = scene.track_s();
+                scene.update(0.05);
+                let speed = scene.speed_kmh();
+                assert!((speed - base).abs() <= 20.0 && (30.0..=160.0).contains(&speed));
+                lowest = lowest.min(speed);
+                highest = highest.max(speed);
+                // The car moves at the speed that is shown.
+                travelled += scene.track_s() - before;
+                assert!(((scene.track_s() - before) - f64::from(speed / 3.6 * 0.05)).abs() < 1e-6);
+            }
+            assert!(travelled > 0.0);
+            assert!(highest - lowest > 5.0, "{base}: {lowest} {highest}");
+        }
+    }
+
+    #[test]
+    fn the_time_of_day_runs_on_from_the_start_and_wraps_at_midnight() {
+        let mut scene = Scene::new(SceneConfig {
+            start_minute: 23 * 60 + 50,
+            ..Default::default()
+        });
+        assert_eq!(scene.minute_of_day(), 1430.0);
+        // 15 minutes of driving, in steps.
+        for _ in 0..(15.0 * 60.0 / 0.05) as usize {
+            scene.update(0.05);
+        }
+        assert!(
+            (scene.minute_of_day() - 5.0).abs() < 0.01,
+            "{}",
+            scene.minute_of_day()
+        );
+        // A start time out of range is taken modulo a day.
+        let late = Scene::new(SceneConfig {
+            start_minute: 3 * 1440 + 90,
+            ..Default::default()
+        });
+        assert_eq!(late.minute_of_day(), 90.0);
+    }
+
+    /// Cars that run in the traffic of a scene at the given hour, over a stretch of driving.
+    fn running_cars(hour: u32, seed: u64) -> usize {
+        let mut scene = Scene::new(SceneConfig {
+            start_minute: hour * 60,
+            ..varying(seed)
+        });
+        let mut total = 0;
+        for step in 0..4000 {
+            scene.update(0.05);
+            if step % 50 == 0 {
+                total += scene.traffic.running_count();
+            }
+        }
+        total
+    }
+
+    #[test]
+    fn the_night_is_quieter_than_the_day() {
+        let (night, evening, day): (usize, usize, usize) = (
+            (0..8).map(|seed| running_cars(2, seed)).sum(),
+            (0..8).map(|seed| running_cars(22, seed)).sum(),
+            (0..8).map(|seed| running_cars(12, seed)).sum(),
+        );
+        assert!(night < evening && evening < day, "{night} {evening} {day}");
+    }
+
+    #[test]
+    fn the_traffic_is_the_same_all_day_without_the_variation() {
+        let run = |hour: u32| {
+            let mut scene = Scene::new(SceneConfig {
+                start_minute: hour * 60,
+                seed: 4,
+                ..Default::default()
+            });
+            for _ in 0..2000 {
+                scene.update(0.05);
+            }
+            record(&scene, VIEWPORT)
+        };
+        assert_eq!(run(2), run(12));
+        assert_eq!(run(2), run(22));
+    }
+
+    #[test]
+    fn the_traffic_follows_the_time_driven_across_a_band() {
+        // Driving from 6:50 to 7:10 crosses into the full traffic.
+        let mut scene = Scene::new(SceneConfig {
+            start_minute: 6 * 60 + 50,
+            ..varying(3)
+        });
+        assert!(scene.traffic.running_count() < scene.traffic.car_count());
+        for _ in 0..(30.0 * 60.0 / 0.05) as usize {
+            scene.update(0.05);
+        }
+        assert_eq!(scene.traffic.running_count(), scene.traffic.car_count());
+    }
+
+    /// A scene that starts on plains, and the distance at which they end.
+    fn on_plains() -> (Scene, f64) {
+        for seed in 0.. {
+            let config = varying(seed);
+            let mut zones = Zones::new(seed, true);
+            let zone = zones.zone_at(0.0);
+            if zone.kind == crate::scenery::ZoneKind::Plains {
+                let _ = config;
+                return (Scene::new(config), zone.end);
+            }
+        }
+        unreachable!()
+    }
+
+    #[test]
+    fn the_plains_have_no_mountains_no_tunnels_and_the_mountains_come_back() {
+        let (mut scene, plains_end) = on_plains();
+        assert_eq!(scene.mountain_level(), 0.0);
+        let (mut tunnel_on_plains, mut risen) = (false, false);
+        while scene.track_s() < plains_end + 2000.0 {
+            scene.update(0.05);
+            if scene.track_s() < plains_end - 1000.0 {
+                assert_eq!(scene.mountain_level(), 0.0);
+                tunnel_on_plains |= scene.in_tunnel() || scene.tunnel_entrance_ahead().is_some();
+            }
+            risen |= scene.mountain_level() == 1.0;
+        }
+        assert!(!tunnel_on_plains);
+        assert!(risen);
+    }
+
+    #[test]
+    fn the_sky_over_the_plains_has_no_silhouette() {
+        let (mut scene, _) = on_plains();
+        for _ in 0..200 {
+            scene.update(0.05);
+        }
+        assert!(silhouettes(&record(&scene, VIEWPORT)).is_empty());
+    }
+
+    #[test]
+    fn zones_and_tunnels_agree_on_where_the_mountains_are() {
+        // Whenever the car is in a tunnel, the mountains stand at full height.
+        for seed in 0..4 {
+            let mut scene = Scene::new(SceneConfig {
+                speed_kmh: 160.0,
+                ..varying(seed)
+            });
+            let mut seen = 0;
+            for _ in 0..(3.0 * 3600.0 / 0.05) as usize {
+                scene.update(0.05);
+                if scene.in_tunnel() {
+                    seen += 1;
+                    assert_eq!(scene.mountain_level(), 1.0, "{seed}");
+                }
+            }
+            assert!(seen > 0, "{seed}");
+        }
     }
 
     #[test]

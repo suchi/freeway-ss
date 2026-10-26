@@ -19,6 +19,9 @@ const SHOW_MOUNTAINS: PCWSTR = w!("ShowMountains");
 const TRUCKS: PCWSTR = w!("Trucks");
 const TUNNELS: PCWSTR = w!("Tunnels");
 const LANGUAGE: PCWSTR = w!("Language");
+const VARY_SPEED: PCWSTR = w!("VarySpeed");
+const TRAFFIC_BY_TIME: PCWSTR = w!("TrafficByTime");
+const SCENERY_ZONES: PCWSTR = w!("SceneryZones");
 
 /// Reads the saved settings; anything missing or invalid is the default.
 pub fn load() -> Settings {
@@ -40,6 +43,9 @@ fn load_from(root: HKEY, key: PCWSTR) -> Settings {
         read_dword(root, key, TRUCKS),
         read_dword(root, key, TUNNELS),
         read_dword(root, key, LANGUAGE),
+        read_dword(root, key, VARY_SPEED),
+        read_dword(root, key, TRAFFIC_BY_TIME),
+        read_dword(root, key, SCENERY_ZONES),
     )
 }
 
@@ -66,7 +72,15 @@ fn save_to(root: HKEY, key: PCWSTR, settings: &Settings) -> Result<()> {
     )?;
     write_dword(root, key, TRUCKS, settings.trucks.to_raw())?;
     write_dword(root, key, TUNNELS, settings.tunnels.to_raw())?;
-    write_dword(root, key, LANGUAGE, settings.language.to_raw())
+    write_dword(root, key, LANGUAGE, settings.language.to_raw())?;
+    write_dword(root, key, VARY_SPEED, u32::from(settings.vary_speed))?;
+    write_dword(
+        root,
+        key,
+        TRAFFIC_BY_TIME,
+        u32::from(settings.traffic_by_time),
+    )?;
+    write_dword(root, key, SCENERY_ZONES, u32::from(settings.scenery_zones))
 }
 
 /// Returns `None` when the key or value is missing, or is not a `REG_DWORD`.
@@ -164,6 +178,9 @@ mod tests {
             trucks: TruckStyle::NorthAmerican,
             tunnels: TunnelLighting::Led,
             language: Language::Japanese,
+            vary_speed: false,
+            traffic_by_time: false,
+            scenery_zones: false,
         };
         save_to(HKEY_CURRENT_USER, test.key(), &settings)?;
         assert_eq!(test.load(), settings);
@@ -185,6 +202,9 @@ mod tests {
         write_dword(HKEY_CURRENT_USER, test.key(), TRUCKS, 3)?;
         write_dword(HKEY_CURRENT_USER, test.key(), TUNNELS, 4)?;
         write_dword(HKEY_CURRENT_USER, test.key(), LANGUAGE, 3)?;
+        write_dword(HKEY_CURRENT_USER, test.key(), VARY_SPEED, 2)?;
+        write_dword(HKEY_CURRENT_USER, test.key(), TRAFFIC_BY_TIME, 7)?;
+        write_dword(HKEY_CURRENT_USER, test.key(), SCENERY_ZONES, u32::MAX)?;
         let settings = test.load();
         assert_eq!(settings.speed_kmh, DEFAULT_SPEED_KMH);
         assert!(!settings.left_hand_traffic);
@@ -194,6 +214,7 @@ mod tests {
         assert_eq!(settings.trucks, TruckStyle::Japanese);
         assert_eq!(settings.tunnels, TunnelLighting::Mixed);
         assert_eq!(settings.language, Language::Auto);
+        assert!(settings.vary_speed && settings.traffic_by_time && settings.scenery_zones);
         Ok(())
     }
 
@@ -212,6 +233,44 @@ mod tests {
         let missing = TestKey::new("mountains-missing");
         write_dword(HKEY_CURRENT_USER, missing.key(), SPEED, 60)?;
         assert!(missing.load().show_mountains);
+        Ok(())
+    }
+
+    #[test]
+    fn the_variation_flags_are_read_back_one_by_one() -> Result<()> {
+        let test = TestKey::new("variations");
+        for (vary_speed, traffic_by_time, scenery_zones) in [
+            (false, false, false),
+            (true, false, false),
+            (false, true, false),
+            (false, false, true),
+            (true, true, true),
+        ] {
+            let settings = Settings {
+                vary_speed,
+                traffic_by_time,
+                scenery_zones,
+                ..Settings::default()
+            };
+            save_to(HKEY_CURRENT_USER, test.key(), &settings)?;
+            let loaded = test.load();
+            assert_eq!(loaded.vary_speed, vary_speed);
+            assert_eq!(loaded.traffic_by_time, traffic_by_time);
+            assert_eq!(loaded.scenery_zones, scenery_zones);
+        }
+        // Without the values, or with one that is not 0 or 1, each is on.
+        let missing = TestKey::new("variations-missing");
+        write_dword(HKEY_CURRENT_USER, missing.key(), SPEED, 60)?;
+        let loaded = missing.load();
+        assert!(loaded.vary_speed && loaded.traffic_by_time && loaded.scenery_zones);
+        let invalid = TestKey::new("variations-invalid");
+        for raw in [2, u32::MAX] {
+            for name in [VARY_SPEED, TRAFFIC_BY_TIME, SCENERY_ZONES] {
+                write_dword(HKEY_CURRENT_USER, invalid.key(), name, raw)?;
+            }
+            let loaded = invalid.load();
+            assert!(loaded.vary_speed && loaded.traffic_by_time && loaded.scenery_zones);
+        }
         Ok(())
     }
 

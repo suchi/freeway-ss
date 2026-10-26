@@ -306,7 +306,8 @@ impl Renderer {
         let key = (speed_kmh, scale.to_bits());
         if !self.speedometer_text.contains_key(&key) {
             let text = SpeedometerText::new(&self.dwrite_factory, speed_kmh, scale)?;
-            // The speed does not change while running, so this stays small.
+            // Why: the shown speed is within 20 km/h of the chosen one, so at
+            // most 41 speeds per scale are laid out and this stays small.
             self.speedometer_text.insert(key, text);
         }
         let text = &self.speedometer_text[&key];
