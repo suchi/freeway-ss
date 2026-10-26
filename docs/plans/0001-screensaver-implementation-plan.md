@@ -207,7 +207,7 @@ MVPの項目は、本家の実行中の操作と表示(速度・通行方向・H
 | Phase 2: 道路と投影 | 完了(実機確認済み) | [0002](0002-phase2-road-and-projection.md) | [#5](https://github.com/suchi/freeway-ss/pull/5)、[#7](https://github.com/suchi/freeway-ss/pull/7) | [v0.2.0](https://github.com/suchi/freeway-ss/releases/tag/v0.2.0) |
 | Phase 3: 背景 | 完了(実機確認済み) | [0003](0003-phase3-background.md) | [#8](https://github.com/suchi/freeway-ss/pull/8) | [v0.3.0](https://github.com/suchi/freeway-ss/releases/tag/v0.3.0) |
 | Phase 4: 他車 | 完了(実機確認済み) | [0004](0004-phase4-traffic.md) | [#11](https://github.com/suchi/freeway-ss/pull/11) | [v0.4.0](https://github.com/suchi/freeway-ss/releases/tag/v0.4.0) |
-| Phase 5: 設定画面と保存 | 実装済み(CI・実機確認待ち) | [0005](0005-phase5-settings.md) | [#12](https://github.com/suchi/freeway-ss/pull/12) | 未リリース |
+| Phase 5: 設定画面と保存 | 完了(実機確認済み) | [0005](0005-phase5-settings.md) | [#12](https://github.com/suchi/freeway-ss/pull/12) | [v0.5.0](https://github.com/suchi/freeway-ss/releases/tag/v0.5.0) |
 | Phase 6: リリース | 未着手 | - | - | - |
 | Phase 7: 任意機能 | 未着手 | - | - | - |
 
@@ -260,7 +260,8 @@ flowchart LR
 - 内容(フェーズごとのリリース): Phase 5までは手動実行のワークフロー`release.yml`で、x64の`.scr`を各フェーズの成果物としてプレリリースする(D9)。Phase 6では、これをタグのプッシュを契機とする自動リリースに仕上げ、ARM64を加えて最終リリースとする
 - 内容: タグのプッシュを契機にGitHub Actionsでx64/ARM64の`.scr`をビルドし、`.scr`・LICENSE・READMEをzipにまとめ、SHA-256チェックサムとともにGitHub Releasesへ公開。READMEにインストール方法(`.scr`の右クリック「インストール」等)を記載
 - 内容(開発時のビルド): ローカルのビルドでも`NightFreewaySS.scr`が直接得られるようにし、実行ファイルを手作業でコピー・改名する手順をなくす(Phase 1の実機確認で挙がった改善点。優先度は中)
-- 完了条件: クリーンなWindows 10/11環境でzipを展開してインストール・実行できる。ローカルのビルド手順だけで`.scr`が得られる
+- 内容(速度計の書体): 速度計の数字の書体を、より洗練された現代的なものに変える(Phase 5の実機確認で挙がった改善点。優先度は低いが、Ver.1.0までに対応する)
+- 完了条件: クリーンなWindows 10/11環境でzipを展開してインストール・実行できる。ローカルのビルド手順だけで`.scr`が得られる。速度計の書体が変更されている
 
 ### Phase 7: 任意機能(後続)
 
