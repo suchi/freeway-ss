@@ -11,7 +11,7 @@
 | パス | 内容 |
 | --- | --- |
 | `crates/freeway-core` | OS非依存のシーン計算(道路形状・投影・道路の光・背景・他車・設定値の検証を実装済み)。すべてのプラットフォームでテストできる |
-| `crates/freeway-scr` | Windows固有部分(引数処理・ウィンドウ・Direct2D描画・設定画面とレジストリへの保存。ダイアログとマニフェストは`resources/`の`.rc`から`build.rs`で埋め込む)。配布物の`.scr`になる |
+| `crates/freeway-scr` | Windows固有部分(引数処理・ウィンドウ・Direct2D描画・設定画面とレジストリへの保存。ダイアログとマニフェストは`freeway.rc`から`build.rs`で埋め込む)。配布物の`.scr`になる |
 | `.github/workflows/` | CI(`ci.yml`)と、フェーズごとの成果物をGitHub Releaseに公開する手動実行のワークフロー(`release.yml`。手順は`AGENTS.md`) |
 | `docs/plans/` | 実装計画(進捗表を含む)とフェーズの詳細設計 |
 | `docs/adr/` | アーキテクチャ決定記録 |

@@ -1,9 +1,10 @@
 // Resources of the screensaver: the settings dialog and the manifest.
 //
-// Why: no #include of Windows headers. The resource compiler is found by
-// embed-resource without the Visual Studio environment, so INCLUDE may be
-// unset; the constants that are needed are written out here instead. The
-// control IDs must match crates/freeway-scr/src/win/settings_dialog.rs.
+// Why: no #include of Windows headers. embed-resource passes only its output
+// directory to the resource compiler as an include path, and INCLUDE may be
+// unset outside a Visual Studio prompt, so the constants that are needed are
+// written out here instead. The control IDs must match
+// crates/freeway-scr/src/win/settings_dialog.rs.
 
 // STYLE of the dialog: WS_POPUP | WS_CAPTION | WS_SYSMENU | DS_MODALFRAME |
 // DS_SHELLFONT | DS_CENTER
@@ -16,7 +17,7 @@
 #define GROUP_START 0x00030000
 
 // RT_MANIFEST (24) with the ID of a manifest for the executable (1)
-1 24 "freeway.manifest"
+1 24 "resources/freeway.manifest"
 
 100 DIALOGEX 0, 0, 224, 122
 STYLE DIALOG_STYLE

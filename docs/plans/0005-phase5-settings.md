@@ -110,7 +110,7 @@ flowchart TB
 
 - 検証の方針: 範囲外・刻みに合わない速度、0と1以外のフラグは、近い有効値に丸めずその項目の既定値に戻す。壊れた値や手で編集された値を、別の有効な値として扱わないため(ADR-0004の「その項目を既定値に戻す」に合わせた)
 - トラックバーは0〜13の14段階とし、位置と速度の変換(`speed_to_position`・`position_to_speed`)は`freeway-core`の`settings.rs`に置いてLinuxでもテストする
-- リソースは`crates/freeway-scr/resources/`(`freeway.rc`・`freeway.manifest`)に置く。`.rc`にWindowsヘッダーを`#include`しないため、スタイルやID以外の定数は`.rc`の先頭に数値で書いている(`embed-resource`は`INCLUDE`環境変数を設定しないので、Visual Studioの開発者コマンドプロンプト以外でもビルドできるようにするため)
+- リソースは`crates/freeway-scr/`の`freeway.rc`と`resources/freeway.manifest`に置く(`.rc`をクレート直下に置くのは、`rc.exe`が相対パスを解決する基準に依存しないため)。`.rc`にWindowsヘッダーを`#include`しないため、スタイルやID以外の定数は`.rc`の先頭に数値で書いている(`embed-resource`は`rc.exe`に`/I`で出力先しか渡さず、`INCLUDE`環境変数が設定されているとは限らないため。Visual Studioの開発者コマンドプロンプト以外でもビルドできるようにする)
 - `build.rs`は、Windowsで実行したときはリソースの埋め込みに失敗するとビルドを失敗させ(`manifest_required`)、Windows以外ではリソースを省略して警告を出す(`manifest_optional`)
 - レジストリの読み書きは、キーを開く処理が不要な`RegGetValueW`(`RRF_RT_REG_DWORD`で型違いを検出)と`RegSetKeyValueW`(キーがなければ作成)で行う
 - 速度計は、数字(56 px)と単位`km/h`(20 px)を琥珀色(#ffb000)で左下から28 pxの余白に描き、サイズと余白は`pixel_scale`に比例させる。2つの文字列は同じベースラインにそろえる
