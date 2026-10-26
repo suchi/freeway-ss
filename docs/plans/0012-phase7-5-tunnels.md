@@ -1,6 +1,6 @@
 # Phase 7.5 詳細設計: トンネル
 
-- ステータス: 実装済み(実機確認待ち。[#20](https://github.com/suchi/freeway-ss/pull/20))
+- ステータス: 完了(ユーザーの承認を得てマージ。[#20](https://github.com/suchi/freeway-ss/pull/20))
 - 日付: 2026-10-26
 - 親計画: [Phase 7 計画](0007-phase7-optional-features.md)
 
