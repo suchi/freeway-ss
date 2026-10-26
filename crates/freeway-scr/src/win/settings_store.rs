@@ -15,6 +15,7 @@ const SPEED: PCWSTR = w!("SpeedKmh");
 const LEFT_HAND_TRAFFIC: PCWSTR = w!("LeftHandTraffic");
 const SHOW_SPEEDOMETER: PCWSTR = w!("ShowSpeedometer");
 const SHOW_UFO: PCWSTR = w!("ShowUfo");
+const SHOW_MOUNTAINS: PCWSTR = w!("ShowMountains");
 const LANGUAGE: PCWSTR = w!("Language");
 
 /// Reads the saved settings; anything missing or invalid is the default.
@@ -33,6 +34,7 @@ fn load_from(root: HKEY, key: PCWSTR) -> Settings {
         read_dword(root, key, LEFT_HAND_TRAFFIC),
         read_dword(root, key, SHOW_SPEEDOMETER),
         read_dword(root, key, SHOW_UFO),
+        read_dword(root, key, SHOW_MOUNTAINS),
         read_dword(root, key, LANGUAGE),
     )
 }
@@ -52,6 +54,12 @@ fn save_to(root: HKEY, key: PCWSTR, settings: &Settings) -> Result<()> {
         u32::from(settings.show_speedometer),
     )?;
     write_dword(root, key, SHOW_UFO, u32::from(settings.show_ufo))?;
+    write_dword(
+        root,
+        key,
+        SHOW_MOUNTAINS,
+        u32::from(settings.show_mountains),
+    )?;
     write_dword(root, key, LANGUAGE, settings.language.to_raw())
 }
 
@@ -146,6 +154,7 @@ mod tests {
             left_hand_traffic: false,
             show_speedometer: true,
             show_ufo: true,
+            show_mountains: false,
             language: Language::Japanese,
         };
         save_to(HKEY_CURRENT_USER, test.key(), &settings)?;
@@ -164,13 +173,33 @@ mod tests {
         write_dword(HKEY_CURRENT_USER, test.key(), LEFT_HAND_TRAFFIC, 0)?;
         write_dword(HKEY_CURRENT_USER, test.key(), SHOW_SPEEDOMETER, 9)?;
         write_dword(HKEY_CURRENT_USER, test.key(), SHOW_UFO, 2)?;
+        write_dword(HKEY_CURRENT_USER, test.key(), SHOW_MOUNTAINS, 2)?;
         write_dword(HKEY_CURRENT_USER, test.key(), LANGUAGE, 3)?;
         let settings = test.load();
         assert_eq!(settings.speed_kmh, DEFAULT_SPEED_KMH);
         assert!(!settings.left_hand_traffic);
         assert!(!settings.show_speedometer);
         assert!(!settings.show_ufo);
+        assert!(settings.show_mountains);
         assert_eq!(settings.language, Language::Auto);
+        Ok(())
+    }
+
+    #[test]
+    fn the_mountains_flag_is_read_back() -> Result<()> {
+        let test = TestKey::new("mountains");
+        for show_mountains in [false, true] {
+            let settings = Settings {
+                show_mountains,
+                ..Settings::default()
+            };
+            save_to(HKEY_CURRENT_USER, test.key(), &settings)?;
+            assert_eq!(test.load().show_mountains, show_mountains);
+        }
+        // Without the value the default (on) is used.
+        let missing = TestKey::new("mountains-missing");
+        write_dword(HKEY_CURRENT_USER, missing.key(), SPEED, 60)?;
+        assert!(missing.load().show_mountains);
         Ok(())
     }
 

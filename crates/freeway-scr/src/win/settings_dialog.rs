@@ -29,15 +29,17 @@ const LANGUAGE: i32 = 107;
 const SPEED_LABEL: i32 = 108;
 const SIDE_LABEL: i32 = 109;
 const LANGUAGE_LABEL: i32 = 110;
+const MOUNTAINS: i32 = 111;
 
 /// The texts of the controls that are set from the string table, by ID.
-const CONTROL_TEXTS: [(i32, Text); 9] = [
+const CONTROL_TEXTS: [(i32, Text); 10] = [
     (SPEED_LABEL, Text::SpeedLabel),
     (SIDE_LABEL, Text::DrivingSideLabel),
     (LEFT_HAND, Text::LeftHandTraffic),
     (RIGHT_HAND, Text::RightHandTraffic),
     (SPEEDOMETER, Text::Speedometer),
     (UFO, Text::Ufo),
+    (MOUNTAINS, Text::Mountains),
     (LANGUAGE_LABEL, Text::LanguageLabel),
     // OK and Cancel use the IDs of the standard buttons.
     (IDOK.0, Text::Ok),
@@ -223,6 +225,7 @@ fn init_controls(hwnd: HWND, settings: &Settings) {
         for (id, checked) in [
             (SPEEDOMETER, settings.show_speedometer),
             (UFO, settings.show_ufo),
+            (MOUNTAINS, settings.show_mountains),
         ] {
             let _ = CheckDlgButton(hwnd, id, if checked { BST_CHECKED } else { BST_UNCHECKED });
         }
@@ -236,6 +239,7 @@ fn read_controls(hwnd: HWND) -> Settings {
         left_hand_traffic: unsafe { IsDlgButtonChecked(hwnd, LEFT_HAND) } == BST_CHECKED.0,
         show_speedometer: unsafe { IsDlgButtonChecked(hwnd, SPEEDOMETER) } == BST_CHECKED.0,
         show_ufo: unsafe { IsDlgButtonChecked(hwnd, UFO) } == BST_CHECKED.0,
+        show_mountains: unsafe { IsDlgButtonChecked(hwnd, MOUNTAINS) } == BST_CHECKED.0,
         language: selected_language(hwnd),
     }
 }

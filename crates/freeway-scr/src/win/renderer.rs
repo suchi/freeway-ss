@@ -499,6 +499,26 @@ struct D2dCanvas<'a> {
 }
 
 impl D2dCanvas<'_> {
+    /// Looks up the solid brush for `color`, creating it on first use.
+    fn solid_brush(&mut self, color: Rgb) -> Option<ID2D1SolidColorBrush> {
+        if let Some(brush) = self.dot_brushes.get(&color) {
+            return Some(brush.clone());
+        }
+        match unsafe {
+            self.context
+                .CreateSolidColorBrush(&color_f(color, 1.0), None)
+        } {
+            Ok(brush) => {
+                self.dot_brushes.insert(color, brush.clone());
+                Some(brush)
+            }
+            Err(e) => {
+                self.error.get_or_insert(e);
+                None
+            }
+        }
+    }
+
     fn fill_unit_circle(
         &self,
         brush: &ID2D1RadialGradientBrush,
@@ -592,21 +612,8 @@ impl Canvas for D2dCanvas<'_> {
     }
 
     fn dot(&mut self, x: f32, y: f32, size: f32, color: Rgb, alpha: f32) {
-        let brush = match self.dot_brushes.get(&color) {
-            Some(brush) => brush.clone(),
-            None => match unsafe {
-                self.context
-                    .CreateSolidColorBrush(&color_f(color, 1.0), None)
-            } {
-                Ok(brush) => {
-                    self.dot_brushes.insert(color, brush.clone());
-                    brush
-                }
-                Err(e) => {
-                    self.error.get_or_insert(e);
-                    return;
-                }
-            },
+        let Some(brush) = self.solid_brush(color) else {
+            return;
         };
         let half = size * 0.5;
         unsafe {
@@ -621,6 +628,45 @@ impl Canvas for D2dCanvas<'_> {
                 },
                 &brush,
             );
+        }
+    }
+
+    fn silhouette(&mut self, points: &[(f32, f32)], color: Rgb) {
+        let Some(brush) = self.solid_brush(color) else {
+            return;
+        };
+        let [first, rest @ ..] = points else {
+            return;
+        };
+        if rest.len() < 2 {
+            return;
+        }
+        let vertex = |&(x, y): &(f32, f32)| Vector2 { X: x, Y: y };
+        let corners: Vec<Vector2> = rest.iter().map(vertex).collect();
+        let result = unsafe {
+            (|| {
+                let geometry = self.factory.CreatePathGeometry()?;
+                let sink = geometry.Open()?;
+                sink.BeginFigure(vertex(first), D2D1_FIGURE_BEGIN_FILLED);
+                sink.AddLines(&corners);
+                sink.EndFigure(D2D1_FIGURE_END_CLOSED);
+                sink.Close()?;
+                brush.SetOpacity(1.0);
+                self.context.SetTransform(&Matrix3x2::identity());
+                // Why: the lights are added to the picture, but a mountain
+                // must cover the stars behind it, so it is drawn with the
+                // normal blend and the additive blend is restored after.
+                self.context
+                    .SetPrimitiveBlend(D2D1_PRIMITIVE_BLEND_SOURCE_OVER);
+                self.context.FillGeometry(&geometry, &brush, None);
+                self.context.SetPrimitiveBlend(D2D1_PRIMITIVE_BLEND_ADD);
+                Ok(())
+            })()
+        };
+        if let Err(e) = result {
+            // Leave the context additive whatever failed above.
+            unsafe { self.context.SetPrimitiveBlend(D2D1_PRIMITIVE_BLEND_ADD) };
+            self.error.get_or_insert(e);
         }
     }
 

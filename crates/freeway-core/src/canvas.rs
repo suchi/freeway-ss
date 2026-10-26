@@ -18,9 +18,9 @@ impl Rgb {
 /// it to decide whether a glow touches the screen.
 pub const GLOW_HALO_RATIO: f32 = 4.0;
 
-/// Surface the scene draws on. All lights are added to what is already
-/// drawn; coordinates and radii are physical pixels. Filling the background
-/// is the renderer's job.
+/// Surface the scene draws on. Lights are added to what is already drawn;
+/// `silhouette` is the one command that covers it. Coordinates and radii are
+/// physical pixels. Filling the background is the renderer's job.
 pub trait Canvas {
     /// A point light: a bright core of `core_radius` pixels with a halo of
     /// `GLOW_HALO_RATIO` times that radius around it.
@@ -35,6 +35,11 @@ pub trait Canvas {
     /// A line of `width` pixels fading from transparent at the tail to
     /// `alpha` at the head, for shooting stars.
     fn streak(&mut self, tail: (f32, f32), head: (f32, f32), width: f32, color: Rgb, alpha: f32);
+    /// A polygon through `points`, closed from the last point back to the
+    /// first, filled with `color` and fully opaque: it hides what is already
+    /// drawn behind it, as a mountain hides the stars. Fewer than three
+    /// points draw nothing.
+    fn silhouette(&mut self, points: &[(f32, f32)], color: Rgb);
     /// A trapezoid of light, as a beam shining down from a ship. It spans
     /// from `top_y` to `bottom_y`, centered on `center_x`, with half the
     /// width at each end given by `top_half_width` and `bottom_half_width`.

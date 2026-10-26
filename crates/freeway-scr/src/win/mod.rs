@@ -225,6 +225,35 @@ mod tests {
     }
 
     #[test]
+    fn renders_mountains_with_their_lights() -> Result<()> {
+        let hwnd = window::create_hidden_window(640, 360)?;
+        let mut renderer = Renderer::new()?;
+        let mut target = renderer.create_target(hwnd)?;
+        // A fixed seed whose car faces a range within a few seconds.
+        let mut scene = Scene::new(freeway_core::SceneConfig {
+            seed: 8,
+            ..Default::default()
+        });
+        // Drive until the car faces a range, so that silhouettes reach
+        // Direct2D, which switches the blend mode for them.
+        let mut steps = 0;
+        while !scene.mountains_ahead() {
+            scene.update(0.05);
+            steps += 1;
+            assert!(steps < 4000, "no mountains within 200 seconds");
+        }
+        // The lights blink every 2.5 seconds; draw through a whole period
+        // so that lights and silhouettes are drawn together as well as alone.
+        for _ in 0..6 {
+            for _ in 0..10 {
+                scene.update(0.05);
+            }
+            renderer.draw_scene(&mut target, &scene, None, true)?;
+        }
+        Ok(())
+    }
+
+    #[test]
     fn renders_a_ufo_with_its_beam() -> Result<()> {
         let hwnd = window::create_hidden_window(640, 360)?;
         let mut renderer = Renderer::new()?;

@@ -29,6 +29,8 @@ pub struct SceneConfig {
     pub left_hand_traffic: bool,
     /// Average seconds between two UFO visits; `None` means no UFO.
     pub ufo_mean_interval: Option<f32>,
+    /// Whether mountains stand on the horizon.
+    pub mountains: bool,
     pub seed: u64,
 }
 
@@ -38,6 +40,7 @@ impl Default for SceneConfig {
             speed_kmh: 100.0,
             left_hand_traffic: true,
             ufo_mean_interval: None,
+            mountains: true,
             seed: 0,
         }
     }
@@ -213,7 +216,7 @@ impl Scene {
             track_s: 0.0,
             heading: 0.0,
             time: 0.0,
-            sky: Sky::new(config.seed),
+            sky: Sky::new(config.seed, config.mountains),
             traffic: Traffic::new(config.seed),
             ufo: Ufo::new(config.seed, config.ufo_mean_interval),
         }
@@ -230,6 +233,13 @@ impl Scene {
     /// Number of shooting stars in the sky now.
     pub fn meteors_visible(&self) -> usize {
         self.sky.meteors_visible()
+    }
+
+    /// Whether the car faces a range of mountains now.
+    pub fn mountains_ahead(&self) -> bool {
+        self.sky
+            .mountains()
+            .is_some_and(|m| m.has_range_at(self.heading))
     }
 
     /// Whether a UFO is in the sky now.
@@ -432,6 +442,9 @@ mod tests {
             width: f32,
             alpha: f32,
         },
+        Silhouette {
+            points: Vec<(f32, f32)>,
+        },
         Beam {
             center_x: f32,
             top_y: f32,
@@ -448,7 +461,7 @@ mod tests {
                 | Command::Pool { x, y, .. }
                 | Command::Dot { x, y, .. } => Some((x, y)),
                 Command::Streak { head, .. } => Some(head),
-                Command::Band { .. } | Command::Beam { .. } => None,
+                Command::Band { .. } | Command::Silhouette { .. } | Command::Beam { .. } => None,
             }
         }
 
@@ -495,6 +508,11 @@ mod tests {
                 head,
                 width,
                 alpha,
+            });
+        }
+        fn silhouette(&mut self, points: &[(f32, f32)], _: Rgb) {
+            self.0.push(Command::Silhouette {
+                points: points.to_vec(),
             });
         }
         fn beam(
@@ -692,6 +710,7 @@ mod tests {
                         alpha,
                     } => ([x, y], alpha, [rx, ry]),
                     Command::Dot { x, y, size, alpha } => ([x, y], alpha, [size; 2]),
+                    Command::Silhouette { .. } => continue,
                     Command::Band { alpha, .. }
                     | Command::Streak { alpha, .. }
                     | Command::Beam { alpha, .. } => {
@@ -715,6 +734,41 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn mountains_are_drawn_only_when_the_setting_is_on() {
+        let silhouettes = |scene: &Scene| {
+            record(scene, VIEWPORT)
+                .iter()
+                .filter(|c| matches!(c, Command::Silhouette { .. }))
+                .count()
+        };
+        let mut on = Scene::new(SceneConfig {
+            seed: 8,
+            ..Default::default()
+        });
+        let mut off = Scene::new(SceneConfig {
+            seed: 8,
+            mountains: false,
+            ..Default::default()
+        });
+        let mut seen = 0;
+        // 40 minutes of driving turns the car through every direction.
+        for step in 0..48_000 {
+            on.update(0.05);
+            off.update(0.05);
+            // Drawing is the slow part; every two seconds is often enough.
+            if step % 40 == 0 {
+                let count = silhouettes(&on);
+                seen += count;
+                // Facing a range always shows it.
+                assert!(count > 0 || !on.mountains_ahead());
+                assert_eq!(silhouettes(&off), 0);
+                assert!(!off.mountains_ahead());
+            }
+        }
+        assert!(seen > 0);
     }
 
     #[test]
