@@ -3,6 +3,7 @@
 use std::f64::consts::TAU;
 
 use crate::canvas::{Canvas, GLOW_HALO_RATIO, Rgb};
+use crate::cruise::Drift;
 use crate::projection::{CAMERA_HEIGHT, NEAR_DISTANCE, Projector, VIEW_DISTANCE};
 use crate::road::{RoadShape, RoadView};
 use crate::sky::{Sky, SkyView};
@@ -289,6 +290,7 @@ pub struct Scene {
     traffic: Traffic,
     ufo: Ufo,
     tunnels: Tunnels,
+    drift: Drift,
 }
 
 impl Scene {
@@ -303,7 +305,13 @@ impl Scene {
             traffic: Traffic::new(config.seed, config.trucks),
             ufo: Ufo::new(config.seed, config.ufo_mean_interval),
             tunnels: Tunnels::new(config.seed, config.tunnels),
+            drift: Drift::new(config.seed, config.speed_kmh, config.vary_speed),
         }
+    }
+
+    /// The speed now, in km/h: the chosen one, plus the drift if it is on.
+    pub fn speed_kmh(&self) -> f32 {
+        self.config.speed_kmh + self.drift.offset()
     }
 
     pub fn track_s(&self) -> f64 {
@@ -348,7 +356,9 @@ impl Scene {
         } else {
             0.0
         };
-        let step = f64::from(self.config.speed_kmh / 3.6 * dt);
+        self.drift.update(dt);
+        let speed_kmh = self.speed_kmh();
+        let step = f64::from(speed_kmh / 3.6 * dt);
         // The car turns by the curvature of the road it is driving on.
         let turn = f64::from(self.road.curvature_at(self.track_s)) * step;
         self.heading = (self.heading + turn).rem_euclid(TAU);
@@ -356,7 +366,7 @@ impl Scene {
         self.time += f64::from(dt);
         self.sky.update(self.time, self.heading);
         self.ufo.update(self.time, self.heading, self.side());
-        self.traffic.update(dt, self.config.speed_kmh / 3.6);
+        self.traffic.update(dt, speed_kmh / 3.6);
         self.tunnels.update(self.track_s);
     }
 
@@ -1476,10 +1486,59 @@ mod tests {
         assert!(left);
     }
 
+    /// A scene with every kind of variation on.
+    fn varying(seed: u64) -> SceneConfig {
+        SceneConfig {
+            seed,
+            vary_speed: true,
+            traffic_by_time: true,
+            scenery_zones: true,
+            ..Default::default()
+        }
+    }
+
     #[test]
     fn the_variations_are_off_by_default_in_the_scene_config() {
         let config = SceneConfig::default();
         assert!(!config.vary_speed && !config.traffic_by_time && !config.scenery_zones);
+    }
+
+    #[test]
+    fn without_the_variations_the_speed_is_the_chosen_one() {
+        let mut scene = Scene::new(SceneConfig {
+            speed_kmh: 120.0,
+            ..Default::default()
+        });
+        for _ in 0..20_000 {
+            scene.update(0.05);
+            assert_eq!(scene.speed_kmh(), 120.0);
+        }
+        // 1,000 seconds at 120 km/h.
+        assert!((scene.track_s() - 120.0 / 3.6 * 1000.0).abs() < 1.0);
+    }
+
+    #[test]
+    fn the_varying_speed_stays_within_twenty_and_drives_the_car() {
+        for (base, seed) in [(30.0, 1), (100.0, 2), (160.0, 3)] {
+            let mut scene = Scene::new(SceneConfig {
+                speed_kmh: base,
+                ..varying(seed)
+            });
+            let (mut travelled, mut lowest, mut highest) = (0.0, f32::MAX, f32::MIN);
+            for _ in 0..(3600.0 / 0.05) as usize {
+                let before = scene.track_s();
+                scene.update(0.05);
+                let speed = scene.speed_kmh();
+                assert!((speed - base).abs() <= 20.0 && (30.0..=160.0).contains(&speed));
+                lowest = lowest.min(speed);
+                highest = highest.max(speed);
+                // The car moves at the speed that is shown.
+                travelled += scene.track_s() - before;
+                assert!(((scene.track_s() - before) - f64::from(speed / 3.6 * 0.05)).abs() < 1e-6);
+            }
+            assert!(travelled > 0.0);
+            assert!(highest - lowest > 5.0, "{base}: {lowest} {highest}");
+        }
     }
 
     #[test]

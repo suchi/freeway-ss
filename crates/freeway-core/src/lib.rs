@@ -6,6 +6,7 @@
 #![forbid(unsafe_code)]
 
 pub mod canvas;
+pub mod cruise;
 pub mod i18n;
 pub mod mountains;
 pub mod projection;
