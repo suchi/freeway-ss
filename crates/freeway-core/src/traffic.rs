@@ -200,8 +200,8 @@ impl Car {
         self.braking_left > 0.0
     }
 
-    /// How fast the car approaches the camera, in meters per second
-    /// (negative while it pulls away).
+    /// How fast the car's distance ahead of the camera changes, in meters
+    /// per second: positive while it pulls away, negative while it closes in.
     fn rel_velocity(&self, own_speed: f32) -> f32 {
         match self.kind {
             Kind::Lead => {
