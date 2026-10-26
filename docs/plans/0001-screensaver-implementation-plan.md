@@ -86,13 +86,13 @@ AGENTS.mdの方針「2026年10月現在で最も一般的かつオープンソ�
 | 案 | 構成 | 長所 | 短所 |
 | --- | --- | --- | --- |
 | A(推奨) | Rust + `windows`クレート(Microsoft公式) + Direct2D | 言語・ツールチェーン・バインディングがすべてOSSで無償。ランタイム不要の単一exeを小さく作れる(CRT静的リンク)。Direct2Dが加算合成・放射/線形グラデーションを備え、本家のCanvas 2D描画と対応付けやすい。ロジックをOS非依存クレートに分けてLinuxでもテストできる | 設定画面をWin32 APIで作る必要があり、GUIフレームワークに比べてコード量が増える。Win32/COMの`unsafe`呼び出しが増える |
-| B | C# / .NET 10(LTS) + Windows Forms(設定画面) + Direct2Dバインディング(Vortice.Windows等) | Windowsデスクトップ開発で最も一般的な構成の一つ。設定画面をWindows Formsで容易に作れる | ランタイム不要の単一ファイルは自己完結型の単一ファイル発行(`SelfContained`・`PublishSingleFile`・`IncludeNativeLibrariesForSelfExtract`)で作れる。ただしWindows FormsはNative AOT・トリミングに公式対応していないため、ランタイムとフレームワークライブラリを丸ごと含み配布サイズが大きくなる。またネイティブライブラリは起動前に`%TEMP%\.net`配下へ展開される |
+| B | C# / .NET 10(LTS) + Windows Forms(設定画面) + Direct2Dバインディング(Vortice.Windows等) | Windowsデスクトップ開発で最も一般的な構成の一つ。設定画面をWindows Formsで容易に作れる | ランタイム不要の単一ファイルは自己完結型の単一ファイル発行(`SelfContained`・`PublishSingleFile`・`IncludeNativeLibrariesForSelfExtract`)で作れる。ただしWindows FormsはNative AOT・トリミングに公式対応していないため、ランタイムとフレームワークライブラリを丸ごと含み配布サイズが大きくなる。またネイティブライブラリは初回起動時(または展開済みファイルの欠損時)に`%TEMP%\.net`配下へ展開され、以後は再利用される |
 | C | C++ + Win32 + Direct2D | スクリーンセイバーの古典的な作り方で、Microsoftのサンプル・ドキュメントが最も多い | 標準的なツールチェーン(MSVC)はOSSではない。メモリ安全性・ビルド構成の管理コストが高い |
 | D | WebView2/Electron等で本家HTMLを包む | 見た目を最も忠実に再現できる | 本家の実装をそのまま使うことになり、「アルゴリズムや実装方法は言語やエコシステムに合わせて独自に作成する」方針に合わない。プレビュー(`/p`)の子ウィンドウ描画・配布サイズに難がある |
 
 推奨理由(案A):
 
-- 配布性: 案A・案Bとも「ランタイム不要の単一`.scr`」は作れる。ただし案Bは自己完結型の単一ファイル発行が前提で、トリミングできないため配布サイズが大きく、起動のたびにネイティブライブラリの一時フォルダへの展開(圧縮を有効にした場合はメモリ上での展開も)が伴う。スクリーンセイバーは起動・終了を頻繁に繰り返すため、小さく展開の要らない案Aのほうが適すると判断した(付録の参照情報)。両案の具体的なサイズ・起動時間は未計測であり、案Bを選ぶ場合はPhase 0で計測する。
+- 配布性: 案A・案Bとも「ランタイム不要の単一`.scr`」は作れる。ただし案Bは自己完結型の単一ファイル発行が前提で、トリミングできないため配布サイズが大きい。ネイティブライブラリのディスクへの展開は初回起動時と展開済みファイルの欠損時(一時フォルダの掃除後など)に限られ、通常は再利用される。一方、サイズ削減のためにアセンブリの圧縮(`EnableCompressionInSingleFile`)を有効にすると、起動のたびにメモリ上での展開が必要になる。配布サイズが小さく、一時フォルダへのファイル書き出しも起動時の展開も要らない案Aのほうが配布性で優ると判断した(付録の参照情報)。両案の具体的なサイズ・起動時間は未計測であり、案Bを選ぶ場合はPhase 0で計測する。
 - 描画の対応関係: Direct2D 1.1の`D2D1_PRIMITIVE_BLEND_ADD`で加算合成ができ、本家の`globalCompositeOperation = 'lighter'`と同じ考え方で描ける。
 - 一般性・入手性: Rustは2026年10月時点で安定版1.99.1が提供されており、Windows APIバインディングもMicrosoftが`microsoft/windows-rs`として公開・保守している(MIT OR Apache-2.0)。
 
@@ -329,6 +329,7 @@ flowchart LR
 - [crates.io: windows](https://crates.io/crates/windows): 最新安定版0.62.2(2025-10-06公開)、MIT OR Apache-2.0、リポジトリ`microsoft/windows-rs`
 - [dotnet/core releases-index.json](https://github.com/dotnet/core/blob/main/release-notes/releases-index.json): .NET 10はLTS(サポート終了2028-11-14)
 - [Single-file deployment (dotnet/docs)](https://github.com/dotnet/docs/blob/main/docs/core/deploying/single-file/overview.md): 自己完結型でも単一ファイル発行が可能だが、ランタイムとフレームワークライブラリを含むためサイズが大きい。`IncludeNativeLibrariesForSelfExtract`使用時、Windowsでは`%TEMP%/.net`配下に展開される。`EnableCompressionInSingleFile`は起動時の展開コストを伴う
+- [dotnet/runtime v10.0.0 `src/native/corehost/bundle/extractor.cpp`](https://github.com/dotnet/runtime/blob/v10.0.0/src/native/corehost/bundle/extractor.cpp): ディスクへの展開は初回起動時に行われ、以後の起動では展開済みファイルが再利用される(欠損したファイルは再展開される)
 - [Known trimming incompatibilities (Microsoft Learn)](https://learn.microsoft.com/en-us/dotnet/core/deploying/trimming/incompatibilities)および[dotnet/winforms#9911](https://github.com/dotnet/winforms/issues/9911): Windows Formsはトリミング(Native AOTの前提)に公式対応していない。Microsoft Learnのページは本環境から直接取得できず検索結果の要約で確認したため、案B採用時は再確認が必要
 
 スクリーンセイバーの引数(`/s`・`/c`・`/p`)の形式は、上記Microsoft Learnのページには明記がなく、古いサポート技術情報と広く知られた慣例に基づく。Phase 1で実機のスクリーンセイバー設定画面から渡される引数を記録して確認する。
