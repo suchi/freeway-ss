@@ -125,6 +125,10 @@ fn draw_frame(
     Ok(visible)
 }
 
+/// Average seconds between UFO visits in a build with the `ufo-demo` feature.
+#[cfg(feature = "ufo-demo")]
+const UFO_DEMO_MEAN_SECONDS: f32 = 20.0;
+
 /// One scene per window, each with its own road.
 fn create_scenes(count: usize, settings: &Settings) -> Vec<Scene> {
     let nanos = SystemTime::now()
@@ -132,10 +136,14 @@ fn create_scenes(count: usize, settings: &Settings) -> Vec<Scene> {
         .map_or(0, |elapsed| elapsed.as_nanos() as u64);
     (0..count)
         .map(|index| {
-            Scene::new(
-                settings
-                    .scene_config(nanos ^ (index as u64 + 1).wrapping_mul(0x9E37_79B9_7F4A_7C15)),
-            )
+            let seed = nanos ^ (index as u64 + 1).wrapping_mul(0x9E37_79B9_7F4A_7C15);
+            let config = settings.scene_config(seed);
+            #[cfg(feature = "ufo-demo")]
+            let config = freeway_core::SceneConfig {
+                ufo_mean_interval: config.ufo_mean_interval.map(|_| UFO_DEMO_MEAN_SECONDS),
+                ..config
+            };
+            Scene::new(config)
         })
         .collect()
 }

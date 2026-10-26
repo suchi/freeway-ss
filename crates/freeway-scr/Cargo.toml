@@ -8,6 +8,11 @@ license.workspace = true
 repository.workspace = true
 publish = false
 
+[features]
+# For checking the UFO on a real screen: visits come every 20 seconds on average
+# instead of every 10 minutes. Never enabled for releases.
+ufo-demo = []
+
 [dependencies]
 freeway-core = { path = "../freeway-core" }
 
