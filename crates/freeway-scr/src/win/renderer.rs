@@ -6,6 +6,8 @@ use std::mem::ManuallyDrop;
 use freeway_core::canvas::GLOW_HALO_RATIO;
 use freeway_core::{Canvas, Rgb, Scene, Viewport};
 
+use crate::speedometer;
+
 use windows::Win32::Foundation::{
     D2DERR_RECREATE_TARGET, DXGI_STATUS_OCCLUDED, HMODULE, HWND, RECT,
 };
@@ -31,9 +33,11 @@ use windows::Win32::Graphics::Direct3D11::{
     D3D11_CREATE_DEVICE_BGRA_SUPPORT, D3D11_SDK_VERSION, D3D11CreateDevice, ID3D11Device,
 };
 use windows::Win32::Graphics::DirectWrite::{
-    DWRITE_FACTORY_TYPE_SHARED, DWRITE_FONT_STRETCH_NORMAL, DWRITE_FONT_STYLE_NORMAL,
-    DWRITE_FONT_WEIGHT_NORMAL, DWRITE_LINE_METRICS, DWRITE_TEXT_METRICS,
-    DWRITE_WORD_WRAPPING_NO_WRAP, DWriteCreateFactory, IDWriteFactory, IDWriteTextLayout,
+    DWRITE_FACTORY_TYPE_SHARED, DWRITE_FONT_FEATURE, DWRITE_FONT_FEATURE_TAG_TABULAR_FIGURES,
+    DWRITE_FONT_STRETCH, DWRITE_FONT_STRETCH_NORMAL, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_WEIGHT,
+    DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_WEIGHT_SEMI_LIGHT, DWRITE_LINE_METRICS,
+    DWRITE_TEXT_METRICS, DWRITE_TEXT_RANGE, DWRITE_WORD_WRAPPING_NO_WRAP, DWriteCreateFactory,
+    IDWriteFactory, IDWriteTextLayout,
 };
 use windows::Win32::Graphics::Dxgi::Common::{
     DXGI_ALPHA_MODE_IGNORE, DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_FORMAT_UNKNOWN, DXGI_SAMPLE_DESC,
@@ -46,7 +50,7 @@ use windows::Win32::Graphics::Dxgi::{
 };
 use windows::Win32::UI::HiDpi::GetDpiForWindow;
 use windows::Win32::UI::WindowsAndMessaging::GetClientRect;
-use windows::core::{Error, Interface, Result, w};
+use windows::core::{Error, Interface, PCWSTR, Result, w};
 use windows_numerics::{Matrix3x2, Vector2};
 
 /// Background color of the night sky (#02030a).
@@ -57,8 +61,9 @@ const BACKGROUND: D2D1_COLOR_F = D2D1_COLOR_F {
     a: 1.0,
 };
 
-/// Speedometer text, in pixels at a `pixel_scale` of 1. The number is large
-/// and the unit small, both in amber like the dashboard of the original.
+/// Speedometer text, in pixels at a scale of 1 (see `speedometer::scale`).
+/// The number is large and the unit small, both in amber like the dashboard of
+/// the original.
 const SPEEDOMETER_MARGIN: f32 = 28.0;
 const SPEEDOMETER_NUMBER_SIZE: f32 = 56.0;
 const SPEEDOMETER_UNIT_SIZE: f32 = 20.0;
@@ -71,6 +76,23 @@ const SPEEDOMETER_COLOR: D2D1_COLOR_F = D2D1_COLOR_F {
     g: 176.0 / 255.0,
     b: 0.0,
     a: 1.0,
+};
+
+/// Bahnschrift, a DIN-style face that ships with Windows 10 version 1709 and
+/// later. Where it is missing DirectWrite substitutes another face.
+const SPEEDOMETER_FONT: PCWSTR = w!("Bahnschrift");
+
+/// A light number looks clean at a large size; the small unit is a regular
+/// weight so that it stays legible at its lower opacity.
+const NUMBER_FACE: Face = Face {
+    weight: DWRITE_FONT_WEIGHT_SEMI_LIGHT,
+    stretch: DWRITE_FONT_STRETCH_NORMAL,
+    tabular_figures: true,
+};
+const UNIT_FACE: Face = Face {
+    weight: DWRITE_FONT_WEIGHT_NORMAL,
+    stretch: DWRITE_FONT_STRETCH_NORMAL,
+    tabular_figures: false,
 };
 
 /// Returns whether `error` means the GPU device is gone and every device
@@ -96,12 +118,12 @@ pub struct Renderer {
     streak_style: ID2D1StrokeStyle,
     dwrite_factory: IDWriteFactory,
     speedometer_brush: ID2D1SolidColorBrush,
-    /// Laid out text per (speed, pixel scale); a window on another monitor
-    /// may have another scale.
+    /// Laid out text per (speed, scale); windows of another size or on another
+    /// monitor may have another scale.
     speedometer_text: HashMap<(u32, u32), SpeedometerText>,
 }
 
-/// The text of the speedometer, laid out for one speed and pixel scale.
+/// The text of the speedometer, laid out for one speed and scale.
 struct SpeedometerText {
     number: IDWriteTextLayout,
     unit: IDWriteTextLayout,
@@ -272,14 +294,17 @@ impl Renderer {
     /// Draws the speed over the scene with normal blending. Errors are
     /// returned for the caller to report after `EndDraw`.
     fn draw_speedometer(&mut self, speed_kmh: u32, viewport: Viewport) -> Result<()> {
-        let key = (speed_kmh, viewport.pixel_scale.to_bits());
+        let scale = speedometer::scale(viewport.height, viewport.pixel_scale);
+        if scale <= 0.0 {
+            return Ok(());
+        }
+        let key = (speed_kmh, scale.to_bits());
         if !self.speedometer_text.contains_key(&key) {
-            let text = SpeedometerText::new(&self.dwrite_factory, speed_kmh, viewport.pixel_scale)?;
+            let text = SpeedometerText::new(&self.dwrite_factory, speed_kmh, scale)?;
             // The speed does not change while running, so this stays small.
             self.speedometer_text.insert(key, text);
         }
         let text = &self.speedometer_text[&key];
-        let scale = viewport.pixel_scale;
         let left = SPEEDOMETER_MARGIN * scale;
         let bottom = viewport.height - SPEEDOMETER_MARGIN * scale;
         let number_top = bottom - text.number_height;
@@ -352,14 +377,15 @@ impl Renderer {
 }
 
 impl SpeedometerText {
-    fn new(factory: &IDWriteFactory, speed_kmh: u32, pixel_scale: f32) -> Result<Self> {
+    fn new(factory: &IDWriteFactory, speed_kmh: u32, scale: f32) -> Result<Self> {
         let (number, number_metrics, number_baseline) = layout(
             factory,
             &speed_kmh.to_string(),
-            SPEEDOMETER_NUMBER_SIZE * pixel_scale,
+            SPEEDOMETER_NUMBER_SIZE * scale,
+            NUMBER_FACE,
         )?;
         let (unit, _, unit_baseline) =
-            layout(factory, "km/h", SPEEDOMETER_UNIT_SIZE * pixel_scale)?;
+            layout(factory, "km/h", SPEEDOMETER_UNIT_SIZE * scale, UNIT_FACE)?;
         Ok(Self {
             number,
             unit,
@@ -371,26 +397,51 @@ impl SpeedometerText {
     }
 }
 
-/// A single line of text in Segoe UI, with its size and baseline.
+/// The look of one line of the speedometer.
+#[derive(Clone, Copy)]
+struct Face {
+    weight: DWRITE_FONT_WEIGHT,
+    stretch: DWRITE_FONT_STRETCH,
+    /// Digits of equal width, so that the number does not shift when its
+    /// digits change (the speed can change in the settings).
+    tabular_figures: bool,
+}
+
+/// A single line of text in the speedometer font, with its size and baseline.
 fn layout(
     factory: &IDWriteFactory,
     text: &str,
     size: f32,
+    face: Face,
 ) -> Result<(IDWriteTextLayout, DWRITE_TEXT_METRICS, f32)> {
     let wide: Vec<u16> = text.encode_utf16().collect();
     unsafe {
         let format = factory.CreateTextFormat(
-            w!("Segoe UI"),
+            SPEEDOMETER_FONT,
             None,
-            DWRITE_FONT_WEIGHT_NORMAL,
+            face.weight,
             DWRITE_FONT_STYLE_NORMAL,
-            DWRITE_FONT_STRETCH_NORMAL,
+            face.stretch,
             size,
             w!("en-us"),
         )?;
         format.SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP)?;
         // The box is wide and tall enough that nothing is cut off.
         let layout = factory.CreateTextLayout(&wide, &format, size * 16.0, size * 2.0)?;
+        if face.tabular_figures {
+            let typography = factory.CreateTypography()?;
+            typography.AddFontFeature(DWRITE_FONT_FEATURE {
+                nameTag: DWRITE_FONT_FEATURE_TAG_TABULAR_FIGURES,
+                parameter: 1,
+            })?;
+            layout.SetTypography(
+                &typography,
+                DWRITE_TEXT_RANGE {
+                    startPosition: 0,
+                    length: wide.len() as u32,
+                },
+            )?;
+        }
         let mut metrics = DWRITE_TEXT_METRICS::default();
         layout.GetMetrics(&mut metrics)?;
         let mut line = [DWRITE_LINE_METRICS::default()];
