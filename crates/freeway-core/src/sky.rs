@@ -446,6 +446,9 @@ mod tests {
                 alpha,
             });
         }
+        fn beam(&mut self, _: f32, _: f32, _: f32, _: f32, _: f32, _: Rgb, _: f32, _: f32) {
+            unreachable!("the sky has no beams");
+        }
     }
 
     fn view(width: f32, height: f32) -> SkyView {

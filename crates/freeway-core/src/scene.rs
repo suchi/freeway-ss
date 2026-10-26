@@ -418,6 +418,12 @@ mod tests {
             width: f32,
             alpha: f32,
         },
+        Beam {
+            center_x: f32,
+            top_y: f32,
+            bottom_y: f32,
+            alpha: f32,
+        },
     }
 
     impl Command {
@@ -428,7 +434,7 @@ mod tests {
                 | Command::Pool { x, y, .. }
                 | Command::Dot { x, y, .. } => Some((x, y)),
                 Command::Streak { head, .. } => Some(head),
-                Command::Band { .. } => None,
+                Command::Band { .. } | Command::Beam { .. } => None,
             }
         }
 
@@ -477,6 +483,24 @@ mod tests {
                 alpha,
             });
         }
+        fn beam(
+            &mut self,
+            x: f32,
+            top: f32,
+            _: f32,
+            bottom: f32,
+            _: f32,
+            _: Rgb,
+            alpha: f32,
+            _: f32,
+        ) {
+            self.0.push(Command::Beam {
+                center_x: x,
+                top_y: top,
+                bottom_y: bottom,
+                alpha,
+            });
+        }
     }
 
     const VIEWPORT: Viewport = Viewport {
@@ -519,7 +543,9 @@ mod tests {
                         alpha,
                     } => ([x, y], alpha, [rx, ry]),
                     Command::Dot { x, y, size, alpha } => ([x, y], alpha, [size; 2]),
-                    Command::Band { alpha, .. } | Command::Streak { alpha, .. } => {
+                    Command::Band { alpha, .. }
+                    | Command::Streak { alpha, .. }
+                    | Command::Beam { alpha, .. } => {
                         assert!(alpha > 0.0 && alpha <= 1.0, "{command:?}");
                         continue;
                     }

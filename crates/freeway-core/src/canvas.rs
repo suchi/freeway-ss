@@ -35,4 +35,20 @@ pub trait Canvas {
     /// A line of `width` pixels fading from transparent at the tail to
     /// `alpha` at the head, for shooting stars.
     fn streak(&mut self, tail: (f32, f32), head: (f32, f32), width: f32, color: Rgb, alpha: f32);
+    /// A trapezoid of light, as a beam shining down from a ship. It spans
+    /// from `top_y` to `bottom_y`, centered on `center_x`, with half the
+    /// width at each end given by `top_half_width` and `bottom_half_width`.
+    /// Its opacity changes evenly from `top_alpha` to `bottom_alpha`.
+    #[allow(clippy::too_many_arguments)]
+    fn beam(
+        &mut self,
+        center_x: f32,
+        top_y: f32,
+        top_half_width: f32,
+        bottom_y: f32,
+        bottom_half_width: f32,
+        color: Rgb,
+        top_alpha: f32,
+        bottom_alpha: f32,
+    );
 }
