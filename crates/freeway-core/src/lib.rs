@@ -6,6 +6,7 @@
 #![forbid(unsafe_code)]
 
 pub mod canvas;
+pub mod i18n;
 pub mod projection;
 pub mod rng;
 pub mod road;
@@ -16,5 +17,6 @@ pub mod traffic;
 pub mod ufo;
 
 pub use canvas::{Canvas, Rgb};
+pub use i18n::{DisplayLanguage, Text};
 pub use scene::{Scene, SceneConfig, Viewport};
-pub use settings::Settings;
+pub use settings::{Language, Settings};
