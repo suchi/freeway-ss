@@ -435,6 +435,9 @@ mod tests {
             width: f32,
             alpha: f32,
         },
+        Silhouette {
+            points: Vec<(f32, f32)>,
+        },
         Beam {
             center_x: f32,
             top_y: f32,
@@ -451,7 +454,7 @@ mod tests {
                 | Command::Pool { x, y, .. }
                 | Command::Dot { x, y, .. } => Some((x, y)),
                 Command::Streak { head, .. } => Some(head),
-                Command::Band { .. } | Command::Beam { .. } => None,
+                Command::Band { .. } | Command::Silhouette { .. } | Command::Beam { .. } => None,
             }
         }
 
@@ -498,6 +501,11 @@ mod tests {
                 head,
                 width,
                 alpha,
+            });
+        }
+        fn silhouette(&mut self, points: &[(f32, f32)], _: Rgb) {
+            self.0.push(Command::Silhouette {
+                points: points.to_vec(),
             });
         }
         fn beam(
@@ -695,6 +703,7 @@ mod tests {
                         alpha,
                     } => ([x, y], alpha, [rx, ry]),
                     Command::Dot { x, y, size, alpha } => ([x, y], alpha, [size; 2]),
+                    Command::Silhouette { .. } => continue,
                     Command::Band { alpha, .. }
                     | Command::Streak { alpha, .. }
                     | Command::Beam { alpha, .. } => {

@@ -446,6 +446,9 @@ mod tests {
                 alpha,
             });
         }
+        fn silhouette(&mut self, _: &[(f32, f32)], _: Rgb) {
+            unreachable!("the sky has no silhouettes yet");
+        }
         fn beam(&mut self, _: f32, _: f32, _: f32, _: f32, _: f32, _: Rgb, _: f32, _: f32) {
             unreachable!("the sky has no beams");
         }

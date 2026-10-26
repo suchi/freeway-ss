@@ -519,6 +519,9 @@ mod tests {
         fn streak(&mut self, _: (f32, f32), _: (f32, f32), _: f32, _: Rgb, _: f32) {
             self.others += 1;
         }
+        fn silhouette(&mut self, _: &[(f32, f32)], _: Rgb) {
+            self.others += 1;
+        }
         fn beam(&mut self, _: f32, _: f32, _: f32, _: f32, _: f32, _: Rgb, _: f32, _: f32) {
             self.beams += 1;
         }
