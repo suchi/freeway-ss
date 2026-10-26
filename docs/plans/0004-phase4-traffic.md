@@ -1,6 +1,6 @@
 # Phase 4 詳細設計: 他車
 
-- ステータス: 作成済み(実装前)。全体計画のPhase 4の範囲で、新しい判断を含まない
+- ステータス: 実装済み(実機確認待ち)。全体計画のPhase 4の範囲で、新しい判断を含まない
 - 日付: 2026-10-26
 - 親計画: [実装計画](0001-screensaver-implementation-plan.md)の6章 Phase 4
 - 着手条件: Phase 3(背景)のマージ後に着手する(2026-10-26のユーザー判断。Phase 3と同じファイルを変更するため、並行させない)。Phase 3は`v0.3.0`としてリリース済みで、条件は満たしている
@@ -41,9 +41,9 @@ flowchart TB
   scene --> canvas["canvas: Canvas"]
 ```
 
-- 新しいモジュール`traffic.rs`に他車をまとめる。`Traffic::update(dt, track_s, own_speed)`で車を進め、`Traffic::lights(track_s)`で光の一覧を返す
+- 新しいモジュール`traffic.rs`に他車をまとめる。`Traffic::update(dt, own_speed)`で車を進め、`Traffic::lights()`で光の一覧を返す。車は自車からの相対位置で持つため、走行距離`track_s`は受け取らない(長時間でも精度が落ちない)
 - `Scene::update`から`Traffic::update`を呼び、`Scene`の光の一覧に他車の光を加える。奥から手前の順の並べ替えは道路の光と一緒に行う
-- Phase 4で`Canvas`への追加は不要の見込み(他車の光はすべて`glow`で描ける)。`freeway-scr`の変更も不要の見込み
+- `Canvas`への追加と`freeway-scr`の変更は不要だった。ただし前照灯の眩しさ(半径1.2 m)は、既存の光の最大半径(7 px)に抑えられて前照灯と区別できないため、`scene.rs`に`Kind::Glare`(最大半径28 px)を加えた
 
 ### 3.2 車の種類と動き(参考値)
 
