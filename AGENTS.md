@@ -2,8 +2,6 @@
 
 GitHub Copilot・Claude Code・Codexすべてに対する指示の単一ソース。指示の追加・変更は本ファイルに行う。エージェント固有ファイル(`CLAUDE.md`・`.github/copilot-instructions.md`)は薄いポインタに保つ。
 
-`TODO(project):`のプレースホルダは、テンプレートからリポジトリを作成したらテンプレートリポジトリのセットアップガイドに従って埋める。
-
 ## プロジェクト概要
 
 - mhatta氏の[nightfreeway](https://github.com/mhatta/nightfreeway) のWindows スクリーンセイバー
@@ -23,6 +21,7 @@ GitHub Copilot・Claude Code・Codexすべてに対する指示の単一ソー�
 | リント・フォーマット | `cargo fmt --all --check` と `cargo clippy --workspace --all-targets -- -D warnings` |
 | 型チェック           | `cargo check --workspace --all-targets` と `cargo check --workspace --all-targets --target x86_64-pc-windows-msvc` |
 | ビルド               | `cargo build --release -p freeway-scr`(配布用バイナリはWindows上でビルドする) |
+| 配布物の作成         | `cargo xtask dist [--target aarch64-pc-windows-msvc]`(Windowsのみ。`target/dist/`に`.scr`・zip・チェックサムを作る) |
 
 Windows固有のコードはLinux上でも`--target x86_64-pc-windows-msvc`付きの`cargo check`で型チェックできる(リンクはしない)。
 
@@ -78,7 +77,6 @@ Qiita、Zenn、note、AI生成記事、SEO目的の記事は、特定の記事�
 | コード内コメント                                   | 英語   |
 | ログ・エラーメッセージ・UIラベル                   | 英語   |
 
-<!-- TODO(project): UIラベル等を日本語にする場合はこの表を上書きする -->
 
 - 図はMermaidで書く。ASCIIアートの図は使わない。
 - ドキュメントに絵文字を使わない。
@@ -115,20 +113,22 @@ feat: add todo filter feature      ← 1行目: 英語・命令形・50文字以
 - 再レビュー目的のPRクローズ/再作成(再レビューはトリガーされず、履歴が壊れる)。
 - CI通過・マージ状態を確認する前の「完了」報告。未確認なら「プッシュ済み、CIの確認待ち」と報告する。
 
-## フェーズごとのリリース
+## リリース
 
-各フェーズの成果物をGitHub Releaseに残す。実装計画のPhase 6でタグ契機の自動リリースを整えるまでは、手動実行のワークフロー`.github/workflows/release.yml`を使う。
+成果物はGitHub Releaseで公開する。ワークフロー`.github/workflows/release.yml`が、`v*`のタグのプッシュで動く。
 
-- タグ: Phase Nを`v0.N.0`とする(Phase 1は`v0.1.0`)。Phase 6が完了するまでは「プレリリース」とする。リリースのタイトルにフェーズ名を入れる(例: `Phase 1: screensaver skeleton`)。
-- 成果物: x64の`NightFreewaySS.scr`・LICENSE・README.mdをまとめたzipと、SHA-256チェックサム。ARM64版の配布は最終リリース(Ver.1.0)から。
-- 手順: フェーズのPRをマージしたら、ユーザーの承認を得てから、Actionsの「Release」を`workflow_dispatch`で実行する。入力はタグ名・ビルドするコミットまたはブランチ・タイトル・プレリリースかどうか。さかのぼってのリリースでは、対象フェーズのマージコミットのSHAを指定する。
-- バージョン: `Cargo.toml`の`workspace.package.version`は、フェーズのPRの最初のコミットで`0.N.0`に更新する(`Cargo.lock`のワークスペースクレートも`cargo`で更新して同じコミットに含める)。リリースするバイナリのバージョンとタグ(`v0.N.0`)を一致させるため、リリースはバージョン更新後のコミットに対して行う。Phase 1は`0.1.0`、Phase 2はPR #7で`0.2.0`に更新した。
-- リリースの作成は公開操作なので、実行前に必ずユーザーの承認を取る。作成済みのタグ・リリースを削除・上書きする場合も同様。
+- バージョンとタグ: `vMAJOR.MINOR.PATCH`。Ver.1.0以降は、不具合の修正でPATCHを、機能の追加でMINORを上げる。リリースするPRの最初のコミットで`Cargo.toml`の`workspace.package.version`を上げ(`Cargo.lock`のワークスペースクレートも`cargo`で更新して同じコミットに含める)、タグと一致させる。ワークフローはzipの名前で一致を確かめる。Phase 1〜5は`v0.N.0`のプレリリースとして公開した(`v0.`で始まるタグはプレリリースになる)。
+- 成果物: x64とARM64それぞれのzip(`NightFreewaySS.scr`・LICENSE・`THIRD-PARTY-NOTICES.txt`・利用者向けの説明書`README.md`)と、`SHA256SUMS.txt`。`cargo xtask dist`で作る。zipの中身は`packaging/`にある。
+- リリース前の点検: 正式版を公開する前に、文書と実装の整合性、コードとワークフローのセキュリティ、使っている技術の新しさ(クールダウンを満たす最新版か)を点検する(2026-10-26のユーザー指示)。
+- 手順: リリースするPRをマージしたら、ユーザーの承認を得てから、`main`のマージコミットにタグを付けてプッシュする(`git tag vX.Y.Z <SHA>`、`git push origin vX.Y.Z`)。`main`に含まれないコミットのタグは公開されない。ワークフローが失敗したときは、Actionsの「Release」を`workflow_dispatch`で、既存のタグを指定して再実行する。
+- ワークフローの構成: ビルドするジョブは読み取り専用のトークンで動き、公開するジョブ(書き込み権限)はリポジトリや依存のコードを実行しない。この分離を崩さない。
+- タグのプッシュは公開操作なので、実行前に必ずユーザーの承認を取る。作成済みのタグ・リリースを削除・上書きする場合も同様。
 
 ## ドキュメント
 
 - README・本ファイル・`docs/`の記載を、コードの実態(コマンド名・構成・依存関係)と常に一致させる。ファイルの追加・削除・リネーム時は同じ変更の中でドキュメントも更新する。
 - ADR: 技術選択・設計判断は`docs/adr/`に記録する。運用ルール(上書き禁止・非推奨化手順・`Why:`コメント)は`docs/adr/README.md`に従う。
+- 利用者向けの文書(README・リリースノートなど)では、保証しないことは明示するが、利用者に行動や責任を求める表現(「〜してほしい」「自己責任で」など)は書かない。
 
 ## セキュリティ
 
@@ -137,6 +137,7 @@ feat: add todo filter feature      ← 1行目: 英語・命令形・50文字以
 - シークレット・トークン・認証情報をハードコードしない。`.env`等のシークレットファイルをコミットしない。シークレットの値を会話・ログ・PR本文に貼らない。
 - 外部入力は検証し、ファイルパス・ユーザー入力をサニタイズする。
 - 依存関係は安定版・メンテナンスされているものを使う。追加前にレジストリで実在・正確な名前を確認する(タイポスクワッティング対策)。
+- 使う技術(ツールチェーン・依存クレート・Actions・ランナー)は、クールダウン(公開から7日)を満たす範囲で最新に保つ。最新版を使うことが最初の防御で、クールダウンは公開直後の版を狙うサプライチェーン攻撃への備えである(2026-10-26のユーザー指示)。Dependabotの`cooldown`はローカルでの依存の追加・解決には効かないため、依存を追加・更新したら`Cargo.lock`の各版が公開から7日以上たっているかを確かめ、満たさなければ`cargo update -p <crate> --precise <version>`で合わせる。
 - 生成コードも通常の検証フローを通す。セキュリティに影響する変更(認証・権限・入力処理・暗号)はPR本文で明示する。
 
 エージェントの振る舞いについて:

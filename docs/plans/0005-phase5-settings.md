@@ -1,6 +1,6 @@
 # Phase 5 詳細設計: 設定画面と保存
 
-- ステータス: 実装済み(CI・実機確認待ち)
+- ステータス: 完了(実機確認済み)
 - 日付: 2026-10-26
 - 親計画: [実装計画](0001-screensaver-implementation-plan.md)の6章 Phase 5
 - 関連する決定: [ADR-0004](../adr/0004-store-settings-in-registry.md)(設定はレジストリに保存)、[ADR-0005](../adr/0005-embed-windows-resources-with-embed-resource.md)(リソースの埋め込みに`embed-resource`を使う。2026-10-26のユーザー判断)

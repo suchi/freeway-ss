@@ -104,7 +104,7 @@ AGENTS.mdの方針「2026年10月現在で最も一般的かつオープンソ�
 
 ### 5.1 構成
 
-Cargoワークスペースを2クレートに分ける。
+Cargoワークスペースを2クレートに分ける(計画時の構成。実際のモジュール構成はREADMEの構成表と各フェーズの詳細設計を参照。開発用の`xtask`クレートはPhase 6で追加した。[ADR-0006](../adr/0006-build-release-artifacts-with-cargo-xtask.md))。
 
 - `crates/freeway-core`: OS非依存のシーン計算と描画命令の生成。外部依存なしを目標にする
 - `crates/freeway-scr`: Windows固有部分(引数解析、ウィンドウ、Direct2D描画、設定画面、設定の保存)。成果物は`.exe`を`.scr`にリネームして配布する
@@ -208,7 +208,7 @@ MVPの項目は、本家の実行中の操作と表示(速度・通行方向・H
 | Phase 3: 背景 | 完了(実機確認済み) | [0003](0003-phase3-background.md) | [#8](https://github.com/suchi/freeway-ss/pull/8) | [v0.3.0](https://github.com/suchi/freeway-ss/releases/tag/v0.3.0) |
 | Phase 4: 他車 | 完了(実機確認済み) | [0004](0004-phase4-traffic.md) | [#11](https://github.com/suchi/freeway-ss/pull/11) | [v0.4.0](https://github.com/suchi/freeway-ss/releases/tag/v0.4.0) |
 | Phase 5: 設定画面と保存 | 完了(実機確認済み) | [0005](0005-phase5-settings.md) | [#12](https://github.com/suchi/freeway-ss/pull/12) | [v0.5.0](https://github.com/suchi/freeway-ss/releases/tag/v0.5.0) |
-| Phase 6: リリース | 未着手 | - | - | - |
+| Phase 6: リリース | 完了(実機確認済み) | [0006](0006-phase6-release.md) | [#14](https://github.com/suchi/freeway-ss/pull/14) | [v1.0.0](https://github.com/suchi/freeway-ss/releases/tag/v1.0.0)(正式版) |
 | Phase 7: 任意機能 | 未着手 | - | - | - |
 
 ```mermaid
@@ -286,7 +286,7 @@ flowchart LR
 - スリープ復帰・ディスプレイドライバ更新後の再描画
 - 4K表示時のフレームレートとCPU使用率
 
-検証コマンド表(Phase 0でAGENTS.mdに記入する案):
+検証コマンド表(Phase 0でAGENTS.mdに記入する案。現在の検証コマンドはAGENTS.mdを正とする):
 
 | 用途 | コマンド |
 | --- | --- |
@@ -296,7 +296,7 @@ flowchart LR
 | 型チェック | `cargo check --workspace --all-targets` |
 | ビルド | `cargo build --release -p freeway-scr` |
 
-`freeway-scr`のWindows固有コードは`cfg(windows)`で分離し、Linux上でもワークスペース全体のコマンドが失敗しないようにする(Windows固有コードの検査はWindowsランナーのCIで行う)。
+`freeway-scr`のWindows固有コードは`cfg(windows)`で分離し、Linux上でもワークスペース全体のコマンドが失敗しないようにする(Windows固有コードの検査はWindowsランナーのCIで行う。あわせて、Linux上でも`--target x86_64-pc-windows-msvc`付きの`cargo check`で型チェックする)。
 
 ## 8. 配布形態
 
@@ -335,7 +335,8 @@ flowchart LR
 | D6 | MVPの設定項目 | 巡航速度・通行方向・速度計の表示(5.4節) | 本書 |
 | D7 | UFO(イースターエッグ) | 後続フェーズで設定項目として実装する | 本書 |
 | D8 | 対応アーキテクチャ | x64とARM64。ARM64版の配布はVer.1.0から。それまでの各フェーズのリリースはx64のみ | 本書 |
-| D9 | フェーズごとのリリース | Phase Nを`v0.N.0`のプレリリースとし、手動実行のワークフローで作成する(AGENTS.mdの「フェーズごとのリリース」) | 本書 |
+| D9 | フェーズごとのリリース | Phase Nを`v0.N.0`のプレリリースとし、手動実行のワークフローで作成する(当時のAGENTS.mdの「フェーズごとのリリース」。Ver.1.0以降は「リリース」) | 本書 |
+| D10 | Phase 6の成果物のバージョン | 正式版`v1.0.0`(プレリリースにしない。x64とARM64を含む)。2026-10-26のユーザー判断 | [0006](0006-phase6-release.md) |
 
 検討時の選択肢:
 
