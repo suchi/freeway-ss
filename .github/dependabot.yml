@@ -49,6 +49,12 @@ updates:
     labels:
       - "dependencies"
     groups:
+      # Why: the crates of windows-rs share types (for example the numerics
+      # types passed to the windows APIs), so they are updated together.
+      windows-rs:
+        patterns:
+          - "windows"
+          - "windows-*"
       non-majors:
         update-types:
           - "minor"
