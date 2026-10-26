@@ -10,15 +10,18 @@ use windows::Win32::Foundation::{
     D2DERR_RECREATE_TARGET, DXGI_STATUS_OCCLUDED, HMODULE, HWND, RECT,
 };
 use windows::Win32::Graphics::Direct2D::Common::{
-    D2D1_ALPHA_MODE_IGNORE, D2D1_COLOR_F, D2D1_GRADIENT_STOP, D2D1_PIXEL_FORMAT,
+    D2D_RECT_F, D2D1_ALPHA_MODE_IGNORE, D2D1_COLOR_F, D2D1_GRADIENT_STOP, D2D1_PIXEL_FORMAT,
 };
 use windows::Win32::Graphics::Direct2D::{
     D2D1_BITMAP_OPTIONS_CANNOT_DRAW, D2D1_BITMAP_OPTIONS_TARGET, D2D1_BITMAP_PROPERTIES1,
-    D2D1_BUFFER_PRECISION_8BPC_UNORM, D2D1_COLOR_INTERPOLATION_MODE_STRAIGHT,
-    D2D1_COLOR_SPACE_SRGB, D2D1_DEVICE_CONTEXT_OPTIONS_NONE, D2D1_ELLIPSE, D2D1_EXTEND_MODE_CLAMP,
-    D2D1_FACTORY_TYPE_SINGLE_THREADED, D2D1_PRIMITIVE_BLEND_ADD, D2D1_PRIMITIVE_BLEND_SOURCE_OVER,
-    D2D1_RADIAL_GRADIENT_BRUSH_PROPERTIES, D2D1_UNIT_MODE_PIXELS, D2D1CreateFactory, ID2D1Bitmap1,
-    ID2D1DeviceContext, ID2D1Factory1, ID2D1Image, ID2D1RadialGradientBrush,
+    D2D1_BUFFER_PRECISION_8BPC_UNORM, D2D1_CAP_STYLE_ROUND, D2D1_COLOR_INTERPOLATION_MODE_STRAIGHT,
+    D2D1_COLOR_SPACE_SRGB, D2D1_DASH_STYLE_SOLID, D2D1_DEVICE_CONTEXT_OPTIONS_NONE, D2D1_ELLIPSE,
+    D2D1_EXTEND_MODE_CLAMP, D2D1_FACTORY_TYPE_SINGLE_THREADED, D2D1_LINE_JOIN_ROUND,
+    D2D1_LINEAR_GRADIENT_BRUSH_PROPERTIES, D2D1_PRIMITIVE_BLEND_ADD,
+    D2D1_PRIMITIVE_BLEND_SOURCE_OVER, D2D1_RADIAL_GRADIENT_BRUSH_PROPERTIES,
+    D2D1_STROKE_STYLE_PROPERTIES1, D2D1_UNIT_MODE_PIXELS, D2D1CreateFactory, ID2D1Bitmap1,
+    ID2D1DeviceContext, ID2D1Factory1, ID2D1GradientStopCollection1, ID2D1Image,
+    ID2D1RadialGradientBrush, ID2D1SolidColorBrush, ID2D1StrokeStyle,
 };
 use windows::Win32::Graphics::Direct3D::{
     D3D_DRIVER_TYPE, D3D_DRIVER_TYPE_HARDWARE, D3D_DRIVER_TYPE_WARP,
@@ -66,6 +69,9 @@ pub struct Renderer {
     context: ID2D1DeviceContext,
     glow_brushes: HashMap<Rgb, ID2D1RadialGradientBrush>,
     pool_brushes: HashMap<Rgb, ID2D1RadialGradientBrush>,
+    dot_brushes: HashMap<Rgb, ID2D1SolidColorBrush>,
+    /// Round caps, so that a shooting star has no square end.
+    streak_style: ID2D1StrokeStyle,
 }
 
 /// The swap chain of one window and the Direct2D bitmap that wraps its back buffer.
@@ -91,6 +97,21 @@ impl Renderer {
         let context = unsafe { d2d_device.CreateDeviceContext(D2D1_DEVICE_CONTEXT_OPTIONS_NONE)? };
         // Work in physical pixels; DPI scaling is applied by the scene itself.
         unsafe { context.SetUnitMode(D2D1_UNIT_MODE_PIXELS) };
+        let streak_style = unsafe {
+            d2d_factory.CreateStrokeStyle(
+                &D2D1_STROKE_STYLE_PROPERTIES1 {
+                    startCap: D2D1_CAP_STYLE_ROUND,
+                    endCap: D2D1_CAP_STYLE_ROUND,
+                    dashCap: D2D1_CAP_STYLE_ROUND,
+                    lineJoin: D2D1_LINE_JOIN_ROUND,
+                    miterLimit: 1.0,
+                    dashStyle: D2D1_DASH_STYLE_SOLID,
+                    dashOffset: 0.0,
+                    ..Default::default()
+                },
+                None,
+            )?
+        };
 
         Ok(Self {
             d3d_device,
@@ -98,6 +119,8 @@ impl Renderer {
             context,
             glow_brushes: HashMap::new(),
             pool_brushes: HashMap::new(),
+            dot_brushes: HashMap::new(),
+            streak_style: streak_style.into(),
         })
     }
 
@@ -167,6 +190,9 @@ impl Renderer {
             context,
             glow_brushes: &mut self.glow_brushes,
             pool_brushes: &mut self.pool_brushes,
+            dot_brushes: &mut self.dot_brushes,
+            streak_style: &self.streak_style,
+            width: viewport.width,
             error: None,
         };
         scene.draw(viewport, &mut canvas);
@@ -251,12 +277,18 @@ fn create_d3d_device() -> Result<ID3D11Device> {
     try_create(D3D_DRIVER_TYPE_HARDWARE).or_else(|_| try_create(D3D_DRIVER_TYPE_WARP))
 }
 
-/// Draws the scene's commands by filling a unit circle, scaled into place
-/// with the context transform, with a radial gradient brush per color.
+/// Draws the scene's commands. Lights fill a unit circle, scaled into place
+/// with the context transform, with a radial gradient brush per color; dots
+/// use a solid brush per color; the sky band and the shooting stars use a
+/// linear gradient brush made for each draw.
 struct D2dCanvas<'a> {
     context: &'a ID2D1DeviceContext,
     glow_brushes: &'a mut HashMap<Rgb, ID2D1RadialGradientBrush>,
     pool_brushes: &'a mut HashMap<Rgb, ID2D1RadialGradientBrush>,
+    dot_brushes: &'a mut HashMap<Rgb, ID2D1SolidColorBrush>,
+    streak_style: &'a ID2D1StrokeStyle,
+    /// Width of the drawing area, which the sky band spans.
+    width: f32,
     /// The first brush creation failure. `Canvas` cannot report errors, so
     /// the renderer checks this after the frame.
     error: Option<Error>,
@@ -354,6 +386,148 @@ impl Canvas for D2dCanvas<'_> {
             self.fill_unit_circle(&brush, x, y, radius_x, radius_y, alpha);
         }
     }
+
+    fn dot(&mut self, x: f32, y: f32, size: f32, color: Rgb, alpha: f32) {
+        let brush = match self.dot_brushes.get(&color) {
+            Some(brush) => brush.clone(),
+            None => match unsafe {
+                self.context
+                    .CreateSolidColorBrush(&color_f(color, 1.0), None)
+            } {
+                Ok(brush) => {
+                    self.dot_brushes.insert(color, brush.clone());
+                    brush
+                }
+                Err(e) => {
+                    self.error.get_or_insert(e);
+                    return;
+                }
+            },
+        };
+        let half = size * 0.5;
+        unsafe {
+            brush.SetOpacity(alpha);
+            self.context.SetTransform(&Matrix3x2::identity());
+            self.context.FillRectangle(
+                &D2D_RECT_F {
+                    left: x - half,
+                    top: y - half,
+                    right: x + half,
+                    bottom: y + half,
+                },
+                &brush,
+            );
+        }
+    }
+
+    fn sky_band(&mut self, top: f32, peak: f32, bottom: f32, color: Rgb, alpha: f32) {
+        if !(top < peak && peak < bottom) {
+            return;
+        }
+        let stops = [
+            (0.0, color_f(color, 0.0)),
+            ((peak - top) / (bottom - top), color_f(color, alpha)),
+            (1.0, color_f(color, 0.0)),
+        ];
+        let properties = D2D1_LINEAR_GRADIENT_BRUSH_PROPERTIES {
+            startPoint: Vector2 { X: 0.0, Y: top },
+            endPoint: Vector2 { X: 0.0, Y: bottom },
+        };
+        let brush = stop_collection(self.context, &stops).and_then(|collection| unsafe {
+            self.context
+                .CreateLinearGradientBrush(&properties, None, &collection)
+        });
+        match brush {
+            Ok(brush) => unsafe {
+                self.context.SetTransform(&Matrix3x2::identity());
+                self.context.FillRectangle(
+                    &D2D_RECT_F {
+                        left: 0.0,
+                        top,
+                        right: self.width,
+                        bottom,
+                    },
+                    &brush,
+                );
+            },
+            Err(e) => {
+                self.error.get_or_insert(e);
+            }
+        }
+    }
+
+    fn streak(&mut self, tail: (f32, f32), head: (f32, f32), width: f32, color: Rgb, alpha: f32) {
+        // A gradient needs two distinct points.
+        if (head.0 - tail.0).hypot(head.1 - tail.1) < 1.0 {
+            return;
+        }
+        let stops = [(0.0, color_f(color, 0.0)), (1.0, color_f(color, alpha))];
+        let properties = D2D1_LINEAR_GRADIENT_BRUSH_PROPERTIES {
+            startPoint: Vector2 {
+                X: tail.0,
+                Y: tail.1,
+            },
+            endPoint: Vector2 {
+                X: head.0,
+                Y: head.1,
+            },
+        };
+        let brush = stop_collection(self.context, &stops).and_then(|collection| unsafe {
+            self.context
+                .CreateLinearGradientBrush(&properties, None, &collection)
+        });
+        match brush {
+            Ok(brush) => unsafe {
+                self.context.SetTransform(&Matrix3x2::identity());
+                self.context.DrawLine(
+                    Vector2 {
+                        X: tail.0,
+                        Y: tail.1,
+                    },
+                    Vector2 {
+                        X: head.0,
+                        Y: head.1,
+                    },
+                    &brush,
+                    width,
+                    self.streak_style,
+                );
+            },
+            Err(e) => {
+                self.error.get_or_insert(e);
+            }
+        }
+    }
+}
+
+fn color_f(color: Rgb, alpha: f32) -> D2D1_COLOR_F {
+    D2D1_COLOR_F {
+        r: f32::from(color.r) / 255.0,
+        g: f32::from(color.g) / 255.0,
+        b: f32::from(color.b) / 255.0,
+        a: alpha,
+    }
+}
+
+/// Gradient stops from (position, color) pairs, interpolated without premultiplying.
+fn stop_collection(
+    context: &ID2D1DeviceContext,
+    stops: &[(f32, D2D1_COLOR_F)],
+) -> Result<ID2D1GradientStopCollection1> {
+    let stops: Vec<D2D1_GRADIENT_STOP> = stops
+        .iter()
+        .map(|&(position, color)| D2D1_GRADIENT_STOP { position, color })
+        .collect();
+    unsafe {
+        context.CreateGradientStopCollection(
+            &stops,
+            D2D1_COLOR_SPACE_SRGB,
+            D2D1_COLOR_SPACE_SRGB,
+            D2D1_BUFFER_PRECISION_8BPC_UNORM,
+            D2D1_EXTEND_MODE_CLAMP,
+            D2D1_COLOR_INTERPOLATION_MODE_STRAIGHT,
+        )
+    }
 }
 
 /// A unit-radius radial gradient of `color` centered on the origin.
@@ -366,27 +540,20 @@ fn create_brush(
         let value = f32::from(value) / 255.0;
         value + (1.0 - value) * whiteness
     };
-    let stops: Vec<D2D1_GRADIENT_STOP> = stops
+    let stops: Vec<(f32, D2D1_COLOR_F)> = stops
         .iter()
-        .map(|&(position, whiteness, a)| D2D1_GRADIENT_STOP {
-            position,
-            color: D2D1_COLOR_F {
+        .map(|&(position, whiteness, a)| {
+            let color = D2D1_COLOR_F {
                 r: channel(color.r, whiteness),
                 g: channel(color.g, whiteness),
                 b: channel(color.b, whiteness),
                 a,
-            },
+            };
+            (position, color)
         })
         .collect();
+    let collection = stop_collection(context, &stops)?;
     unsafe {
-        let collection = context.CreateGradientStopCollection(
-            &stops,
-            D2D1_COLOR_SPACE_SRGB,
-            D2D1_COLOR_SPACE_SRGB,
-            D2D1_BUFFER_PRECISION_8BPC_UNORM,
-            D2D1_EXTEND_MODE_CLAMP,
-            D2D1_COLOR_INTERPOLATION_MODE_STRAIGHT,
-        )?;
         context.CreateRadialGradientBrush(
             &D2D1_RADIAL_GRADIENT_BRUSH_PROPERTIES {
                 center: Vector2 { X: 0.0, Y: 0.0 },

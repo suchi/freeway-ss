@@ -27,4 +27,12 @@ pub trait Canvas {
     fn glow(&mut self, x: f32, y: f32, core_radius: f32, color: Rgb, alpha: f32);
     /// A soft elliptical pool of light lying on the road surface.
     fn light_pool(&mut self, x: f32, y: f32, radius_x: f32, radius_y: f32, color: Rgb, alpha: f32);
+    /// A tiny solid point of `size` pixels, for stars and distant city lights.
+    fn dot(&mut self, x: f32, y: f32, size: f32, color: Rgb, alpha: f32);
+    /// A full-width horizontal band whose opacity rises from 0 at `top` to
+    /// `alpha` at `peak` and falls back to 0 at `bottom`.
+    fn sky_band(&mut self, top: f32, peak: f32, bottom: f32, color: Rgb, alpha: f32);
+    /// A line of `width` pixels fading from transparent at the tail to
+    /// `alpha` at the head, for shooting stars.
+    fn streak(&mut self, tail: (f32, f32), head: (f32, f32), width: f32, color: Rgb, alpha: f32);
 }

@@ -1,8 +1,11 @@
-//! The scene: advances the journey and draws the lights of the road.
+//! The scene: advances the journey and draws the sky and the lights of the road.
+
+use std::f64::consts::TAU;
 
 use crate::canvas::{Canvas, GLOW_HALO_RATIO, Rgb};
 use crate::projection::{CAMERA_HEIGHT, NEAR_DISTANCE, Projector, VIEW_DISTANCE};
 use crate::road::{RoadShape, RoadView};
+use crate::sky::{Sky, SkyView};
 
 /// Longest time step the scene accepts, in seconds. A longer pause (for
 /// example after the machine slept) must not make the road jump.
@@ -184,6 +187,11 @@ pub struct Scene {
     road: RoadShape,
     /// Distance travelled. `f64` so that hours of driving keep sub-meter precision.
     track_s: f64,
+    /// How far the car has turned, in radians, kept near `0..TAU` (float rounding can give `TAU` itself).
+    heading: f64,
+    /// Seconds of (capped) steps since the start.
+    time: f64,
+    sky: Sky,
 }
 
 impl Scene {
@@ -192,11 +200,23 @@ impl Scene {
             config,
             road: RoadShape::new(config.seed),
             track_s: 0.0,
+            heading: 0.0,
+            time: 0.0,
+            sky: Sky::new(config.seed),
         }
     }
 
     pub fn track_s(&self) -> f64 {
         self.track_s
+    }
+
+    pub fn heading(&self) -> f64 {
+        self.heading
+    }
+
+    /// Number of shooting stars in the sky now.
+    pub fn meteors_visible(&self) -> usize {
+        self.sky.meteors_visible()
     }
 
     /// Moves the car forward by `dt` seconds (capped at `MAX_STEP_SECONDS`).
@@ -206,10 +226,16 @@ impl Scene {
         } else {
             0.0
         };
-        self.track_s += f64::from(self.config.speed_kmh / 3.6 * dt);
+        let step = f64::from(self.config.speed_kmh / 3.6 * dt);
+        // The car turns by the curvature of the road it is driving on.
+        let turn = f64::from(self.road.curvature_at(self.track_s)) * step;
+        self.heading = (self.heading + turn).rem_euclid(TAU);
+        self.track_s += step;
+        self.time += f64::from(dt);
+        self.sky.update(self.time, self.heading);
     }
 
-    /// Draws the lights of the road from far to near.
+    /// Draws the sky, then the lights of the road from far to near.
     pub fn draw(&self, viewport: Viewport, canvas: &mut dyn Canvas) {
         // `clamp` below panics on a negative or NaN scale.
         let pixel_scale = if viewport.pixel_scale.is_finite() && viewport.pixel_scale > 0.0 {
@@ -227,6 +253,23 @@ impl Scene {
             self.config.left_hand_traffic,
         );
         let view = RoadView::new(&self.road, self.track_s);
+
+        self.sky.draw(
+            &SkyView {
+                width: viewport.width,
+                height: viewport.height,
+                pixel_scale,
+                focal: projector.focal(),
+                side: if self.config.left_hand_traffic {
+                    1.0
+                } else {
+                    -1.0
+                },
+                heading: self.heading,
+                time: self.time,
+            },
+            canvas,
+        );
 
         for light in &self.lights() {
             let (bend, rise) = view.offset(light.d);
@@ -329,6 +372,41 @@ mod tests {
             ry: f32,
             alpha: f32,
         },
+        Dot {
+            x: f32,
+            y: f32,
+            size: f32,
+            alpha: f32,
+        },
+        Band {
+            top: f32,
+            peak: f32,
+            bottom: f32,
+            alpha: f32,
+        },
+        Streak {
+            tail: (f32, f32),
+            head: (f32, f32),
+            width: f32,
+            alpha: f32,
+        },
+    }
+
+    impl Command {
+        /// The command's anchor on the screen, if it has a single one.
+        fn position(&self) -> Option<(f32, f32)> {
+            match *self {
+                Command::Glow { x, y, .. }
+                | Command::Pool { x, y, .. }
+                | Command::Dot { x, y, .. } => Some((x, y)),
+                Command::Streak { head, .. } => Some(head),
+                Command::Band { .. } => None,
+            }
+        }
+
+        fn is_sky(&self) -> bool {
+            !matches!(self, Command::Pool { .. })
+        }
     }
 
     #[derive(Default)]
@@ -349,6 +427,25 @@ mod tests {
                 y,
                 rx,
                 ry,
+                alpha,
+            });
+        }
+        fn dot(&mut self, x: f32, y: f32, size: f32, _: Rgb, alpha: f32) {
+            self.0.push(Command::Dot { x, y, size, alpha });
+        }
+        fn sky_band(&mut self, top: f32, peak: f32, bottom: f32, _: Rgb, alpha: f32) {
+            self.0.push(Command::Band {
+                top,
+                peak,
+                bottom,
+                alpha,
+            });
+        }
+        fn streak(&mut self, tail: (f32, f32), head: (f32, f32), width: f32, _: Rgb, alpha: f32) {
+            self.0.push(Command::Streak {
+                tail,
+                head,
+                width,
                 alpha,
             });
         }
@@ -377,6 +474,8 @@ mod tests {
             let commands = record(&scene, VIEWPORT);
             assert!(!commands.is_empty());
             for command in &commands {
+                // The sky keeps its own tests of the geometry; here only
+                // the road's lights are checked for what lies off screen.
                 let (values, alpha, radii) = match *command {
                     Command::Glow {
                         x,
@@ -391,6 +490,11 @@ mod tests {
                         ry,
                         alpha,
                     } => ([x, y], alpha, [rx, ry]),
+                    Command::Dot { x, y, size, alpha } => ([x, y], alpha, [size; 2]),
+                    Command::Band { alpha, .. } | Command::Streak { alpha, .. } => {
+                        assert!(alpha > 0.0 && alpha <= 1.0, "{command:?}");
+                        continue;
+                    }
                 };
                 assert!(
                     values.iter().chain(&radii).all(|v| v.is_finite()),
@@ -411,6 +515,20 @@ mod tests {
     }
 
     #[test]
+    fn the_sky_is_drawn_before_the_road() {
+        let mut scene = Scene::new(SceneConfig::default());
+        scene.update(0.03);
+        let commands = record(&scene, VIEWPORT);
+        let first_road = commands.iter().position(|c| !c.is_sky()).unwrap();
+        assert!(first_road > 100);
+        assert!(commands[first_road..].iter().all(|c| !matches!(
+            c,
+            Command::Dot { .. } | Command::Band { .. } | Command::Streak { .. }
+        )));
+        assert!(matches!(commands[0], Command::Band { .. }));
+    }
+
+    #[test]
     fn right_hand_traffic_mirrors_the_picture() {
         let left = Scene::new(SceneConfig::default());
         let right = Scene::new(SceneConfig {
@@ -421,13 +539,68 @@ mod tests {
         assert_eq!(a.len(), b.len());
         // Every light lands on the mirrored side of the screen center.
         for (left, right) in a.iter().zip(&b) {
-            match (left, right) {
-                (Command::Glow { x: xl, y: yl, .. }, Command::Glow { x: xr, y: yr, .. })
-                | (Command::Pool { x: xl, y: yl, .. }, Command::Pool { x: xr, y: yr, .. }) => {
-                    assert!((xl + xr - VIEWPORT.width).abs() < 1e-2 && yl == yr);
-                }
-                _ => panic!("commands differ in kind"),
+            assert_eq!(std::mem::discriminant(left), std::mem::discriminant(right));
+            if let (Some((xl, yl)), Some((xr, yr))) = (left.position(), right.position()) {
+                assert!((xl + xr - VIEWPORT.width).abs() < 1e-2 && yl == yr);
             }
+        }
+    }
+
+    /// Far road lights bend one way on the screen and the backdrop slides
+    /// the other way, for both traffic sides.
+    #[test]
+    fn the_backdrop_turns_against_the_bend_of_the_road() {
+        for left_hand_traffic in [true, false] {
+            let side = if left_hand_traffic { 1.0f32 } else { -1.0 };
+            let mut checked = 0;
+            for seed in 0..40 {
+                let mut scene = Scene::new(SceneConfig {
+                    seed,
+                    left_hand_traffic,
+                    ..Default::default()
+                });
+                scene.update(0.016);
+                let curvature = scene.road.curvature_at(scene.track_s);
+                if curvature.abs() < 0.001 {
+                    continue;
+                }
+                // Where the road just ahead lies on the screen. Far ahead it
+                // may bend the other way than at the car.
+                let projector = Projector::new(1280.0, 720.0, left_hand_traffic);
+                let (bend, rise) = RoadView::new(&scene.road, scene.track_s).offset(20.0);
+                let straight = projector.project(20.0, 0.0, 0.0).unwrap().x;
+                let road_x = projector.project(20.0, bend, rise).unwrap().x - straight;
+                // Where a fixed point of the backdrop goes while turning.
+                let view = |scene: &Scene| SkyView {
+                    width: 1280.0,
+                    height: 720.0,
+                    pixel_scale: 1.0,
+                    focal: projector.focal(),
+                    side,
+                    heading: scene.heading(),
+                    time: 0.0,
+                };
+                let before = view(&scene).screen_x(0.0);
+                scene.update(0.05);
+                let moved = view(&scene).screen_x(0.0) - before;
+                assert!(road_x != 0.0 && moved != 0.0);
+                assert!(road_x * moved < 0.0, "seed {seed}: {road_x} {moved}");
+                checked += 1;
+            }
+            assert!(checked > 5, "too few curved roads: {checked}");
+        }
+    }
+
+    #[test]
+    fn heading_stays_within_a_turn() {
+        let mut scene = Scene::new(SceneConfig {
+            seed: 3,
+            speed_kmh: 300.0,
+            ..Default::default()
+        });
+        for _ in 0..20_000 {
+            scene.update(0.05);
+            assert!((0.0..TAU).contains(&scene.heading()));
         }
     }
 
