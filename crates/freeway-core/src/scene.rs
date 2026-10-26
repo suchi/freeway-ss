@@ -29,6 +29,8 @@ pub struct SceneConfig {
     pub left_hand_traffic: bool,
     /// Average seconds between two UFO visits; `None` means no UFO.
     pub ufo_mean_interval: Option<f32>,
+    /// Whether mountains stand on the horizon.
+    pub mountains: bool,
     pub seed: u64,
 }
 
@@ -38,6 +40,7 @@ impl Default for SceneConfig {
             speed_kmh: 100.0,
             left_hand_traffic: true,
             ufo_mean_interval: None,
+            mountains: true,
             seed: 0,
         }
     }

@@ -48,6 +48,7 @@ pub enum Text {
     RightHandTraffic,
     Speedometer,
     Ufo,
+    Mountains,
     LanguageLabel,
     LanguageAuto,
     LanguageEnglish,
@@ -62,7 +63,7 @@ pub enum Text {
 
 impl Text {
     /// Every key, so that tests can check all of them.
-    pub const ALL: [Text; 15] = [
+    pub const ALL: [Text; 16] = [
         Text::DialogTitle,
         Text::SpeedLabel,
         Text::DrivingSideLabel,
@@ -70,6 +71,7 @@ impl Text {
         Text::RightHandTraffic,
         Text::Speedometer,
         Text::Ufo,
+        Text::Mountains,
         Text::LanguageLabel,
         Text::LanguageAuto,
         Text::LanguageEnglish,
@@ -105,6 +107,7 @@ impl Text {
             Text::RightHandTraffic => ("Right-hand traffic", "右側通行"),
             Text::Speedometer => ("Show speedometer", "速度計を表示する"),
             Text::Ufo => ("Show a UFO now and then", "ときどき UFO を表示する"),
+            Text::Mountains => ("Show distant mountains", "遠くの山並みを表示する"),
             Text::LanguageLabel => ("Language:", "言語:"),
             Text::LanguageAuto => (
                 "Automatic (Windows display language)",

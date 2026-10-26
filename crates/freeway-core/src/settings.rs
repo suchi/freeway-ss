@@ -55,6 +55,8 @@ pub struct Settings {
     pub show_speedometer: bool,
     /// Whether a UFO now and then crosses the sky.
     pub show_ufo: bool,
+    /// Whether mountains stand on the horizon.
+    pub show_mountains: bool,
     pub language: Language,
 }
 
@@ -65,6 +67,7 @@ impl Default for Settings {
             left_hand_traffic: true,
             show_speedometer: false,
             show_ufo: false,
+            show_mountains: true,
             language: Language::Auto,
         }
     }
@@ -81,6 +84,7 @@ impl Settings {
         left_hand_traffic: Option<u32>,
         show_speedometer: Option<u32>,
         show_ufo: Option<u32>,
+        show_mountains: Option<u32>,
         language: Option<u32>,
     ) -> Self {
         let defaults = Self::default();
@@ -91,6 +95,7 @@ impl Settings {
             left_hand_traffic: flag(left_hand_traffic).unwrap_or(defaults.left_hand_traffic),
             show_speedometer: flag(show_speedometer).unwrap_or(defaults.show_speedometer),
             show_ufo: flag(show_ufo).unwrap_or(defaults.show_ufo),
+            show_mountains: flag(show_mountains).unwrap_or(defaults.show_mountains),
             language: Language::from_raw(language).unwrap_or(defaults.language),
         }
     }
@@ -106,6 +111,7 @@ impl Settings {
             speed_kmh: self.speed_kmh as f32,
             left_hand_traffic: self.left_hand_traffic,
             ufo_mean_interval: self.show_ufo.then_some(UFO_MEAN_INTERVAL_SECONDS),
+            mountains: self.show_mountains,
             seed,
         }
     }
@@ -146,12 +152,15 @@ mod tests {
         assert_eq!(settings.speed_kmh, 100);
         assert!(settings.left_hand_traffic);
         assert!(!settings.show_speedometer);
-        assert_eq!(Settings::from_raw(None, None, None, None, None), settings);
+        assert_eq!(
+            Settings::from_raw(None, None, None, None, None, None),
+            settings
+        );
     }
 
     #[test]
     fn valid_values_are_kept() {
-        let settings = Settings::from_raw(Some(160), Some(0), Some(1), Some(1), Some(2));
+        let settings = Settings::from_raw(Some(160), Some(0), Some(1), Some(1), Some(0), Some(2));
         assert_eq!(
             settings,
             Settings {
@@ -159,11 +168,12 @@ mod tests {
                 left_hand_traffic: false,
                 show_speedometer: true,
                 show_ufo: true,
+                show_mountains: false,
                 language: Language::Japanese,
             }
         );
         assert_eq!(
-            Settings::from_raw(Some(30), None, None, None, None).speed_kmh,
+            Settings::from_raw(Some(30), None, None, None, None, None).speed_kmh,
             30
         );
     }
@@ -172,7 +182,7 @@ mod tests {
     fn invalid_speeds_fall_back_to_the_default() {
         for speed in [0, 20, 29, 35, 105, 161, 170, 1000, u32::MAX] {
             assert_eq!(
-                Settings::from_raw(Some(speed), None, None, None, None).speed_kmh,
+                Settings::from_raw(Some(speed), None, None, None, None, None).speed_kmh,
                 DEFAULT_SPEED_KMH,
                 "{speed}"
             );
@@ -182,18 +192,20 @@ mod tests {
     #[test]
     fn invalid_flags_fall_back_to_the_default() {
         for raw in [2, 3, u32::MAX] {
-            let settings = Settings::from_raw(None, Some(raw), Some(raw), Some(raw), None);
+            let settings =
+                Settings::from_raw(None, Some(raw), Some(raw), Some(raw), Some(raw), None);
             assert_eq!(settings, Settings::default(), "{raw}");
         }
     }
 
     #[test]
     fn each_setting_is_checked_on_its_own() {
-        let settings = Settings::from_raw(Some(999), Some(0), Some(7), Some(1), Some(1));
+        let settings = Settings::from_raw(Some(999), Some(0), Some(7), Some(1), Some(9), Some(1));
         assert_eq!(settings.speed_kmh, DEFAULT_SPEED_KMH);
         assert!(!settings.left_hand_traffic);
         assert!(!settings.show_speedometer);
         assert!(settings.show_ufo);
+        assert!(settings.show_mountains);
         assert_eq!(settings.language, Language::English);
     }
 
@@ -204,22 +216,24 @@ mod tests {
             left_hand_traffic: false,
             show_speedometer: true,
             show_ufo: false,
+            show_mountains: false,
             language: Language::Auto,
         };
         let config = settings.scene_config(42);
         assert_eq!(config.speed_kmh, 60.0);
         assert!(!config.left_hand_traffic);
         assert_eq!(config.seed, 42);
+        assert!(!config.mountains);
     }
 
     #[test]
     fn ufo_is_off_by_default_and_the_flag_is_checked() {
         assert!(!Settings::default().show_ufo);
-        assert!(Settings::from_raw(None, None, None, Some(1), None).show_ufo);
-        assert!(!Settings::from_raw(None, None, None, Some(0), None).show_ufo);
+        assert!(Settings::from_raw(None, None, None, Some(1), None, None).show_ufo);
+        assert!(!Settings::from_raw(None, None, None, Some(0), None, None).show_ufo);
         for raw in [2, 3, u32::MAX] {
             assert!(
-                !Settings::from_raw(None, None, None, Some(raw), None).show_ufo,
+                !Settings::from_raw(None, None, None, Some(raw), None, None).show_ufo,
                 "{raw}"
             );
         }
@@ -233,6 +247,20 @@ mod tests {
         };
         assert_eq!(on.scene_config(0).ufo_mean_interval, Some(600.0));
         assert_eq!(Settings::default().scene_config(0).ufo_mean_interval, None);
+    }
+
+    #[test]
+    fn mountains_are_on_by_default_and_the_flag_is_checked() {
+        assert!(Settings::default().show_mountains);
+        assert!(Settings::default().scene_config(0).mountains);
+        assert!(Settings::from_raw(None, None, None, None, Some(1), None).show_mountains);
+        assert!(!Settings::from_raw(None, None, None, None, Some(0), None).show_mountains);
+        for raw in [2, 3, u32::MAX] {
+            assert!(
+                Settings::from_raw(None, None, None, None, Some(raw), None).show_mountains,
+                "{raw}"
+            );
+        }
     }
 
     #[test]
@@ -288,7 +316,7 @@ mod tests {
         assert_eq!(Language::from_raw(None), None);
         for raw in [3, 4, 100, u32::MAX] {
             assert_eq!(Language::from_raw(Some(raw)), None, "{raw}");
-            let settings = Settings::from_raw(None, None, None, None, Some(raw));
+            let settings = Settings::from_raw(None, None, None, None, None, Some(raw));
             assert_eq!(settings.language, Language::Auto, "{raw}");
         }
     }
