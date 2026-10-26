@@ -8,9 +8,10 @@
 
 use std::collections::VecDeque;
 
-use crate::canvas::Rgb;
-use crate::projection::{NEAR_DISTANCE, VIEW_DISTANCE};
+use crate::canvas::{Canvas, Rgb};
+use crate::projection::{NEAR_DISTANCE, Projector, VIEW_DISTANCE};
 use crate::rng::hash01;
+use crate::road::RoadView;
 
 /// Length of a tunnel, in meters: 20 to 60 seconds at 100 km/h.
 const LENGTH: (f64, f64) = (550.0, 1650.0);
@@ -33,6 +34,31 @@ const HILL_HEIGHT: (f32, f32) = (25.0, 60.0);
 /// the lamps of the tunnel hang.
 const CLEARANCE_LATERAL: (f32, f32) = (-4.5, 4.5);
 const CLEARANCE_HEIGHT: f32 = 7.0;
+
+/// The entrance appears out of the night between these distances, in meters.
+const FADE_FAR: f32 = VIEW_DISTANCE;
+const FADE_NEAR: f32 = 450.0;
+/// The night sky behind everything (the renderer's background, #02030a).
+const BACKGROUND: Rgb = Rgb::new(2, 3, 10);
+/// The hill, as dark as the mountains on the horizon (#05070f).
+const HILL_COLOR: Rgb = Rgb::new(5, 7, 15);
+/// Inside the opening, darker still and tinted by the lamps.
+const SODIUM_DARK: Rgb = Rgb::new(10, 7, 5);
+const LED_DARK: Rgb = Rgb::new(6, 8, 12);
+
+/// The opening of a tunnel as seen from the front: lateral position and
+/// height of its corners, in meters. The top is rounded off.
+const OPENING: [(f32, f32); 7] = [
+    (-5.0, 0.0),
+    (-5.0, 5.6),
+    (-3.6, 6.6),
+    (0.25, 7.0),
+    (4.1, 6.6),
+    (5.5, 5.6),
+    (5.5, 0.0),
+];
+/// Number of steps from the foot of the hill to its top.
+const HILL_STEPS: usize = 16;
 
 const SODIUM_LAMP: Rgb = Rgb::new(255, 150, 40);
 const LED_LAMP: Rgb = Rgb::new(225, 235, 255);
@@ -101,6 +127,15 @@ pub struct Tunnel {
 }
 
 impl Tunnel {
+    /// The color of the dark inside of the opening seen from afar.
+    pub fn opening_color(&self) -> Rgb {
+        if self.lamp == SODIUM_LAMP {
+            SODIUM_DARK
+        } else {
+            LED_DARK
+        }
+    }
+
     /// Whether the point `s` meters along the road is inside the tunnel.
     pub fn contains(&self, s: f64) -> bool {
         self.start <= s && s < self.end
@@ -112,6 +147,51 @@ impl Tunnel {
 pub fn fits_through(lateral: f32, height: f32) -> bool {
     (CLEARANCE_LATERAL.0..=CLEARANCE_LATERAL.1).contains(&lateral)
         && (0.0..=CLEARANCE_HEIGHT).contains(&height)
+}
+
+/// Draws the hill around the entrance of `tunnel`, which is `d` meters ahead,
+/// and the opening in it. It stands in front of the sky and behind the lights.
+pub fn draw_entrance(
+    tunnel: &Tunnel,
+    d: f32,
+    projector: &Projector,
+    view: &RoadView,
+    canvas: &mut dyn Canvas,
+) {
+    let (bend, rise) = view.offset(d);
+    let project = |lateral: f32, height: f32| {
+        projector
+            .project(d, lateral + bend, height + rise)
+            .map(|p| (p.x, p.y))
+    };
+    // Fades in from the dark of the night so that it does not pop up far away.
+    let fade = ((FADE_FAR - d) / (FADE_FAR - FADE_NEAR)).clamp(0.0, 1.0);
+    let hill: Option<Vec<(f32, f32)>> = (0..=2 * HILL_STEPS)
+        .map(|step| {
+            let across = step as f32 / HILL_STEPS as f32 - 1.0;
+            // A bell that levels off at the foot of the hill on both sides.
+            let height = tunnel.hill_height * 0.5 * (1.0 + (across * std::f32::consts::PI).cos());
+            project(across * tunnel.hill_half_width, height)
+        })
+        .collect();
+    let opening: Option<Vec<(f32, f32)>> = OPENING
+        .iter()
+        .map(|&(lateral, height)| project(lateral, height))
+        .collect();
+    let (Some(hill), Some(opening)) = (hill, opening) else {
+        return;
+    };
+    canvas.silhouette(&hill, mix(BACKGROUND, HILL_COLOR, fade));
+    canvas.silhouette(&opening, mix(BACKGROUND, tunnel.opening_color(), fade));
+}
+
+fn mix(from: Rgb, to: Rgb, t: f32) -> Rgb {
+    let channel = |a: u8, b: u8| (f32::from(a) + (f32::from(b) - f32::from(a)) * t).round() as u8;
+    Rgb::new(
+        channel(from.r, to.r),
+        channel(from.g, to.g),
+        channel(from.b, to.b),
+    )
 }
 
 /// The tunnels of a road, from just behind the camera to just beyond its view.
@@ -187,6 +267,17 @@ impl Tunnels {
     pub fn hides(&self, track_s: f64, d: f32, lateral: f32, height: f32) -> bool {
         let at = track_s + f64::from(d);
         !fits_through(lateral, height) && self.ahead.iter().any(|t| t.start < at && t.end > track_s)
+    }
+
+    /// The tunnel whose entrance is in front of the camera at `track_s` and
+    /// within sight, with the distance to it.
+    pub fn entrance_ahead(&self, track_s: f64) -> Option<(&Tunnel, f32)> {
+        self.ahead.iter().find_map(|t| {
+            let d = (t.start - track_s) as f32;
+            (NEAR_DISTANCE..VIEW_DISTANCE)
+                .contains(&d)
+                .then_some((t, d))
+        })
     }
 
     /// The tunnel number `index`, which comes after the road up to `after`.

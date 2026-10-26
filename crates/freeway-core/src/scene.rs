@@ -7,7 +7,7 @@ use crate::projection::{CAMERA_HEIGHT, NEAR_DISTANCE, Projector, VIEW_DISTANCE};
 use crate::road::{RoadShape, RoadView};
 use crate::sky::{Sky, SkyView};
 use crate::traffic::{Traffic, TruckStyle};
-use crate::tunnel::{Tunnel, TunnelLighting, Tunnels};
+use crate::tunnel::{Tunnel, TunnelLighting, Tunnels, draw_entrance};
 use crate::ufo::Ufo;
 
 /// Longest time step the scene accepts, in seconds. A longer pause (for
@@ -369,6 +369,10 @@ impl Scene {
             // The UFO is far away: the lights of the road and of other cars lie in front of it.
             self.ufo.draw(&sky_view, canvas);
         }
+        // The hill of an entrance hides the sky behind it, but not the lights in front of it.
+        if let Some((tunnel, d)) = self.tunnels.entrance_ahead(self.track_s) {
+            draw_entrance(tunnel, d, &projector, &view, canvas);
+        }
 
         for light in &self.lights() {
             let (bend, rise) = view.offset(light.d);
@@ -564,6 +568,7 @@ mod tests {
         },
         Silhouette {
             points: Vec<(f32, f32)>,
+            color: Rgb,
         },
         Beam {
             center_x: f32,
@@ -630,9 +635,10 @@ mod tests {
                 alpha,
             });
         }
-        fn silhouette(&mut self, points: &[(f32, f32)], _: Rgb) {
+        fn silhouette(&mut self, points: &[(f32, f32)], color: Rgb) {
             self.0.push(Command::Silhouette {
                 points: points.to_vec(),
+                color,
             });
         }
         fn beam(
@@ -1057,6 +1063,8 @@ mod tests {
         let mut scene = Scene::new(SceneConfig {
             seed: 11,
             tunnels: lighting,
+            // The mountains are silhouettes too.
+            mountains: false,
             ..Default::default()
         });
         // The first tunnel is not in sight at the start: drive on until it is.
@@ -1236,6 +1244,132 @@ mod tests {
         });
         // The first tunnel is at least 1,000 meters away at the start.
         assert_eq!(record(&none, VIEWPORT), record(&mixed, VIEWPORT));
+    }
+
+    fn silhouettes(commands: &[Command]) -> Vec<(&Vec<(f32, f32)>, Rgb)> {
+        commands
+            .iter()
+            .filter_map(|c| match c {
+                Command::Silhouette { points, color } => Some((points, *color)),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn an_entrance_shows_a_hill_with_an_opening_within_sight() {
+        for before in [599.0, 500.0, 300.0, 100.0, 20.0, 1.5] {
+            let (scene, _) = near_first_tunnel(TunnelLighting::Led, before);
+            let commands = record(&scene, VIEWPORT);
+            let shapes = silhouettes(&commands);
+            assert_eq!(shapes.len(), 2, "{before}");
+            let (hill, opening) = (shapes[0].0, shapes[1].0);
+            assert!(hill.len() >= 3 && opening.len() >= 3);
+            assert!(
+                hill.iter()
+                    .chain(opening)
+                    .all(|(x, y)| x.is_finite() && y.is_finite()),
+                "{before}"
+            );
+            let top =
+                |points: &Vec<(f32, f32)>| points.iter().map(|p| p.1).fold(f32::MAX, f32::min);
+            let width = |points: &Vec<(f32, f32)>| {
+                let xs = points.iter().map(|p| p.0);
+                xs.clone().fold(f32::MIN, f32::max) - xs.fold(f32::MAX, f32::min)
+            };
+            // The hill rises above the opening and is far wider than it.
+            assert!(top(hill) < top(opening), "{before}");
+            assert!(width(hill) > 10.0 * width(opening), "{before}");
+        }
+    }
+
+    #[test]
+    fn there_is_no_entrance_far_away_or_once_it_is_passed() {
+        for before in [650.0, 601.0, 0.5, 0.0, -50.0, -400.0] {
+            let (scene, _) = near_first_tunnel(TunnelLighting::Led, before);
+            assert!(
+                silhouettes(&record(&scene, VIEWPORT)).is_empty(),
+                "{before}"
+            );
+        }
+        // And without tunnels there is never one.
+        let (mut scene, _) = near_first_tunnel(TunnelLighting::Led, 300.0);
+        scene.config.tunnels = TunnelLighting::None;
+        scene.tunnels = Tunnels::new(scene.config.seed, TunnelLighting::None);
+        assert!(silhouettes(&record(&scene, VIEWPORT)).is_empty());
+    }
+
+    #[test]
+    fn the_entrance_is_dark_and_tinted_by_the_lamps() {
+        let (led, _) = near_first_tunnel(TunnelLighting::Led, 300.0);
+        let (sodium, _) = near_first_tunnel(TunnelLighting::Sodium, 300.0);
+        let (led, sodium) = (record(&led, VIEWPORT), record(&sodium, VIEWPORT));
+        let (led, sodium) = (silhouettes(&led), silhouettes(&sodium));
+        // The hill is as dark as the mountains, the opening is darker still.
+        assert_eq!(led[0].1, Rgb::new(5, 7, 15));
+        assert_eq!(sodium[0].1, Rgb::new(5, 7, 15));
+        assert_eq!(led[1].1, Rgb::new(6, 8, 12));
+        assert_eq!(sodium[1].1, Rgb::new(10, 7, 5));
+    }
+
+    #[test]
+    fn the_entrance_fades_in_from_the_dark_of_the_night() {
+        let color_at = |before: f64| {
+            let (scene, _) = near_first_tunnel(TunnelLighting::Led, before);
+            let commands = record(&scene, VIEWPORT);
+            silhouettes(&commands)[0].1
+        };
+        let background = Rgb::new(2, 3, 10);
+        let far = color_at(599.9);
+        assert!(far.r.abs_diff(background.r) <= 1 && far.b.abs_diff(background.b) <= 1);
+        // Brightest channel (blue) rises steadily from 10 to 15.
+        let blues: Vec<u8> = [599.9, 560.0, 520.0, 480.0, 450.0]
+            .map(|d| color_at(d).b)
+            .to_vec();
+        assert!(blues.windows(2).all(|w| w[0] <= w[1]), "{blues:?}");
+        assert_eq!(color_at(450.0), Rgb::new(5, 7, 15));
+        assert_eq!(color_at(200.0), Rgb::new(5, 7, 15));
+    }
+
+    #[test]
+    fn the_entrance_is_drawn_after_the_sky_and_before_the_lights() {
+        // With the mountains on, the sky has silhouettes of its own.
+        let mut scene = Scene::new(SceneConfig {
+            seed: 11,
+            ..Default::default()
+        });
+        let mut s = 0.0;
+        while scene.tunnels.ahead().next().is_none() {
+            s += 500.0;
+            scene.tunnels.update(s);
+        }
+        let start = scene.tunnels.ahead().next().unwrap().start;
+        scene.track_s = start - 300.0;
+        scene.tunnels.update(scene.track_s);
+        let commands = record(&scene, VIEWPORT);
+        let hill_commands: Vec<usize> = commands
+            .iter()
+            .enumerate()
+            .filter(|(_, c)| matches!(c, Command::Silhouette { .. }))
+            .map(|(i, _)| i)
+            .collect();
+        let first_pool = commands
+            .iter()
+            .position(|c| matches!(c, Command::Pool { .. }))
+            .unwrap();
+        // The last two silhouettes are the hill and its opening; the sky
+        // (stars, glow of the city) is already drawn, the lights come after.
+        let [.., hill, opening] = hill_commands[..] else {
+            panic!("no entrance");
+        };
+        assert_eq!(opening, hill + 1);
+        assert!(hill > 100 && opening < first_pool);
+        // Nothing of the sky comes after the hill.
+        assert!(
+            commands[hill..]
+                .iter()
+                .all(|c| !matches!(c, Command::Dot { .. } | Command::Band { .. }))
+        );
     }
 
     #[test]
