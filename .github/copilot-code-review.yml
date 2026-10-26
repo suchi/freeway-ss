@@ -1,0 +1,6 @@
+# Language setting for Copilot code review comments.
+# Note: this file is not documented in the official GitHub docs (as of 2026-07).
+# The reliable, documented way to get Japanese review comments is the
+# instruction in .github/copilot-instructions.md; this file is kept for
+# compatibility with earlier repositories and is harmless if ignored.
+language: "ja"

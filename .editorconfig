@@ -1,0 +1,53 @@
+# For more information, visit https://editorconfig.org/
+root = true
+
+[*]
+indent_style = space
+indent_size = 4
+end_of_line = lf
+charset = utf-8
+trim_trailing_whitespace = true
+insert_final_newline = true
+
+# ruby
+[*.{rb,rbs,rake,erb}]
+indent_size = 2
+
+# html/xml/css
+[*.{html,xml,css,scss,sass}]
+indent_size = 2
+
+# yaml
+[*.{yml,yaml}]
+indent_size = 2
+
+# javascript
+[*.{js,ts,jsx,tsx,json,jsonc}]
+indent_size = 2
+
+# bat/cmd: cmd.exe reads these in the system locale code page (e.g. CP932
+# on Japanese Windows), which EditorConfig's charset values cannot express;
+# configure the encoding in your editor instead.
+[*.{bat,cmd}]
+end_of_line = crlf
+
+# powershell (.psd1/.psm1 stay LF; see .gitattributes)
+[*.ps1]
+end_of_line = crlf
+
+# markdown
+[*.{md,mdx,mmd}]
+trim_trailing_whitespace = false
+indent_size = 2
+
+# others
+[*.{lua}]
+indent_size = 2
+
+# [*.{py,php,cs,rs,c,cpp,cxx,cc,h,hh,hpp,hxx}]
+# indent_size = 4
+
+# (default)
+# [*.{.toml,sh,zsh,bash}]
+
+

@@ -1,0 +1,6 @@
+_work
+
+# Never commit local secrets (AGENTS.md: security)
+.env
+.env.*
+!.env.example

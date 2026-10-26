@@ -1,0 +1,109 @@
+# Dependabot configuration.
+#
+# SECURITY: the `cooldown` blocks below are a supply-chain-attack defense.
+# They delay update PRs until a new release has been public for a few days,
+# giving the community time to detect malicious releases.
+# Do NOT remove or disable them without the user's explicit approval
+# (see the Security section in AGENTS.md).
+
+version: 2
+updates:
+  # GitHub Actions — valid for any repository that has workflows.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    open-pull-requests-limit: 8
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 7
+    assignees:
+      - "ej-uchiyama"
+    labels:
+      - "dependencies"
+    groups:
+      non-majors:
+        update-types:
+          - "minor"
+          - "patch"
+  # TODO(project): uncomment the ecosystems this repository actually uses.
+  #
+  # - package-ecosystem: "npm"
+  #   directory: "/"
+  #  open-pull-requests-limit: 8
+  #  schedule:
+  #    interval: "weekly"
+  #  cooldown:
+  #    default-days: 7
+  #  assignees:
+  #    - "ej-uchiyama"
+  #  labels:
+  #    - "dependencies"
+  #  groups:
+  #    non-majors:
+  #      update-types:
+  #        - "minor"
+  #        - "patch"
+  #
+  # - package-ecosystem: "uv"          # Python (uv). Use "pip" for pip/requirements.txt.
+  #   directory: "/"
+  #  schedule:
+  #    interval: "weekly"
+  #  cooldown:
+  #    default-days: 7
+  #  assignees:
+  #    - "ej-uchiyama"
+  #  labels:
+  #    - "dependencies"
+  #  groups:
+  #    non-majors:
+  #      update-types:
+  #        - "minor"
+  #        - "patch"
+  #
+  # - package-ecosystem: "gomod"       # Go
+  #   directory: "/"
+  #  schedule:
+  #    interval: "weekly"
+  #  cooldown:
+  #    default-days: 7
+  #  assignees:
+  #    - "ej-uchiyama"
+  #  labels:
+  #    - "dependencies"
+  #  groups:
+  #    non-majors:
+  #      update-types:
+  #        - "minor"
+  #        - "patch"
+  #
+  # - package-ecosystem: "bundler"     # Ruby
+  #   directory: "/"
+  #  schedule:
+  #    interval: "weekly"
+  #  cooldown:
+  #    default-days: 7
+  #  assignees:
+  #    - "ej-uchiyama"
+  #  labels:
+  #    - "dependencies"
+  #  groups:
+  #    non-majors:
+  #      update-types:
+  #        - "minor"
+  #        - "patch"
+  #
+  # - package-ecosystem: "nuget"       # .NET
+  #   directory: "/"
+  #  schedule:
+  #    interval: "weekly"
+  #  cooldown:
+  #    default-days: 7
+  #  assignees:
+  #    - "ej-uchiyama"
+  #  labels:
+  #    - "dependencies"
+  #  groups:
+  #    non-majors:
+  #      update-types:
+  #        - "minor"
+  #        - "patch"
