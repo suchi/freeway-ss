@@ -7,6 +7,7 @@ use crate::projection::{CAMERA_HEIGHT, NEAR_DISTANCE, Projector, VIEW_DISTANCE};
 use crate::road::{RoadShape, RoadView};
 use crate::sky::{Sky, SkyView};
 use crate::traffic::Traffic;
+use crate::ufo::Ufo;
 
 /// Longest time step the scene accepts, in seconds. A longer pause (for
 /// example after the machine slept) must not make the road jump.
@@ -201,6 +202,7 @@ pub struct Scene {
     time: f64,
     sky: Sky,
     traffic: Traffic,
+    ufo: Ufo,
 }
 
 impl Scene {
@@ -213,6 +215,7 @@ impl Scene {
             time: 0.0,
             sky: Sky::new(config.seed),
             traffic: Traffic::new(config.seed),
+            ufo: Ufo::new(config.seed, config.ufo_mean_interval),
         }
     }
 
@@ -229,6 +232,11 @@ impl Scene {
         self.sky.meteors_visible()
     }
 
+    /// Whether a UFO is in the sky now.
+    pub fn ufo_visible(&self) -> bool {
+        self.ufo.is_visible()
+    }
+
     /// Moves the car forward by `dt` seconds (capped at `MAX_STEP_SECONDS`).
     pub fn update(&mut self, dt: f32) {
         let dt = if dt.is_finite() {
@@ -243,6 +251,7 @@ impl Scene {
         self.track_s += step;
         self.time += f64::from(dt);
         self.sky.update(self.time, self.heading);
+        self.ufo.update(self.time, self.heading, self.side());
         self.traffic.update(dt, self.config.speed_kmh / 3.6);
     }
 
@@ -265,22 +274,18 @@ impl Scene {
         );
         let view = RoadView::new(&self.road, self.track_s);
 
-        self.sky.draw(
-            &SkyView {
-                width: viewport.width,
-                height: viewport.height,
-                pixel_scale,
-                focal: projector.focal(),
-                side: if self.config.left_hand_traffic {
-                    1.0
-                } else {
-                    -1.0
-                },
-                heading: self.heading,
-                time: self.time,
-            },
-            canvas,
-        );
+        let sky_view = SkyView {
+            width: viewport.width,
+            height: viewport.height,
+            pixel_scale,
+            focal: projector.focal(),
+            side: self.side(),
+            heading: self.heading,
+            time: self.time,
+        };
+        self.sky.draw(&sky_view, canvas);
+        // The UFO is far away: the lights of the road and of other cars lie in front of it.
+        self.ufo.draw(&sky_view, canvas);
 
         for light in &self.lights() {
             let (bend, rise) = view.offset(light.d);
@@ -318,6 +323,15 @@ impl Scene {
                     }
                 }
             }
+        }
+    }
+
+    /// `1.0` for left-hand traffic, `-1.0` for right-hand traffic.
+    fn side(&self) -> f32 {
+        if self.config.left_hand_traffic {
+            1.0
+        } else {
+            -1.0
         }
     }
 
@@ -513,6 +527,141 @@ mod tests {
         let mut recorder = Recorder::default();
         scene.draw(viewport, &mut recorder);
         recorder.0
+    }
+
+    fn ufo_config(seed: u64) -> SceneConfig {
+        SceneConfig {
+            seed,
+            ufo_mean_interval: Some(5.0),
+            ..Default::default()
+        }
+    }
+
+    /// Steps `scene` until a UFO has been in the sky for `extra` seconds.
+    fn step_into_visit(scene: &mut Scene, extra: f32) {
+        let mut steps = 0;
+        while !scene.ufo_visible() {
+            scene.update(0.05);
+            steps += 1;
+            assert!(steps < 40_000, "no UFO within 2000 seconds");
+        }
+        for _ in 0..(extra / 0.05) as usize {
+            scene.update(0.05);
+        }
+    }
+
+    #[test]
+    fn a_ufo_adds_lights_and_a_beam_only_while_it_is_there() {
+        let mut with = Scene::new(ufo_config(2));
+        let mut without = Scene::new(SceneConfig {
+            ufo_mean_interval: None,
+            ..ufo_config(2)
+        });
+        // Until the first visit the two scenes draw exactly the same.
+        while !with.ufo_visible() {
+            with.update(0.05);
+            without.update(0.05);
+            if !with.ufo_visible() {
+                assert_eq!(record(&with, VIEWPORT), record(&without, VIEWPORT));
+            }
+        }
+        // 7 seconds into the visit the beam is down.
+        for _ in 0..140 {
+            with.update(0.05);
+            without.update(0.05);
+        }
+        assert!(with.ufo_visible());
+        assert!(!without.ufo_visible());
+        let ufo_commands = record(&with, VIEWPORT);
+        let road_commands = record(&without, VIEWPORT);
+        let glows = |commands: &[Command]| {
+            commands
+                .iter()
+                .filter(|c| matches!(c, Command::Glow { .. }))
+                .count()
+        };
+        let beams = |commands: &[Command]| {
+            commands
+                .iter()
+                .filter(|c| matches!(c, Command::Beam { .. }))
+                .count()
+        };
+        assert!(glows(&ufo_commands) > glows(&road_commands) + 50);
+        assert_eq!(beams(&ufo_commands), 1);
+        assert_eq!(beams(&road_commands), 0);
+    }
+
+    #[test]
+    fn a_ufo_draws_valid_commands_through_a_whole_visit() {
+        // The full screen and the small preview window.
+        for viewport in [
+            VIEWPORT,
+            Viewport {
+                width: 152.0,
+                height: 112.0,
+                pixel_scale: 1.0,
+            },
+        ] {
+            check_ufo_visit(viewport);
+        }
+    }
+
+    fn check_ufo_visit(viewport: Viewport) {
+        let mut scene = Scene::new(ufo_config(9));
+        step_into_visit(&mut scene, 0.0);
+        let mut beams = 0;
+        while scene.ufo_visible() {
+            scene.update(0.05);
+            for command in record(&scene, viewport) {
+                match command {
+                    Command::Glow {
+                        x,
+                        y,
+                        radius,
+                        alpha,
+                    } => {
+                        let halo = radius * GLOW_HALO_RATIO;
+                        assert!([x, y, radius].iter().all(|v| v.is_finite()), "{command:?}");
+                        assert!(radius > 0.0 && alpha > 0.0 && alpha <= 1.0, "{command:?}");
+                        assert!(
+                            x + halo >= 0.0
+                                && x - halo <= viewport.width
+                                && y + halo >= 0.0
+                                && y - halo <= viewport.height,
+                            "{command:?}"
+                        );
+                    }
+                    Command::Beam {
+                        center_x,
+                        top_y,
+                        bottom_y,
+                        alpha,
+                    } => {
+                        assert!([center_x, top_y, bottom_y].iter().all(|v| v.is_finite()));
+                        beams += 1;
+                        assert!(top_y < bottom_y && alpha > 0.0 && alpha <= 1.0);
+                    }
+                    _ => {}
+                }
+            }
+        }
+        assert!(beams > 50, "{beams}");
+    }
+
+    #[test]
+    fn the_ufo_is_drawn_behind_the_lights_of_the_road() {
+        let mut scene = Scene::new(ufo_config(2));
+        step_into_visit(&mut scene, 7.0);
+        let commands = record(&scene, VIEWPORT);
+        let beam = commands
+            .iter()
+            .position(|c| matches!(c, Command::Beam { .. }))
+            .unwrap();
+        let first_pool = commands
+            .iter()
+            .position(|c| matches!(c, Command::Pool { .. }))
+            .unwrap();
+        assert!(beam < first_pool);
     }
 
     #[test]

@@ -193,4 +193,30 @@ mod tests {
         renderer.draw_scene(&mut target, &scene, Some(160), true)?;
         Ok(())
     }
+
+    #[test]
+    fn renders_a_ufo_with_its_beam() -> Result<()> {
+        let hwnd = window::create_hidden_window(640, 360)?;
+        let mut renderer = Renderer::new()?;
+        let mut target = renderer.create_target(hwnd)?;
+        let mut scene = Scene::new(freeway_core::SceneConfig {
+            seed: 2,
+            ufo_mean_interval: Some(5.0),
+            ..Default::default()
+        });
+        let mut steps = 0;
+        while !scene.ufo_visible() {
+            scene.update(0.05);
+            steps += 1;
+            assert!(steps < 40_000, "no UFO within 2000 seconds");
+        }
+        // 7 seconds into the visit the beam is down; draw before and after.
+        for step in 0..150 {
+            scene.update(0.05);
+            if step % 50 == 49 {
+                renderer.draw_scene(&mut target, &scene, None, true)?;
+            }
+        }
+        Ok(())
+    }
 }
