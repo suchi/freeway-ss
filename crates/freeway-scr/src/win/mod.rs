@@ -3,7 +3,9 @@
 mod renderer;
 mod window;
 
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+use freeway_core::{Scene, SceneConfig};
 
 use windows::Win32::Foundation::HWND;
 use windows::Win32::UI::HiDpi::{
@@ -65,7 +67,10 @@ pub fn show_error(message: &str) {
 fn animate(windows: &[HWND], preview_parent: Option<HWND>) -> Result<()> {
     let mut renderer = Renderer::new()?;
     let mut targets = create_targets(&renderer, windows)?;
-    let start = Instant::now();
+    // Why: each window gets its own scene (docs/adr/0003); the scenes live
+    // outside the device resources, so losing the device does not restart them.
+    let mut scenes = create_scenes(windows.len());
+    let mut last_frame = Instant::now();
     loop {
         if !pump_messages() {
             return Ok(());
@@ -76,8 +81,13 @@ fn animate(windows: &[HWND], preview_parent: Option<HWND>) -> Result<()> {
             return Ok(());
         }
 
-        let seconds = start.elapsed().as_secs_f32();
-        match draw_frame(&renderer, &mut targets, seconds) {
+        let now = Instant::now();
+        let dt = now.duration_since(last_frame).as_secs_f32();
+        last_frame = now;
+        for scene in &mut scenes {
+            scene.update(dt);
+        }
+        match draw_frame(&mut renderer, &mut targets, &scenes) {
             Ok(true) => {}
             // Nothing is visible (for example, the session is locked).
             Ok(false) => std::thread::sleep(Duration::from_millis(100)),
@@ -94,16 +104,31 @@ fn animate(windows: &[HWND], preview_parent: Option<HWND>) -> Result<()> {
 }
 
 /// Draws every window once and returns whether any of them is visible.
-fn draw_frame(renderer: &Renderer, targets: &mut [Target], seconds: f32) -> Result<bool> {
+fn draw_frame(renderer: &mut Renderer, targets: &mut [Target], scenes: &[Scene]) -> Result<bool> {
     let last = targets.len().saturating_sub(1);
     let mut visible = false;
-    for (index, target) in targets.iter_mut().enumerate() {
+    for (index, (target, scene)) in targets.iter_mut().zip(scenes).enumerate() {
         // Why: waiting for vertical sync only on the last window paces the
         // loop once per frame; waiting on every window would divide the
         // frame rate by the number of monitors.
-        visible |= renderer.draw_test_frame(target, seconds, index == last)?;
+        visible |= renderer.draw_scene(target, scene, index == last)?;
     }
     Ok(visible)
+}
+
+/// One scene per window, each with its own road.
+fn create_scenes(count: usize) -> Vec<Scene> {
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |elapsed| elapsed.as_nanos() as u64);
+    (0..count)
+        .map(|index| {
+            Scene::new(SceneConfig {
+                seed: nanos ^ (index as u64 + 1).wrapping_mul(0x9E37_79B9_7F4A_7C15),
+                ..SceneConfig::default()
+            })
+        })
+        .collect()
 }
 
 fn create_targets(renderer: &Renderer, windows: &[HWND]) -> Result<Vec<Target>> {
@@ -137,14 +162,16 @@ mod tests {
     #[test]
     fn renders_and_resizes_a_hidden_window() -> Result<()> {
         let hwnd = window::create_hidden_window(64, 48)?;
-        let renderer = Renderer::new()?;
+        let mut renderer = Renderer::new()?;
         let mut target = renderer.create_target(hwnd)?;
-        for frame in 0..3 {
-            renderer.draw_test_frame(&mut target, frame as f32 * 0.25, true)?;
+        let mut scene = create_scenes(1).remove(0);
+        for _ in 0..3 {
+            scene.update(0.016);
+            renderer.draw_scene(&mut target, &scene, true)?;
         }
 
         unsafe { SetWindowPos(hwnd, None, 0, 0, 80, 60, SWP_NOMOVE | SWP_NOZORDER)? };
-        renderer.draw_test_frame(&mut target, 1.0, true)?;
+        renderer.draw_scene(&mut target, &scene, true)?;
         Ok(())
     }
 }
