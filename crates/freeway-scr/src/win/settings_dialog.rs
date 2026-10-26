@@ -3,8 +3,8 @@
 //! The layout is the dialog template in `resources/freeway.rc`; the control
 //! IDs below must match it.
 
-use freeway_core::Settings;
 use freeway_core::settings::{SPEED_CHOICES, position_to_speed, speed_to_position};
+use freeway_core::{Language, Settings, Text};
 use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::Controls::{
@@ -12,8 +12,9 @@ use windows::Win32::UI::Controls::{
     INITCOMMONCONTROLSEX, InitCommonControlsEx, IsDlgButtonChecked, TBM_SETPOS, TBM_SETRANGE,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    DialogBoxParamW, EndDialog, GWLP_USERDATA, GetWindowLongPtrW, IDCANCEL, IDOK,
-    SendDlgItemMessageW, SetDlgItemTextW, SetWindowLongPtrW, WM_COMMAND, WM_HSCROLL, WM_INITDIALOG,
+    CB_ADDSTRING, CB_GETCURSEL, CB_RESETCONTENT, CB_SETCURSEL, CBN_SELCHANGE, DialogBoxParamW,
+    EndDialog, GWLP_USERDATA, GetWindowLongPtrW, IDCANCEL, IDOK, SendDlgItemMessageW,
+    SetDlgItemTextW, SetWindowLongPtrW, SetWindowTextW, WM_COMMAND, WM_HSCROLL, WM_INITDIALOG,
 };
 use windows::core::{Error, HSTRING, PCWSTR, Result};
 
@@ -24,6 +25,30 @@ const LEFT_HAND: i32 = 103;
 const RIGHT_HAND: i32 = 104;
 const SPEEDOMETER: i32 = 105;
 const UFO: i32 = 106;
+const LANGUAGE: i32 = 107;
+const SPEED_LABEL: i32 = 108;
+const SIDE_LABEL: i32 = 109;
+const LANGUAGE_LABEL: i32 = 110;
+
+/// The texts of the controls that are set from the string table, by ID.
+const CONTROL_TEXTS: [(i32, Text); 8] = [
+    (SPEED_LABEL, Text::SpeedLabel),
+    (SIDE_LABEL, Text::DrivingSideLabel),
+    (LEFT_HAND, Text::LeftHandTraffic),
+    (RIGHT_HAND, Text::RightHandTraffic),
+    (SPEEDOMETER, Text::Speedometer),
+    (UFO, Text::Ufo),
+    (LANGUAGE_LABEL, Text::LanguageLabel),
+    // OK and Cancel use the IDs of the standard buttons.
+    (IDOK.0, Text::Ok),
+];
+
+/// The items of the language drop-down, in the order of `Language::ALL`.
+const LANGUAGE_TEXTS: [Text; 3] = [
+    Text::LanguageAuto,
+    Text::LanguageEnglish,
+    Text::LanguageJapanese,
+];
 
 /// `WM_USER`; the windows crate does not define this message.
 const TBM_GETPOS: u32 = 0x0400;
@@ -78,6 +103,7 @@ unsafe extern "system" fn dialog_proc(
             unsafe { SetWindowLongPtrW(hwnd, GWLP_USERDATA, lparam.0) };
             if let Some(state) = unsafe { state_of(hwnd) } {
                 init_controls(hwnd, &state.settings);
+                apply_language(hwnd, state.settings.language);
             }
             // Let the dialog manager give the focus to the first control.
             1
@@ -89,6 +115,12 @@ unsafe extern "system" fn dialog_proc(
         WM_COMMAND => {
             // The low word of wparam is the ID of the control or menu item.
             match (wparam.0 & 0xFFFF) as i32 {
+                // The high word of wparam is the notification code.
+                LANGUAGE if (wparam.0 >> 16) as u32 == CBN_SELCHANGE => {
+                    // Show the chosen language at once; it is saved only by OK.
+                    apply_language(hwnd, selected_language(hwnd));
+                    1
+                }
                 id if id == IDOK.0 => {
                     if let Some(state) = unsafe { state_of(hwnd) } {
                         state.settings = read_controls(hwnd);
@@ -121,6 +153,48 @@ unsafe fn state_of<'a>(hwnd: HWND) -> Option<&'a mut State> {
 fn end(hwnd: HWND, result: isize) {
     // Nothing can be done about a failure here; the dialog just stays open.
     let _ = unsafe { EndDialog(hwnd, result) };
+}
+
+/// The language selected in the drop-down.
+fn selected_language(hwnd: HWND) -> Language {
+    let index =
+        unsafe { SendDlgItemMessageW(hwnd, LANGUAGE, CB_GETCURSEL, WPARAM(0), LPARAM(0)) }.0;
+    // CB_ERR (-1) means nothing is selected; keep the default then.
+    u32::try_from(index)
+        .ok()
+        .and_then(|index| Language::from_raw(Some(index)))
+        .unwrap_or_default()
+}
+
+/// Shows the dialog in the language that `selected` means, and selects it in
+/// the drop-down.
+fn apply_language(hwnd: HWND, selected: Language) {
+    let language = super::resolve_language(selected);
+    unsafe {
+        let _ = SetWindowTextW(hwnd, &HSTRING::from(Text::DialogTitle.get(language)));
+        for (id, text) in CONTROL_TEXTS {
+            let _ = SetDlgItemTextW(hwnd, id, &HSTRING::from(text.get(language)));
+        }
+        let _ = SetDlgItemTextW(hwnd, IDCANCEL.0, &HSTRING::from(Text::Cancel.get(language)));
+        SendDlgItemMessageW(hwnd, LANGUAGE, CB_RESETCONTENT, WPARAM(0), LPARAM(0));
+        for text in LANGUAGE_TEXTS {
+            let item = HSTRING::from(text.get(language));
+            SendDlgItemMessageW(
+                hwnd,
+                LANGUAGE,
+                CB_ADDSTRING,
+                WPARAM(0),
+                LPARAM(item.as_ptr() as isize),
+            );
+        }
+        SendDlgItemMessageW(
+            hwnd,
+            LANGUAGE,
+            CB_SETCURSEL,
+            WPARAM(selected.to_raw() as usize),
+            LPARAM(0),
+        );
+    }
 }
 
 fn init_controls(hwnd: HWND, settings: &Settings) {
@@ -162,6 +236,7 @@ fn read_controls(hwnd: HWND) -> Settings {
         left_hand_traffic: unsafe { IsDlgButtonChecked(hwnd, LEFT_HAND) } == BST_CHECKED.0,
         show_speedometer: unsafe { IsDlgButtonChecked(hwnd, SPEEDOMETER) } == BST_CHECKED.0,
         show_ufo: unsafe { IsDlgButtonChecked(hwnd, UFO) } == BST_CHECKED.0,
+        language: selected_language(hwnd),
     }
 }
 

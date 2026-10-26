@@ -7,9 +7,10 @@ mod window;
 
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use freeway_core::{Scene, Settings};
+use freeway_core::{DisplayLanguage, Language, Scene, Settings, Text};
 
 use windows::Win32::Foundation::HWND;
+use windows::Win32::Globalization::GetUserDefaultUILanguage;
 use windows::Win32::UI::HiDpi::{
     DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, SetProcessDpiAwarenessContext,
 };
@@ -46,12 +47,33 @@ pub fn run(mode: Mode) -> Result<()> {
 fn configure(owner: Option<HWND>) -> Result<()> {
     if let Some(settings) = settings_dialog::show(owner, settings_store::load())? {
         // Why: a save failure is shown here, with its cause, instead of
-        // ending the program with the generic message of `main`.
+        // ending the program with the generic message of `main`. It uses the
+        // language that was just chosen.
         if let Err(error) = settings_store::save(&settings) {
-            show_error(&format!("The settings could not be saved: {error}"));
+            let language = display_language(&settings);
+            show_error(&Text::SaveFailed.with_error(language, error));
         }
     }
     Ok(())
+}
+
+/// The language to show `settings` in; `Auto` follows the Windows display
+/// language.
+pub fn display_language(settings: &Settings) -> DisplayLanguage {
+    resolve_language(settings.language)
+}
+
+/// The language to show for the choice `language`.
+pub fn resolve_language(language: Language) -> DisplayLanguage {
+    DisplayLanguage::resolve(language, unsafe { GetUserDefaultUILanguage() })
+}
+
+/// The message for a run that ended with `error`, in the saved language.
+pub fn stopped_message(error: &windows::core::Error) -> String {
+    // Why: the error may happen before the settings are read, so they are read
+    // here; a missing or invalid value gives the default language.
+    let language = display_language(&settings_store::load());
+    Text::Stopped.with_error(language, error)
 }
 
 /// Shows an error to the user; a screensaver has no console to print to.
