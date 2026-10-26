@@ -2,11 +2,12 @@
 
 /// Returns a value in `[0, 1)` that depends only on the arguments.
 ///
-/// `salt` separates independent uses of the same `index`, for example the
-/// curvature and the grade of the same road segment.
-pub fn hash01(seed: u64, salt: u32, index: i64) -> f32 {
+/// `stream` is an ID that is neither a secret nor used for cryptography: it
+/// separates independent uses of the same `index`, for example the curvature
+/// and the grade of the same road segment.
+pub fn hash01(seed: u64, stream: u32, index: i64) -> f32 {
     let mut z = seed
-        ^ u64::from(salt).wrapping_mul(0x9E37_79B9_7F4A_7C15)
+        ^ u64::from(stream).wrapping_mul(0x9E37_79B9_7F4A_7C15)
         ^ (index as u64).wrapping_mul(0xD6E8_FEB8_6659_FD93);
     // Two rounds of multiply and xor-shift avalanche every input bit.
     z = (z ^ (z >> 32)).wrapping_mul(0xD6E8_FEB8_6659_FD93);
@@ -34,8 +35,8 @@ mod tests {
     }
 
     #[test]
-    fn seed_salt_and_index_change_the_sequence() {
-        let sequence = |seed, salt| (0..16).map(|i| hash01(seed, salt, i)).collect::<Vec<_>>();
+    fn seed_stream_and_index_change_the_sequence() {
+        let sequence = |seed, stream| (0..16).map(|i| hash01(seed, stream, i)).collect::<Vec<_>>();
         assert_ne!(sequence(1, 0), sequence(2, 0));
         assert_ne!(sequence(1, 0), sequence(1, 1));
     }

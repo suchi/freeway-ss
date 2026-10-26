@@ -20,7 +20,7 @@ const MIN_ALPHA: f32 = 0.004;
 const MIN_CORE_RADIUS: f32 = 0.9;
 
 /// Separates the random numbers of the UFO from those of the other parts.
-const SALT_UFO: u32 = 0x50;
+const STREAM_UFO: u32 = 0x50;
 const PART_WAIT: u32 = 0;
 const PART_FROM_LEFT: u32 = 1;
 const PART_TO_RIGHT: u32 = 2;
@@ -191,7 +191,7 @@ impl Ufo {
     }
 
     fn visit(&self) -> Visit {
-        let roll = |part| hash01(self.seed, SALT_UFO | part, self.index);
+        let roll = |part| hash01(self.seed, STREAM_UFO | part, self.index);
         Visit {
             from_left: roll(PART_FROM_LEFT) < 0.5,
             to_right: roll(PART_TO_RIGHT) < 0.5,
@@ -219,7 +219,7 @@ impl Ufo {
 /// Time to wait after the ship `index - 1` has gone, from an exponential
 /// distribution, so that visits are random with the given mean.
 fn wait(seed: u64, index: i64, mean: f32) -> f64 {
-    let roll = f64::from(hash01(seed, SALT_UFO | PART_WAIT, index));
+    let roll = f64::from(hash01(seed, STREAM_UFO | PART_WAIT, index));
     -f64::from(mean) * (1.0 - roll).ln()
 }
 
@@ -374,8 +374,8 @@ impl<'a> Craft<'a> {
         );
         // Specks of light rise along the beam toward the ship.
         for i in 0..PARTICLES {
-            let start = hash01(seed, SALT_UFO | PART_PARTICLE_LEVEL, i);
-            let across = hash01(seed, SALT_UFO | PART_PARTICLE_SIDE, i) * 2.0 - 1.0;
+            let start = hash01(seed, STREAM_UFO | PART_PARTICLE_LEVEL, i);
+            let across = hash01(seed, STREAM_UFO | PART_PARTICLE_SIDE, i) * 2.0 - 1.0;
             let v = (start + t * PARTICLE_RISE).fract();
             let half = lerp((bottom_half, top_half), v);
             let y = lerp((bottom, top), v);

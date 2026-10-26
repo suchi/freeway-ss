@@ -12,7 +12,7 @@ use crate::rng::hash01;
 /// Parameters of one kind of road variation.
 #[derive(Clone, Copy, Debug)]
 struct Profile {
-    salt: u32,
+    stream: u32,
     /// Length of a segment, in meters.
     segment_length: f64,
     /// Probability that a segment is dead straight (or flat).
@@ -24,7 +24,7 @@ struct Profile {
 }
 
 const CURVATURE: Profile = Profile {
-    salt: 1,
+    stream: 1,
     segment_length: 300.0,
     still_probability: 0.38,
     magnitude: (0.001, 0.004),
@@ -32,7 +32,7 @@ const CURVATURE: Profile = Profile {
 };
 
 const GRADE_CHANGE: Profile = Profile {
-    salt: 2,
+    stream: 2,
     segment_length: 450.0,
     still_probability: 0.5,
     magnitude: (0.00004, 0.00016),
@@ -41,7 +41,7 @@ const GRADE_CHANGE: Profile = Profile {
 
 impl Profile {
     fn target(&self, seed: u64, segment: i64) -> f32 {
-        let hash = |part: u32| hash01(seed, self.salt << 2 | part, segment);
+        let hash = |part: u32| hash01(seed, self.stream << 2 | part, segment);
         if hash(0) < self.still_probability {
             return 0.0;
         }
@@ -50,7 +50,7 @@ impl Profile {
     }
 
     fn blend(&self, seed: u64, segment: i64) -> f32 {
-        let fraction = hash01(seed, self.salt << 2 | 3, segment);
+        let fraction = hash01(seed, self.stream << 2 | 3, segment);
         self.blend_share.0 + fraction * (self.blend_share.1 - self.blend_share.0)
     }
 

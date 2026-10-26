@@ -46,15 +46,16 @@ const TAIL_RANGE: f32 = 650.0;
 const GLARE_RANGE: f32 = 90.0;
 const GLARE_ALPHA: f32 = 0.25;
 
-// Salts keep the random values of one car independent of each other.
-const SALT_POSITION: u32 = 10;
-const SALT_SPEED: u32 = 11;
-const SALT_LANE: u32 = 12;
-const SALT_BRAKE_GAP: u32 = 13;
-const SALT_BRAKE_LENGTH: u32 = 14;
-const SALT_ESCAPE: u32 = 15;
-const SALT_PHASE: u32 = 16;
-const SALT_TRUCK: u32 = 17;
+// Stream IDs keep the random values of one car independent of each other.
+// They only tell the streams of a non-cryptographic hash apart.
+const STREAM_POSITION: u32 = 10;
+const STREAM_SPEED: u32 = 11;
+const STREAM_LANE: u32 = 12;
+const STREAM_BRAKE_GAP: u32 = 13;
+const STREAM_BRAKE_LENGTH: u32 = 14;
+const STREAM_ESCAPE: u32 = 15;
+const STREAM_PHASE: u32 = 16;
+const STREAM_TRUCK: u32 = 17;
 
 /// The share of cars that are trucks, when trucks are enabled.
 pub const TRUCK_RATIO: f32 = 0.2;
@@ -184,10 +185,10 @@ impl Car {
     }
 
     /// Random number for this car and its current placement.
-    fn roll(&self, seed: u64, salt: u32) -> f32 {
+    fn roll(&self, seed: u64, stream: u32) -> f32 {
         hash01(
             seed,
-            salt,
+            stream,
             i64::from(self.id) << 32 | i64::from(self.generation),
         )
     }
@@ -196,13 +197,13 @@ impl Car {
     /// whole view; later they enter where they cannot be seen, except that
     /// lead cars keep appearing ahead.
     fn place(&mut self, seed: u64, style: TruckStyle, initial: bool) {
-        let position = self.roll(seed, SALT_POSITION);
-        let speed = self.roll(seed, SALT_SPEED);
-        // A new salt keeps the other random values of the car as they were.
-        self.truck = style != TruckStyle::None && self.roll(seed, SALT_TRUCK) < TRUCK_RATIO;
+        let position = self.roll(seed, STREAM_POSITION);
+        let speed = self.roll(seed, STREAM_SPEED);
+        // A new stream keeps the other random values of the car as they were.
+        self.truck = style != TruckStyle::None && self.roll(seed, STREAM_TRUCK) < TRUCK_RATIO;
         self.age = 0.0;
-        self.phase = self.roll(seed, SALT_PHASE) * std::f32::consts::TAU;
-        self.escape_after = 40.0 + 80.0 * self.roll(seed, SALT_ESCAPE);
+        self.phase = self.roll(seed, STREAM_PHASE) * std::f32::consts::TAU;
+        self.escape_after = 40.0 + 80.0 * self.roll(seed, STREAM_ESCAPE);
         match self.kind {
             Kind::Lead => {
                 self.lateral = OWN_LANE;
@@ -226,7 +227,7 @@ impl Car {
                 }
             }
             Kind::Oncoming => {
-                self.lateral = ONCOMING_LANES[usize::from(self.roll(seed, SALT_LANE) >= 0.5)];
+                self.lateral = ONCOMING_LANES[usize::from(self.roll(seed, STREAM_LANE) >= 0.5)];
                 self.rel = if initial {
                     600.0 * position
                 } else {
@@ -240,7 +241,7 @@ impl Car {
     fn brake_interval(&self, seed: u64) -> f32 {
         let gap = hash01(
             seed,
-            SALT_BRAKE_GAP,
+            STREAM_BRAKE_GAP,
             i64::from(self.id) << 32 | i64::from(self.brakes),
         );
         // The gap between random events is exponentially distributed.
@@ -250,7 +251,7 @@ impl Car {
     fn brake_length(&self, seed: u64) -> f32 {
         let length = hash01(
             seed,
-            SALT_BRAKE_LENGTH,
+            STREAM_BRAKE_LENGTH,
             i64::from(self.id) << 32 | i64::from(self.brakes),
         );
         0.8 + length
@@ -817,7 +818,7 @@ mod tests {
 
     #[test]
     fn cars_that_are_not_trucks_drive_as_without_trucks() {
-        // The truck roll has a salt of its own, so a car that stays a car
+        // The truck roll has a stream of its own, so a car that stays a car
         // is placed exactly as when trucks are disabled.
         for seed in 0..20 {
             let with = Traffic::new(seed, TruckStyle::NorthAmerican);

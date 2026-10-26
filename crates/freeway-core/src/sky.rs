@@ -171,9 +171,9 @@ pub struct Sky {
     next_start: f64,
 }
 
-const SALT_STAR: u32 = 0x10;
-const SALT_CITY: u32 = 0x20;
-const SALT_METEOR: u32 = 0x30;
+const STREAM_STAR: u32 = 0x10;
+const STREAM_CITY: u32 = 0x20;
+const STREAM_METEOR: u32 = 0x30;
 
 fn lerp(range: (f32, f32), t: f32) -> f32 {
     range.0 + (range.1 - range.0) * t
@@ -186,7 +186,7 @@ impl Sky {
         let star_count = (STAR_DENSITY * TAU as f32 * (STAR_TOP - STAR_BOTTOM)).round() as i64;
         let stars = (0..star_count)
             .map(|i| {
-                let h = |part: u32| hash01(seed, SALT_STAR | part, i);
+                let h = |part: u32| hash01(seed, STREAM_STAR | part, i);
                 Star {
                     turn: h(0),
                     elevation: lerp((STAR_BOTTOM, STAR_TOP), h(1)),
@@ -198,7 +198,7 @@ impl Sky {
             .collect();
         let city = (0..CITY_COUNT as i64)
             .map(|i| {
-                let h = |part: u32| hash01(seed, SALT_CITY | part, i);
+                let h = |part: u32| hash01(seed, STREAM_CITY | part, i);
                 // Squaring crowds the lights toward the horizon.
                 let low = h(1) * h(1);
                 let pick = h(2);
@@ -274,7 +274,7 @@ impl Sky {
 
     /// Seconds between meteor `index` and the one before it.
     fn gap(&self, index: i64) -> f64 {
-        f64::from(lerp(METEOR_GAP, hash01(self.seed, SALT_METEOR, index)))
+        f64::from(lerp(METEOR_GAP, hash01(self.seed, STREAM_METEOR, index)))
     }
 
     /// Starts the meteors that are due at `time` and drops those that have
@@ -291,7 +291,7 @@ impl Sky {
     }
 
     fn meteor(&self, index: i64, start: f64, heading: f64) -> Meteor {
-        let h = |part: u32| hash01(self.seed, SALT_METEOR | part, index);
+        let h = |part: u32| hash01(self.seed, STREAM_METEOR | part, index);
         let slope = lerp(METEOR_SLOPE, h(1)).to_radians();
         let speed = lerp(METEOR_SPEED, h(2)) / REF_FOCAL;
         let elevation = lerp(METEOR_START, h(3));
