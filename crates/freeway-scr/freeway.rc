@@ -38,7 +38,7 @@ END
 // sets every string from freeway-core's string table when it opens and when
 // the language changes (docs/adr/0007-localize-ui-strings-in-code.md), so
 // controls with text that changes have an ID.
-100 DIALOGEX 0, 0, 224, 212
+100 DIALOGEX 0, 0, 224, 254
 STYLE DIALOG_STYLE
 CAPTION "Night Freeway SS Settings"
 FONT 9, "Segoe UI"
@@ -52,12 +52,15 @@ BEGIN
     AUTOCHECKBOX    "Show speedometer", 105, 12, 80, 120, 10
     AUTOCHECKBOX    "Show a UFO now and then", 106, 12, 94, 160, 10
     AUTOCHECKBOX    "Show distant mountains", 111, 12, 108, 160, 10
-    LTEXT           "Trucks:", 112, 12, 128, 48, 8
-    CONTROL         "", 113, "COMBOBOX", DROPDOWN_STYLE, 62, 126, 150, 60
-    LTEXT           "Tunnels:", 114, 12, 148, 48, 8
-    CONTROL         "", 115, "COMBOBOX", DROPDOWN_STYLE, 62, 146, 150, 60
-    LTEXT           "Language:", 110, 12, 168, 48, 8
-    CONTROL         "", 107, "COMBOBOX", DROPDOWN_STYLE, 62, 166, 150, 60
-    DEFPUSHBUTTON   "OK", 1, 108, 190, 50, 14
-    PUSHBUTTON      "Cancel", 2, 162, 190, 50, 14
+    AUTOCHECKBOX    "Vary the cruising speed", 116, 12, 122, 200, 10
+    AUTOCHECKBOX    "Traffic follows the time of day", 117, 12, 136, 200, 10
+    AUTOCHECKBOX    "Alternate mountains and plains", 118, 12, 150, 200, 10
+    LTEXT           "Trucks:", 112, 12, 170, 48, 8
+    CONTROL         "", 113, "COMBOBOX", DROPDOWN_STYLE, 62, 168, 150, 60
+    LTEXT           "Tunnels:", 114, 12, 190, 48, 8
+    CONTROL         "", 115, "COMBOBOX", DROPDOWN_STYLE, 62, 188, 150, 60
+    LTEXT           "Language:", 110, 12, 210, 48, 8
+    CONTROL         "", 107, "COMBOBOX", DROPDOWN_STYLE, 62, 208, 150, 60
+    DEFPUSHBUTTON   "OK", 1, 108, 232, 50, 14
+    PUSHBUTTON      "Cancel", 2, 162, 232, 50, 14
 END

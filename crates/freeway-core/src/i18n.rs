@@ -49,6 +49,9 @@ pub enum Text {
     Speedometer,
     Ufo,
     Mountains,
+    VarySpeed,
+    TrafficByTime,
+    SceneryZones,
     TrucksLabel,
     TrucksNone,
     TrucksJapanese,
@@ -72,7 +75,7 @@ pub enum Text {
 
 impl Text {
     /// Every key, so that tests can check all of them.
-    pub const ALL: [Text; 25] = [
+    pub const ALL: [Text; 28] = [
         Text::DialogTitle,
         Text::SpeedLabel,
         Text::DrivingSideLabel,
@@ -81,6 +84,9 @@ impl Text {
         Text::Speedometer,
         Text::Ufo,
         Text::Mountains,
+        Text::VarySpeed,
+        Text::TrafficByTime,
+        Text::SceneryZones,
         Text::TrucksLabel,
         Text::TrucksNone,
         Text::TrucksJapanese,
@@ -126,6 +132,12 @@ impl Text {
             Text::Speedometer => ("Show speedometer", "速度計を表示する"),
             Text::Ufo => ("Show a UFO now and then", "ときどき UFO を表示する"),
             Text::Mountains => ("Show distant mountains", "遠くの山並みを表示する"),
+            Text::VarySpeed => ("Vary the cruising speed", "巡航速度をゆっくり変える"),
+            Text::TrafficByTime => (
+                "Traffic follows the time of day",
+                "時刻に合わせて交通量を変える",
+            ),
+            Text::SceneryZones => ("Alternate mountains and plains", "山あいと平野を交互に走る"),
             Text::TrucksLabel => ("Trucks:", "トラック:"),
             Text::TrucksNone => ("None", "なし"),
             Text::TrucksJapanese => ("Japanese style", "日本風"),

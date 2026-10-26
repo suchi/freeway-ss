@@ -36,6 +36,15 @@ pub struct SceneConfig {
     pub trucks: TruckStyle,
     /// How the lamps of the tunnels are colored; `None` means no tunnels.
     pub tunnels: TunnelLighting,
+    /// Whether the speed drifts slowly around `speed_kmh`.
+    pub vary_speed: bool,
+    /// Whether the traffic follows the time of day, given by `start_minute`.
+    pub traffic_by_time: bool,
+    /// Whether the road alternates between mountains and plains.
+    pub scenery_zones: bool,
+    /// The local time at the start of the journey, in minutes after
+    /// midnight. The scene does not read a clock: the host gives the time.
+    pub start_minute: u32,
     pub seed: u64,
 }
 
@@ -48,6 +57,12 @@ impl Default for SceneConfig {
             mountains: true,
             trucks: TruckStyle::default(),
             tunnels: TunnelLighting::default(),
+            // The three kinds of variation are off here, which is the road
+            // as it was before them. The settings turn them on by default.
+            vary_speed: false,
+            traffic_by_time: false,
+            scenery_zones: false,
+            start_minute: 12 * 60,
             seed: 0,
         }
     }
@@ -1459,6 +1474,12 @@ mod tests {
             }
         }
         assert!(left);
+    }
+
+    #[test]
+    fn the_variations_are_off_by_default_in_the_scene_config() {
+        let config = SceneConfig::default();
+        assert!(!config.vary_speed && !config.traffic_by_time && !config.scenery_zones);
     }
 
     #[test]
