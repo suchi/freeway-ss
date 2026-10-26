@@ -216,7 +216,7 @@ impl Mountains {
                 // Closed along the foot, which lies below the horizon.
                 points.push((run[run.len() - 1].0, foot));
                 points.push((run[0].0, foot));
-                canvas.silhouette(&points, SILHOUETTE_COLOR);
+                canvas.silhouette(&points, SILHOUETTE_COLOR, 1.0);
             }
         }
     }
@@ -397,7 +397,7 @@ mod tests {
         fn streak(&mut self, _: (f32, f32), _: (f32, f32), _: f32, _: Rgb, _: f32) {
             unreachable!();
         }
-        fn silhouette(&mut self, points: &[(f32, f32)], _: Rgb) {
+        fn silhouette(&mut self, points: &[(f32, f32)], _: Rgb, _: f32) {
             self.0.push(Command::Silhouette(points.to_vec()));
         }
         fn beam(&mut self, _: f32, _: f32, _: f32, _: f32, _: f32, _: Rgb, _: f32, _: f32) {

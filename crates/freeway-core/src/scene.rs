@@ -650,6 +650,7 @@ mod tests {
         Silhouette {
             points: Vec<(f32, f32)>,
             color: Rgb,
+            alpha: f32,
         },
         Beam {
             center_x: f32,
@@ -716,10 +717,11 @@ mod tests {
                 alpha,
             });
         }
-        fn silhouette(&mut self, points: &[(f32, f32)], color: Rgb) {
+        fn silhouette(&mut self, points: &[(f32, f32)], color: Rgb, alpha: f32) {
             self.0.push(Command::Silhouette {
                 points: points.to_vec(),
                 color,
+                alpha,
             });
         }
         fn beam(
@@ -908,7 +910,10 @@ mod tests {
                 alpha,
             } => ([x, y], alpha, [rx, ry]),
             Command::Dot { x, y, size, alpha } => ([x, y], alpha, [size; 2]),
-            Command::Silhouette { ref points, .. } => {
+            Command::Silhouette {
+                ref points, alpha, ..
+            } => {
+                assert!(alpha > 0.0 && alpha <= 1.0, "{alpha}");
                 assert!(points.len() >= 3);
                 assert!(points.iter().all(|(x, y)| x.is_finite() && y.is_finite()));
                 return;
@@ -1384,7 +1389,7 @@ mod tests {
         commands
             .iter()
             .filter_map(|c| match c {
-                Command::Silhouette { points, color } => Some((points, *color)),
+                Command::Silhouette { points, color, .. } => Some((points, *color)),
                 _ => None,
             })
             .collect()
@@ -1415,6 +1420,20 @@ mod tests {
             assert!(top(hill) < top(opening), "{before}");
             assert!(width(hill) > 10.0 * width(opening), "{before}");
         }
+    }
+
+    #[test]
+    fn the_hill_and_its_opening_are_fully_opaque() {
+        let (scene, _) = near_first_tunnel(TunnelLighting::Led, 100.0);
+        let alphas: Vec<f32> = record(&scene, VIEWPORT)
+            .iter()
+            .filter_map(|c| match c {
+                Command::Silhouette { alpha, .. } => Some(*alpha),
+                _ => None,
+            })
+            .collect();
+        assert!(alphas.len() >= 2);
+        assert!(alphas.iter().all(|&a| a == 1.0), "{alphas:?}");
     }
 
     #[test]
