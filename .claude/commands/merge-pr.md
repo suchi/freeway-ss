@@ -15,5 +15,5 @@ $ARGUMENTS の第1引数で指定されたPRを、最終チェックのうえマ
 
 1. `gh pr merge <PR番号> --merge --delete-branch`
 2. `git checkout main && git pull`
-3. バージョンタグ指定があれば: `git tag -a <バージョン> -m "<バージョン>"`のうえ`git push origin --tags`
+3. バージョンタグ指定があれば: マージコミットに`git tag <バージョン> <SHA>`を付け、`git push origin <バージョン>`でプッシュする。タグのプッシュはリリース(公開)を起動するので、このタグについてユーザーの承認を得ているときだけ行う(AGENTS.md「リリース」)
 4. ローカルのフィーチャーブランチが残っていれば削除し、日本語で完了報告する。

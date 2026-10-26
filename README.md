@@ -14,7 +14,7 @@
 | `crates/freeway-scr` | Windows固有部分(引数処理・ウィンドウ・Direct2D描画・設定画面とレジストリへの保存。ダイアログ・マニフェスト・表示名・アイコンは`freeway.rc`から`build.rs`で埋め込む)。配布物の`.scr`になる |
 | `packaging/` | 配布用zipに入れる、利用者向けの説明書(`README.md`。日本語と英語)と、`.scr`に組み込まれる第三者のソフトウェアの著作権表示(`THIRD-PARTY-NOTICES.txt`)。本ファイルは開発者向けで、zipには入れない |
 | `xtask` | 開発用コマンド(`cargo xtask dist`: 配布物の作成、`cargo xtask icon`: アイコンの生成)。標準ライブラリだけで書いている |
-| `.github/workflows/` | CI(`ci.yml`)と、成果物をGitHub Releaseに公開するワークフロー(`release.yml`。手順は`AGENTS.md`) |
+| `.github/workflows/` | CI(`ci.yml`)と、`v*`のタグのプッシュで成果物をGitHub Releaseに公開するワークフロー(`release.yml`。手順は`AGENTS.md`) |
 | `docs/plans/` | 実装計画(進捗表を含む)とフェーズの詳細設計 |
 | `docs/adr/` | アーキテクチャ決定記録 |
 

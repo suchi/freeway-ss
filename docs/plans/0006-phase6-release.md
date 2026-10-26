@@ -120,6 +120,12 @@ flowchart LR
   - マニフェストに`requestedExecutionLevel`(`asInvoker`)を明示した
   - `cargo xtask`のエイリアスに`--locked`を付け、`Cargo.lock`が書き換わらないようにした。内側のビルドには`--target-dir`を明示し、梱包元とずれないようにした
   - `.scr`に組み込まれる第三者のソフトウェア(windows-rs・Rustの標準ライブラリ)の著作権表示を`packaging/THIRD-PARTY-NOTICES.txt`にまとめ、zipに入れた(MITライセンスの表示の条件)
+- セキュリティ(ワークフロー。3.6節の具体化で、ユーザーの承認を得て実施):
+  - `release.yml`を、ビルドするジョブ(読み取り専用のトークン)と公開するジョブ(書き込み権限。リポジトリや依存のコードを実行しない)に分けた。成果物は`actions/upload-artifact`・`actions/download-artifact`(SHAで固定)で受け渡す。依存クレートのビルドスクリプトが乗っ取られても、書き込み権限のトークンに触れられないようにするため
+  - 手動実行は既存のタグの再公開だけにした(タグとビルドするコミットがずれないため)。タグが`main`に含まれることと、`Cargo.toml`のバージョンとタグの一致を確かめる
+  - リリースのランナーを`windows-2025`・`ubuntu-24.04`に固定した。CIは`-latest`のまま
+  - `ci.yml`のWindowsジョブで、x64とARM64の`cargo xtask dist`を実行する
+- リポジトリの設定(ユーザーが行う推奨事項): `main`の保護(PR必須・CI必須・force pushと削除の禁止)と、リリースの改ざん防止(release immutability)。リポジトリはprivateのまま公開する(2026-10-26のユーザー判断)
 
 ## 4. テスト
 
