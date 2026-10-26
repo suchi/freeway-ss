@@ -34,7 +34,7 @@ fn run(mode: args::Mode) -> ExitCode {
     match win::run(mode) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
-            report_error(&format!("Night Freeway SS stopped: {error}"));
+            report_error(&win::stopped_message(&error));
             ExitCode::FAILURE
         }
     }

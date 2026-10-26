@@ -15,6 +15,7 @@ const SPEED: PCWSTR = w!("SpeedKmh");
 const LEFT_HAND_TRAFFIC: PCWSTR = w!("LeftHandTraffic");
 const SHOW_SPEEDOMETER: PCWSTR = w!("ShowSpeedometer");
 const SHOW_UFO: PCWSTR = w!("ShowUfo");
+const LANGUAGE: PCWSTR = w!("Language");
 
 /// Reads the saved settings; anything missing or invalid is the default.
 pub fn load() -> Settings {
@@ -32,6 +33,7 @@ fn load_from(root: HKEY, key: PCWSTR) -> Settings {
         read_dword(root, key, LEFT_HAND_TRAFFIC),
         read_dword(root, key, SHOW_SPEEDOMETER),
         read_dword(root, key, SHOW_UFO),
+        read_dword(root, key, LANGUAGE),
     )
 }
 
@@ -49,7 +51,8 @@ fn save_to(root: HKEY, key: PCWSTR, settings: &Settings) -> Result<()> {
         SHOW_SPEEDOMETER,
         u32::from(settings.show_speedometer),
     )?;
-    write_dword(root, key, SHOW_UFO, u32::from(settings.show_ufo))
+    write_dword(root, key, SHOW_UFO, u32::from(settings.show_ufo))?;
+    write_dword(root, key, LANGUAGE, settings.language.to_raw())
 }
 
 /// Returns `None` when the key or value is missing, or is not a `REG_DWORD`.
@@ -89,6 +92,7 @@ fn write_dword(root: HKEY, key: PCWSTR, name: PCWSTR, value: u32) -> Result<()> 
 
 #[cfg(test)]
 mod tests {
+    use freeway_core::Language;
     use freeway_core::settings::DEFAULT_SPEED_KMH;
     use windows::Win32::System::Registry::{REG_SZ, RegDeleteTreeW};
     use windows::core::HSTRING;
@@ -142,6 +146,7 @@ mod tests {
             left_hand_traffic: false,
             show_speedometer: true,
             show_ufo: true,
+            language: Language::Japanese,
         };
         save_to(HKEY_CURRENT_USER, test.key(), &settings)?;
         assert_eq!(test.load(), settings);
@@ -159,11 +164,27 @@ mod tests {
         write_dword(HKEY_CURRENT_USER, test.key(), LEFT_HAND_TRAFFIC, 0)?;
         write_dword(HKEY_CURRENT_USER, test.key(), SHOW_SPEEDOMETER, 9)?;
         write_dword(HKEY_CURRENT_USER, test.key(), SHOW_UFO, 2)?;
+        write_dword(HKEY_CURRENT_USER, test.key(), LANGUAGE, 3)?;
         let settings = test.load();
         assert_eq!(settings.speed_kmh, DEFAULT_SPEED_KMH);
         assert!(!settings.left_hand_traffic);
         assert!(!settings.show_speedometer);
         assert!(!settings.show_ufo);
+        assert_eq!(settings.language, Language::Auto);
+        Ok(())
+    }
+
+    #[test]
+    fn every_language_is_read_back() -> Result<()> {
+        let test = TestKey::new("language");
+        for language in Language::ALL {
+            let settings = Settings {
+                language,
+                ..Settings::default()
+            };
+            save_to(HKEY_CURRENT_USER, test.key(), &settings)?;
+            assert_eq!(test.load().language, language);
+        }
         Ok(())
     }
 

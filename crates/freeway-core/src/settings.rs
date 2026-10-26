@@ -4,6 +4,7 @@
 //! so every raw value is checked on its own; a value that is missing or not
 //! valid falls back to the default for that setting only.
 
+use crate::i18n::DisplayLanguage;
 use crate::scene::SceneConfig;
 
 pub const MIN_SPEED_KMH: u32 = 30;
@@ -17,6 +18,35 @@ pub const UFO_MEAN_INTERVAL_SECONDS: f32 = 600.0;
 /// Number of speeds the user can choose from, 30, 40, ... 160.
 pub const SPEED_CHOICES: u32 = (MAX_SPEED_KMH - MIN_SPEED_KMH) / SPEED_STEP_KMH + 1;
 
+/// The language the user chose for the settings dialog and messages.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Language {
+    /// Follow the display language of Windows.
+    #[default]
+    Auto,
+    English,
+    Japanese,
+}
+
+impl Language {
+    /// Every choice, in the order of the stored values 0, 1, 2.
+    pub const ALL: [Language; 3] = [Language::Auto, Language::English, Language::Japanese];
+
+    /// The language for a stored value; `None` when the value is not valid.
+    pub fn from_raw(raw: Option<u32>) -> Option<Self> {
+        Self::ALL.get(usize::try_from(raw?).ok()?).copied()
+    }
+
+    /// The value to store; `from_raw` reads it back.
+    pub fn to_raw(self) -> u32 {
+        match self {
+            Language::Auto => 0,
+            Language::English => 1,
+            Language::Japanese => 2,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Settings {
     /// Cruising speed in km/h, a multiple of `SPEED_STEP_KMH` within the range.
@@ -25,6 +55,7 @@ pub struct Settings {
     pub show_speedometer: bool,
     /// Whether a UFO now and then crosses the sky.
     pub show_ufo: bool,
+    pub language: Language,
 }
 
 impl Default for Settings {
@@ -34,6 +65,7 @@ impl Default for Settings {
             left_hand_traffic: true,
             show_speedometer: false,
             show_ufo: false,
+            language: Language::Auto,
         }
     }
 }
@@ -43,12 +75,13 @@ impl Settings {
     ///
     /// A speed outside the range or off the step is not rounded to a nearby
     /// choice: it is a sign of a damaged or hand-edited value, so the default
-    /// is used. A flag is valid only as 0 or 1.
+    /// is used. A flag is valid only as 0 or 1, a language only as 0, 1 or 2.
     pub fn from_raw(
         speed_kmh: Option<u32>,
         left_hand_traffic: Option<u32>,
         show_speedometer: Option<u32>,
         show_ufo: Option<u32>,
+        language: Option<u32>,
     ) -> Self {
         let defaults = Self::default();
         Self {
@@ -58,7 +91,13 @@ impl Settings {
             left_hand_traffic: flag(left_hand_traffic).unwrap_or(defaults.left_hand_traffic),
             show_speedometer: flag(show_speedometer).unwrap_or(defaults.show_speedometer),
             show_ufo: flag(show_ufo).unwrap_or(defaults.show_ufo),
+            language: Language::from_raw(language).unwrap_or(defaults.language),
         }
+    }
+
+    /// The language to display, given the Windows display language ID.
+    pub fn display_language(&self, windows_ui_language: u16) -> DisplayLanguage {
+        DisplayLanguage::resolve(self.language, windows_ui_language)
     }
 
     /// The configuration of one scene; each window gets its own `seed`.
@@ -107,12 +146,12 @@ mod tests {
         assert_eq!(settings.speed_kmh, 100);
         assert!(settings.left_hand_traffic);
         assert!(!settings.show_speedometer);
-        assert_eq!(Settings::from_raw(None, None, None, None), settings);
+        assert_eq!(Settings::from_raw(None, None, None, None, None), settings);
     }
 
     #[test]
     fn valid_values_are_kept() {
-        let settings = Settings::from_raw(Some(160), Some(0), Some(1), Some(1));
+        let settings = Settings::from_raw(Some(160), Some(0), Some(1), Some(1), Some(2));
         assert_eq!(
             settings,
             Settings {
@@ -120,16 +159,20 @@ mod tests {
                 left_hand_traffic: false,
                 show_speedometer: true,
                 show_ufo: true,
+                language: Language::Japanese,
             }
         );
-        assert_eq!(Settings::from_raw(Some(30), None, None, None).speed_kmh, 30);
+        assert_eq!(
+            Settings::from_raw(Some(30), None, None, None, None).speed_kmh,
+            30
+        );
     }
 
     #[test]
     fn invalid_speeds_fall_back_to_the_default() {
         for speed in [0, 20, 29, 35, 105, 161, 170, 1000, u32::MAX] {
             assert_eq!(
-                Settings::from_raw(Some(speed), None, None, None).speed_kmh,
+                Settings::from_raw(Some(speed), None, None, None, None).speed_kmh,
                 DEFAULT_SPEED_KMH,
                 "{speed}"
             );
@@ -139,18 +182,19 @@ mod tests {
     #[test]
     fn invalid_flags_fall_back_to_the_default() {
         for raw in [2, 3, u32::MAX] {
-            let settings = Settings::from_raw(None, Some(raw), Some(raw), Some(raw));
+            let settings = Settings::from_raw(None, Some(raw), Some(raw), Some(raw), None);
             assert_eq!(settings, Settings::default(), "{raw}");
         }
     }
 
     #[test]
     fn each_setting_is_checked_on_its_own() {
-        let settings = Settings::from_raw(Some(999), Some(0), Some(7), Some(1));
+        let settings = Settings::from_raw(Some(999), Some(0), Some(7), Some(1), Some(1));
         assert_eq!(settings.speed_kmh, DEFAULT_SPEED_KMH);
         assert!(!settings.left_hand_traffic);
         assert!(!settings.show_speedometer);
         assert!(settings.show_ufo);
+        assert_eq!(settings.language, Language::English);
     }
 
     #[test]
@@ -160,6 +204,7 @@ mod tests {
             left_hand_traffic: false,
             show_speedometer: true,
             show_ufo: false,
+            language: Language::Auto,
         };
         let config = settings.scene_config(42);
         assert_eq!(config.speed_kmh, 60.0);
@@ -170,11 +215,11 @@ mod tests {
     #[test]
     fn ufo_is_off_by_default_and_the_flag_is_checked() {
         assert!(!Settings::default().show_ufo);
-        assert!(Settings::from_raw(None, None, None, Some(1)).show_ufo);
-        assert!(!Settings::from_raw(None, None, None, Some(0)).show_ufo);
+        assert!(Settings::from_raw(None, None, None, Some(1), None).show_ufo);
+        assert!(!Settings::from_raw(None, None, None, Some(0), None).show_ufo);
         for raw in [2, 3, u32::MAX] {
             assert!(
-                !Settings::from_raw(None, None, None, Some(raw)).show_ufo,
+                !Settings::from_raw(None, None, None, Some(raw), None).show_ufo,
                 "{raw}"
             );
         }
@@ -220,5 +265,54 @@ mod tests {
     fn off_range_speeds_map_inside_the_slider() {
         assert_eq!(speed_to_position(0), 0);
         assert_eq!(speed_to_position(1000), SPEED_CHOICES - 1);
+    }
+
+    #[test]
+    fn language_is_automatic_by_default() {
+        assert_eq!(Language::default(), Language::Auto);
+        assert_eq!(Settings::default().language, Language::Auto);
+    }
+
+    #[test]
+    fn language_values_map_to_the_choices() {
+        assert_eq!(Language::from_raw(Some(0)), Some(Language::Auto));
+        assert_eq!(Language::from_raw(Some(1)), Some(Language::English));
+        assert_eq!(Language::from_raw(Some(2)), Some(Language::Japanese));
+        for language in Language::ALL {
+            assert_eq!(Language::from_raw(Some(language.to_raw())), Some(language));
+        }
+    }
+
+    #[test]
+    fn an_invalid_language_falls_back_to_the_default() {
+        assert_eq!(Language::from_raw(None), None);
+        for raw in [3, 4, 100, u32::MAX] {
+            assert_eq!(Language::from_raw(Some(raw)), None, "{raw}");
+            let settings = Settings::from_raw(None, None, None, None, Some(raw));
+            assert_eq!(settings.language, Language::Auto, "{raw}");
+        }
+    }
+
+    #[test]
+    fn display_language_follows_the_setting() {
+        let japanese_windows = 0x0411;
+        let english_windows = 0x0409;
+        let auto = Settings::default();
+        assert_eq!(
+            auto.display_language(japanese_windows),
+            DisplayLanguage::Japanese
+        );
+        assert_eq!(
+            auto.display_language(english_windows),
+            DisplayLanguage::English
+        );
+        let english = Settings {
+            language: Language::English,
+            ..auto
+        };
+        assert_eq!(
+            english.display_language(japanese_windows),
+            DisplayLanguage::English
+        );
     }
 }
