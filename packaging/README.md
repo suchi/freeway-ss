@@ -40,6 +40,9 @@ Windowsの「インストール」はファイルをコピーせず、展開し�
 | 速度計の表示 | Show speedometer | オン / オフ | オフ |
 | UFOの表示 | Show a UFO now and then | オン / オフ(オンのとき、平均10分に1回、UFOが現れる) | オフ |
 | 山並みの表示 | Show distant mountains | オン / オフ(オンのとき、地平線のところどころの方向に山並みが見え、山頂の赤い灯火がゆっくり点滅する) | オン |
+| 巡航速度のゆらぎ | Vary the cruising speed | オン / オフ(オンのとき、設定した速度の±20 km/hの範囲で、数分かけてゆっくり変わる。速度計は実際の速さを表示する) | オン |
+| 時刻に応じた交通量 | Traffic follows the time of day | オン / オフ(オンのとき、起動時のPCの時刻に合わせて、夜中と早朝は他の車が少なくトラックが多く、日中は従来どおりになる) | オン |
+| 景色の区間 | Alternate mountains and plains | オン / オフ(オンのとき、100 km/hで10〜20分ごとに、山並みとトンネルのある山あいと、山並みもトンネルもない平野が入れ替わる) | オン |
 | トラック | Trucks | なし / 日本風 / 北米風(他の車の約5台に1台がトラックになり、日本風は上側の端灯と側面の橙のサイドマーカー、北米風は後ろの識別灯と車幅灯が付く) | 日本風 |
 | トンネル | Tunnels | なし / 混在 / ナトリウム灯(橙) / LED(白)(なし以外のとき、100 km/hで平均3分に1本、通り抜けるのに20秒〜1分のトンネルが現れる。混在はトンネルごとに照明の色が変わる。トンネルの中では空が見えない) | 混在 |
 | 表示言語 | Language | 自動(Windowsの表示言語) / English / 日本語 | 自動 |
@@ -110,6 +113,9 @@ Select "Night Freeway SS" in the screensaver settings and click "Settings" to ch
 | Show speedometer | On / Off | Off |
 | Show a UFO now and then | On / Off (when on, a UFO appears about once every 10 minutes on average) | Off |
 | Show distant mountains | On / Off (when on, mountain ranges stand on the horizon in some directions, and red lights on some peaks blink slowly) | On |
+| Vary the cruising speed | On / Off (when on, the speed slowly changes over a few minutes within 20 km/h of the chosen speed; the speedometer shows the actual speed) | On |
+| Traffic follows the time of day | On / Off (when on, the traffic follows the PC's time at startup: fewer cars and more trucks late at night and early in the morning, and as usual during the day) | On |
+| Alternate mountains and plains | On / Off (when on, every 10 to 20 minutes at 100 km/h, mountain areas with mountain ranges and tunnels and plains with neither take turns) | On |
 | Trucks | None / Japanese style / North American style (about one in five other vehicles is a truck; Japanese style has upper marker lamps and amber side markers, North American style has identification and clearance lamps) | Japanese style |
 | Tunnels | None / Mixed lighting / Sodium (orange) / LED (white) (unless None, a tunnel that takes 20 to 60 seconds to drive through appears about once every 3 minutes at 100 km/h; Mixed lighting changes the lamp color from tunnel to tunnel; the sky is not seen inside a tunnel) | Mixed lighting |
 | Language | Automatic (Windows display language) / English / 日本語 | Automatic |
