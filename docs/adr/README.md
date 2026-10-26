@@ -33,3 +33,4 @@
 | [0003](0003-render-independent-scene-per-monitor.md) | render-independent-scene-per-monitor | 採用 | 2026-10-26 |
 | [0004](0004-store-settings-in-registry.md) | store-settings-in-registry | 採用 | 2026-10-26 |
 | [0005](0005-embed-windows-resources-with-embed-resource.md) | embed-windows-resources-with-embed-resource | 採用 | 2026-10-26 |
+| [0006](0006-build-release-artifacts-with-cargo-xtask.md) | build-release-artifacts-with-cargo-xtask | 採用 | 2026-10-26 |

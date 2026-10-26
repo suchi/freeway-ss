@@ -23,6 +23,7 @@ GitHub Copilot・Claude Code・Codexすべてに対する指示の単一ソー�
 | リント・フォーマット | `cargo fmt --all --check` と `cargo clippy --workspace --all-targets -- -D warnings` |
 | 型チェック           | `cargo check --workspace --all-targets` と `cargo check --workspace --all-targets --target x86_64-pc-windows-msvc` |
 | ビルド               | `cargo build --release -p freeway-scr`(配布用バイナリはWindows上でビルドする) |
+| 配布物の作成         | `cargo xtask dist [--target aarch64-pc-windows-msvc]`(Windowsのみ。`target/dist/`に`.scr`・zip・チェックサムを作る) |
 
 Windows固有のコードはLinux上でも`--target x86_64-pc-windows-msvc`付きの`cargo check`で型チェックできる(リンクはしない)。
 

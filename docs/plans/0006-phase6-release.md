@@ -1,6 +1,6 @@
 # Phase 6 詳細設計: リリース(Ver.1.0)
 
-- ステータス: 作成済み(実装前)
+- ステータス: 実装済み(3.2〜3.5節。ワークフローの変更と実機確認は調整役が担当)
 - 日付: 2026-10-26
 - 親計画: [実装計画](0001-screensaver-implementation-plan.md)の6章 Phase 6
 
@@ -98,6 +98,13 @@ flowchart LR
 - `ci.yml`: ARM64のビルドを確認する(Windowsランナーで`cargo xtask dist --target aarch64-pc-windows-msvc`、またはリリースビルドのみ)
 - AGENTS.md「フェーズごとのリリース」を、Ver.1.0以降の運用(タグのプッシュで正式版を公開する)に合わせて書き直す
 - いずれも、変更内容(YAML全文)をユーザーに提示し、承認を得てから行う
+
+### 3.7 実装での選択(実装後に追記)
+
+- 配布物の作成と`.ico`生成の判断は[ADR-0006](../adr/0006-build-release-artifacts-with-cargo-xtask.md)に記録した。アイコンの図柄の生成コードは`xtask/src/icon.rs`にあり、`cargo test`がコミット済みの`.ico`との一致を確かめる
+- 速度計の書体: 数字はBahnschriftのSemiLight(`DWRITE_FONT_WEIGHT_SEMI_LIGHT`)・標準の字幅・等幅の数字(`tnum`)、単位は標準の太さ。実機で見た目を確認して調整する余地がある
+- 速度計の大きさ: `min(pixel_scale, 画面の高さ / 540)`(`crates/freeway-scr/src/speedometer.rs`)。論理540 px未満の高さでだけ高さに比例して小さくなり、それ以上は従来と同じ
+- 表示名とアイコンの確認は、`crates/freeway-scr/tests/resources.rs`(Windowsの統合テスト)で、ビルドした実行ファイルから文字列ID 1とアイコングループを読み出して行う
 
 ## 4. テスト
 

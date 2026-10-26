@@ -208,7 +208,7 @@ MVPの項目は、本家の実行中の操作と表示(速度・通行方向・H
 | Phase 3: 背景 | 完了(実機確認済み) | [0003](0003-phase3-background.md) | [#8](https://github.com/suchi/freeway-ss/pull/8) | [v0.3.0](https://github.com/suchi/freeway-ss/releases/tag/v0.3.0) |
 | Phase 4: 他車 | 完了(実機確認済み) | [0004](0004-phase4-traffic.md) | [#11](https://github.com/suchi/freeway-ss/pull/11) | [v0.4.0](https://github.com/suchi/freeway-ss/releases/tag/v0.4.0) |
 | Phase 5: 設定画面と保存 | 完了(実機確認済み) | [0005](0005-phase5-settings.md) | [#12](https://github.com/suchi/freeway-ss/pull/12) | [v0.5.0](https://github.com/suchi/freeway-ss/releases/tag/v0.5.0) |
-| Phase 6: リリース | 実装中 | [0006](0006-phase6-release.md) | [#14](https://github.com/suchi/freeway-ss/pull/14) | 未リリース |
+| Phase 6: リリース | 実装済み(ワークフローの変更・実機確認・リリース待ち) | [0006](0006-phase6-release.md) | [#14](https://github.com/suchi/freeway-ss/pull/14) | 未リリース |
 | Phase 7: 任意機能 | 未着手 | - | - | - |
 
 ```mermaid
