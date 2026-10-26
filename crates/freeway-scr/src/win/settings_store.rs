@@ -14,6 +14,7 @@ const KEY: PCWSTR = w!(r"Software\NightFreewaySS");
 const SPEED: PCWSTR = w!("SpeedKmh");
 const LEFT_HAND_TRAFFIC: PCWSTR = w!("LeftHandTraffic");
 const SHOW_SPEEDOMETER: PCWSTR = w!("ShowSpeedometer");
+const SHOW_UFO: PCWSTR = w!("ShowUfo");
 
 /// Reads the saved settings; anything missing or invalid is the default.
 pub fn load() -> Settings {
@@ -30,6 +31,7 @@ fn load_from(root: HKEY, key: PCWSTR) -> Settings {
         read_dword(root, key, SPEED),
         read_dword(root, key, LEFT_HAND_TRAFFIC),
         read_dword(root, key, SHOW_SPEEDOMETER),
+        read_dword(root, key, SHOW_UFO),
     )
 }
 
@@ -46,7 +48,8 @@ fn save_to(root: HKEY, key: PCWSTR, settings: &Settings) -> Result<()> {
         key,
         SHOW_SPEEDOMETER,
         u32::from(settings.show_speedometer),
-    )
+    )?;
+    write_dword(root, key, SHOW_UFO, u32::from(settings.show_ufo))
 }
 
 /// Returns `None` when the key or value is missing, or is not a `REG_DWORD`.
@@ -138,6 +141,7 @@ mod tests {
             speed_kmh: 60,
             left_hand_traffic: false,
             show_speedometer: true,
+            show_ufo: true,
         };
         save_to(HKEY_CURRENT_USER, test.key(), &settings)?;
         assert_eq!(test.load(), settings);
@@ -154,10 +158,12 @@ mod tests {
         write_dword(HKEY_CURRENT_USER, test.key(), SPEED, 12345)?;
         write_dword(HKEY_CURRENT_USER, test.key(), LEFT_HAND_TRAFFIC, 0)?;
         write_dword(HKEY_CURRENT_USER, test.key(), SHOW_SPEEDOMETER, 9)?;
+        write_dword(HKEY_CURRENT_USER, test.key(), SHOW_UFO, 2)?;
         let settings = test.load();
         assert_eq!(settings.speed_kmh, DEFAULT_SPEED_KMH);
         assert!(!settings.left_hand_traffic);
         assert!(!settings.show_speedometer);
+        assert!(!settings.show_ufo);
         Ok(())
     }
 

@@ -23,6 +23,7 @@ const SPEED_VALUE: i32 = 102;
 const LEFT_HAND: i32 = 103;
 const RIGHT_HAND: i32 = 104;
 const SPEEDOMETER: i32 = 105;
+const UFO: i32 = 106;
 
 /// `WM_USER`; the windows crate does not define this message.
 const TBM_GETPOS: u32 = 0x0400;
@@ -145,15 +146,12 @@ fn init_controls(hwnd: HWND, settings: &Settings) {
             RIGHT_HAND
         };
         let _ = CheckRadioButton(hwnd, LEFT_HAND, RIGHT_HAND, side);
-        let _ = CheckDlgButton(
-            hwnd,
-            SPEEDOMETER,
-            if settings.show_speedometer {
-                BST_CHECKED
-            } else {
-                BST_UNCHECKED
-            },
-        );
+        for (id, checked) in [
+            (SPEEDOMETER, settings.show_speedometer),
+            (UFO, settings.show_ufo),
+        ] {
+            let _ = CheckDlgButton(hwnd, id, if checked { BST_CHECKED } else { BST_UNCHECKED });
+        }
     }
     update_speed_label(hwnd);
 }
@@ -163,6 +161,7 @@ fn read_controls(hwnd: HWND) -> Settings {
         speed_kmh: position_to_speed(slider_position(hwnd)),
         left_hand_traffic: unsafe { IsDlgButtonChecked(hwnd, LEFT_HAND) } == BST_CHECKED.0,
         show_speedometer: unsafe { IsDlgButtonChecked(hwnd, SPEEDOMETER) } == BST_CHECKED.0,
+        show_ufo: unsafe { IsDlgButtonChecked(hwnd, UFO) } == BST_CHECKED.0,
     }
 }
 

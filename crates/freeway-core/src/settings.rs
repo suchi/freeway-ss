@@ -11,6 +11,9 @@ pub const MAX_SPEED_KMH: u32 = 160;
 pub const SPEED_STEP_KMH: u32 = 10;
 pub const DEFAULT_SPEED_KMH: u32 = 100;
 
+/// Average time between two UFO visits, in seconds, when they are enabled.
+pub const UFO_MEAN_INTERVAL_SECONDS: f32 = 600.0;
+
 /// Number of speeds the user can choose from, 30, 40, ... 160.
 pub const SPEED_CHOICES: u32 = (MAX_SPEED_KMH - MIN_SPEED_KMH) / SPEED_STEP_KMH + 1;
 
@@ -20,6 +23,8 @@ pub struct Settings {
     pub speed_kmh: u32,
     pub left_hand_traffic: bool,
     pub show_speedometer: bool,
+    /// Whether a UFO now and then crosses the sky.
+    pub show_ufo: bool,
 }
 
 impl Default for Settings {
@@ -28,6 +33,7 @@ impl Default for Settings {
             speed_kmh: DEFAULT_SPEED_KMH,
             left_hand_traffic: true,
             show_speedometer: false,
+            show_ufo: false,
         }
     }
 }
@@ -42,6 +48,7 @@ impl Settings {
         speed_kmh: Option<u32>,
         left_hand_traffic: Option<u32>,
         show_speedometer: Option<u32>,
+        show_ufo: Option<u32>,
     ) -> Self {
         let defaults = Self::default();
         Self {
@@ -50,6 +57,7 @@ impl Settings {
                 .unwrap_or(defaults.speed_kmh),
             left_hand_traffic: flag(left_hand_traffic).unwrap_or(defaults.left_hand_traffic),
             show_speedometer: flag(show_speedometer).unwrap_or(defaults.show_speedometer),
+            show_ufo: flag(show_ufo).unwrap_or(defaults.show_ufo),
         }
     }
 
@@ -58,6 +66,7 @@ impl Settings {
         SceneConfig {
             speed_kmh: self.speed_kmh as f32,
             left_hand_traffic: self.left_hand_traffic,
+            ufo_mean_interval: self.show_ufo.then_some(UFO_MEAN_INTERVAL_SECONDS),
             seed,
         }
     }
@@ -98,28 +107,29 @@ mod tests {
         assert_eq!(settings.speed_kmh, 100);
         assert!(settings.left_hand_traffic);
         assert!(!settings.show_speedometer);
-        assert_eq!(Settings::from_raw(None, None, None), settings);
+        assert_eq!(Settings::from_raw(None, None, None, None), settings);
     }
 
     #[test]
     fn valid_values_are_kept() {
-        let settings = Settings::from_raw(Some(160), Some(0), Some(1));
+        let settings = Settings::from_raw(Some(160), Some(0), Some(1), Some(1));
         assert_eq!(
             settings,
             Settings {
                 speed_kmh: 160,
                 left_hand_traffic: false,
                 show_speedometer: true,
+                show_ufo: true,
             }
         );
-        assert_eq!(Settings::from_raw(Some(30), None, None).speed_kmh, 30);
+        assert_eq!(Settings::from_raw(Some(30), None, None, None).speed_kmh, 30);
     }
 
     #[test]
     fn invalid_speeds_fall_back_to_the_default() {
         for speed in [0, 20, 29, 35, 105, 161, 170, 1000, u32::MAX] {
             assert_eq!(
-                Settings::from_raw(Some(speed), None, None).speed_kmh,
+                Settings::from_raw(Some(speed), None, None, None).speed_kmh,
                 DEFAULT_SPEED_KMH,
                 "{speed}"
             );
@@ -129,17 +139,18 @@ mod tests {
     #[test]
     fn invalid_flags_fall_back_to_the_default() {
         for raw in [2, 3, u32::MAX] {
-            let settings = Settings::from_raw(None, Some(raw), Some(raw));
+            let settings = Settings::from_raw(None, Some(raw), Some(raw), Some(raw));
             assert_eq!(settings, Settings::default(), "{raw}");
         }
     }
 
     #[test]
     fn each_setting_is_checked_on_its_own() {
-        let settings = Settings::from_raw(Some(999), Some(0), Some(7));
+        let settings = Settings::from_raw(Some(999), Some(0), Some(7), Some(1));
         assert_eq!(settings.speed_kmh, DEFAULT_SPEED_KMH);
         assert!(!settings.left_hand_traffic);
         assert!(!settings.show_speedometer);
+        assert!(settings.show_ufo);
     }
 
     #[test]
@@ -148,11 +159,35 @@ mod tests {
             speed_kmh: 60,
             left_hand_traffic: false,
             show_speedometer: true,
+            show_ufo: false,
         };
         let config = settings.scene_config(42);
         assert_eq!(config.speed_kmh, 60.0);
         assert!(!config.left_hand_traffic);
         assert_eq!(config.seed, 42);
+    }
+
+    #[test]
+    fn ufo_is_off_by_default_and_the_flag_is_checked() {
+        assert!(!Settings::default().show_ufo);
+        assert!(Settings::from_raw(None, None, None, Some(1)).show_ufo);
+        assert!(!Settings::from_raw(None, None, None, Some(0)).show_ufo);
+        for raw in [2, 3, u32::MAX] {
+            assert!(
+                !Settings::from_raw(None, None, None, Some(raw)).show_ufo,
+                "{raw}"
+            );
+        }
+    }
+
+    #[test]
+    fn scene_config_enables_the_ufo_only_when_asked() {
+        let on = Settings {
+            show_ufo: true,
+            ..Settings::default()
+        };
+        assert_eq!(on.scene_config(0).ufo_mean_interval, Some(600.0));
+        assert_eq!(Settings::default().scene_config(0).ufo_mean_interval, None);
     }
 
     #[test]
