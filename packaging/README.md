@@ -38,6 +38,7 @@ Windowsの「インストール」はファイルをコピーせず、展開し�
 | 巡航速度 | Cruising speed | 30〜160 km/h(10 km/h刻み) | 100 km/h |
 | 通行方向 | Driving side | 左側通行 / 右側通行 | 左側通行 |
 | 速度計の表示 | Show speedometer | オン / オフ | オフ |
+| UFOの表示 | Show a UFO now and then | オン / オフ(オンのとき、平均10分に1回、UFOが現れる) | オフ |
 
 設定は、レジストリの`HKEY_CURRENT_USER\Software\NightFreewaySS`に保存されます。
 
@@ -101,6 +102,7 @@ Select "Night Freeway SS" in the screensaver settings and click "Settings" to ch
 | Cruising speed | 30 to 160 km/h (in steps of 10 km/h) | 100 km/h |
 | Driving side | Left-hand traffic / Right-hand traffic | Left-hand traffic |
 | Show speedometer | On / Off | Off |
+| Show a UFO now and then | On / Off (when on, a UFO appears about once every 10 minutes on average) | Off |
 
 The settings are saved in the registry under `HKEY_CURRENT_USER\Software\NightFreewaySS`.
 

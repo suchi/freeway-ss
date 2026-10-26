@@ -1,6 +1,6 @@
 # Phase 7.1 詳細設計: UFO
 
-- ステータス: 作成済み(実装前)
+- ステータス: 実装済み(レビューと実機確認の待ち)
 - 日付: 2026-10-26
 - 親計画: [Phase 7 計画](0007-phase7-optional-features.md)、[実装計画](0001-screensaver-implementation-plan.md)の5.4節と11章 D7
 

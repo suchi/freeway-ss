@@ -188,7 +188,7 @@ sequenceDiagram
 | 巡航速度 | 30〜160 km/h | 100 km/h | MVP |
 | 通行方向 | 左側 / 右側 | 左側 | MVP |
 | 速度計を表示 | オン / オフ | オフ | MVP |
-| UFOが時々現れる | オン / オフ | オフ | 後続(Phase 7) |
+| UFOが時々現れる | オン / オフ | オフ | Phase 7.1(実装済み) |
 | 交通量 | 少 / 普通 / 多 | 普通 | 見送り(必要になったら追加) |
 | 流れ星 | オン / オフ | オン | 見送り(必要になったら追加) |
 
@@ -209,7 +209,7 @@ MVPの項目は、本家の実行中の操作と表示(速度・通行方向・H
 | Phase 4: 他車 | 完了(実機確認済み) | [0004](0004-phase4-traffic.md) | [#11](https://github.com/suchi/freeway-ss/pull/11) | [v0.4.0](https://github.com/suchi/freeway-ss/releases/tag/v0.4.0) |
 | Phase 5: 設定画面と保存 | 完了(実機確認済み) | [0005](0005-phase5-settings.md) | [#12](https://github.com/suchi/freeway-ss/pull/12) | [v0.5.0](https://github.com/suchi/freeway-ss/releases/tag/v0.5.0) |
 | Phase 6: リリース | 完了(実機確認済み) | [0006](0006-phase6-release.md) | [#14](https://github.com/suchi/freeway-ss/pull/14) | [v1.0.0](https://github.com/suchi/freeway-ss/releases/tag/v1.0.0)(正式版) |
-| Phase 7: 任意機能 | 実装中(7.1 UFO) | [0007](0007-phase7-optional-features.md)、[0008](0008-phase7-1-ufo.md) | 7.1は作成後に記入 | 機能ごとに`v1.N.0`(7.1は`v1.1.0`) |
+| Phase 7: 任意機能 | 実装済み(7.1 UFO。レビューと実機確認の待ち) | [0007](0007-phase7-optional-features.md)、[0008](0008-phase7-1-ufo.md) | [#16](https://github.com/suchi/freeway-ss/pull/16)(7.1) | 機能ごとに`v1.N.0`(7.1は`v1.1.0`) |
 
 ```mermaid
 flowchart LR
