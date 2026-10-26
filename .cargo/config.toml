@@ -5,4 +5,4 @@ rustflags = ["-C", "target-feature=+crt-static"]
 
 # `cargo xtask <command>` runs the development commands in the xtask crate.
 [alias]
-xtask = "run --package xtask --"
+xtask = "run --locked --package xtask --"
