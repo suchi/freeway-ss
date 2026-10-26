@@ -7,6 +7,7 @@ use crate::projection::{CAMERA_HEIGHT, NEAR_DISTANCE, Projector, VIEW_DISTANCE};
 use crate::road::{RoadShape, RoadView};
 use crate::sky::{Sky, SkyView};
 use crate::traffic::{Traffic, TruckStyle};
+use crate::tunnel::TunnelLighting;
 use crate::ufo::Ufo;
 
 /// Longest time step the scene accepts, in seconds. A longer pause (for
@@ -33,6 +34,8 @@ pub struct SceneConfig {
     pub mountains: bool,
     /// How the trucks among the other cars are lit; `None` means no trucks.
     pub trucks: TruckStyle,
+    /// How the lamps of the tunnels are colored; `None` means no tunnels.
+    pub tunnels: TunnelLighting,
     pub seed: u64,
 }
 
@@ -44,6 +47,7 @@ impl Default for SceneConfig {
             ufo_mean_interval: None,
             mountains: true,
             trucks: TruckStyle::default(),
+            tunnels: TunnelLighting::default(),
             seed: 0,
         }
     }

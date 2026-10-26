@@ -17,6 +17,7 @@ const SHOW_SPEEDOMETER: PCWSTR = w!("ShowSpeedometer");
 const SHOW_UFO: PCWSTR = w!("ShowUfo");
 const SHOW_MOUNTAINS: PCWSTR = w!("ShowMountains");
 const TRUCKS: PCWSTR = w!("Trucks");
+const TUNNELS: PCWSTR = w!("Tunnels");
 const LANGUAGE: PCWSTR = w!("Language");
 
 /// Reads the saved settings; anything missing or invalid is the default.
@@ -37,6 +38,7 @@ fn load_from(root: HKEY, key: PCWSTR) -> Settings {
         read_dword(root, key, SHOW_UFO),
         read_dword(root, key, SHOW_MOUNTAINS),
         read_dword(root, key, TRUCKS),
+        read_dword(root, key, TUNNELS),
         read_dword(root, key, LANGUAGE),
     )
 }
@@ -63,6 +65,7 @@ fn save_to(root: HKEY, key: PCWSTR, settings: &Settings) -> Result<()> {
         u32::from(settings.show_mountains),
     )?;
     write_dword(root, key, TRUCKS, settings.trucks.to_raw())?;
+    write_dword(root, key, TUNNELS, settings.tunnels.to_raw())?;
     write_dword(root, key, LANGUAGE, settings.language.to_raw())
 }
 
@@ -104,7 +107,7 @@ fn write_dword(root: HKEY, key: PCWSTR, name: PCWSTR, value: u32) -> Result<()> 
 #[cfg(test)]
 mod tests {
     use freeway_core::settings::DEFAULT_SPEED_KMH;
-    use freeway_core::{Language, TruckStyle};
+    use freeway_core::{Language, TruckStyle, TunnelLighting};
     use windows::Win32::System::Registry::{REG_SZ, RegDeleteTreeW};
     use windows::core::HSTRING;
 
@@ -159,6 +162,7 @@ mod tests {
             show_ufo: true,
             show_mountains: false,
             trucks: TruckStyle::NorthAmerican,
+            tunnels: TunnelLighting::Led,
             language: Language::Japanese,
         };
         save_to(HKEY_CURRENT_USER, test.key(), &settings)?;
@@ -179,6 +183,7 @@ mod tests {
         write_dword(HKEY_CURRENT_USER, test.key(), SHOW_UFO, 2)?;
         write_dword(HKEY_CURRENT_USER, test.key(), SHOW_MOUNTAINS, 2)?;
         write_dword(HKEY_CURRENT_USER, test.key(), TRUCKS, 3)?;
+        write_dword(HKEY_CURRENT_USER, test.key(), TUNNELS, 4)?;
         write_dword(HKEY_CURRENT_USER, test.key(), LANGUAGE, 3)?;
         let settings = test.load();
         assert_eq!(settings.speed_kmh, DEFAULT_SPEED_KMH);
@@ -187,6 +192,7 @@ mod tests {
         assert!(!settings.show_ufo);
         assert!(settings.show_mountains);
         assert_eq!(settings.trucks, TruckStyle::Japanese);
+        assert_eq!(settings.tunnels, TunnelLighting::Mixed);
         assert_eq!(settings.language, Language::Auto);
         Ok(())
     }
@@ -229,6 +235,30 @@ mod tests {
         for raw in [3, u32::MAX] {
             write_dword(HKEY_CURRENT_USER, invalid.key(), TRUCKS, raw)?;
             assert_eq!(invalid.load().trucks, TruckStyle::Japanese, "{raw}");
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn every_tunnel_choice_is_read_back() -> Result<()> {
+        let test = TestKey::new("tunnels");
+        for tunnels in TunnelLighting::ALL {
+            let settings = Settings {
+                tunnels,
+                ..Settings::default()
+            };
+            save_to(HKEY_CURRENT_USER, test.key(), &settings)?;
+            assert_eq!(test.load().tunnels, tunnels);
+        }
+        // Without the value, or with one out of range, the default (mixed
+        // lighting) is used.
+        let missing = TestKey::new("tunnels-missing");
+        write_dword(HKEY_CURRENT_USER, missing.key(), SPEED, 60)?;
+        assert_eq!(missing.load().tunnels, TunnelLighting::Mixed);
+        let invalid = TestKey::new("tunnels-invalid");
+        for raw in [4, u32::MAX] {
+            write_dword(HKEY_CURRENT_USER, invalid.key(), TUNNELS, raw)?;
+            assert_eq!(invalid.load().tunnels, TunnelLighting::Mixed, "{raw}");
         }
         Ok(())
     }

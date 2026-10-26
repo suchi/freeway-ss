@@ -15,6 +15,7 @@ pub mod scene;
 pub mod settings;
 pub mod sky;
 pub mod traffic;
+pub mod tunnel;
 pub mod ufo;
 
 pub use canvas::{Canvas, Rgb};
@@ -22,3 +23,4 @@ pub use i18n::{DisplayLanguage, Text};
 pub use scene::{Scene, SceneConfig, Viewport};
 pub use settings::{Language, Settings};
 pub use traffic::TruckStyle;
+pub use tunnel::TunnelLighting;
