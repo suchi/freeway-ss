@@ -146,6 +146,41 @@ impl TruckStyle {
     }
 }
 
+/// Whether the other cars have bodies that hide the lights behind them.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum CarBodies {
+    /// Only the lights of the cars are drawn.
+    #[default]
+    Transparent,
+    /// Black bodies that let a tenth of the light behind them through.
+    TranslucentBlack,
+    /// Black bodies that hide everything behind them.
+    Black,
+}
+
+impl CarBodies {
+    /// Every choice, in the order of the stored values 0, 1, 2.
+    pub const ALL: [CarBodies; 3] = [
+        CarBodies::Transparent,
+        CarBodies::TranslucentBlack,
+        CarBodies::Black,
+    ];
+
+    /// The choice for a stored value; `None` when the value is not valid.
+    pub fn from_raw(raw: Option<u32>) -> Option<Self> {
+        Self::ALL.get(usize::try_from(raw?).ok()?).copied()
+    }
+
+    /// The value to store; `from_raw` reads it back.
+    pub fn to_raw(self) -> u32 {
+        match self {
+            CarBodies::Transparent => 0,
+            CarBodies::TranslucentBlack => 1,
+            CarBodies::Black => 2,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Kind {
     /// Same direction, same lane, a little slower than the camera.

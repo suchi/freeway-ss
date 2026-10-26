@@ -8,7 +8,7 @@ use crate::projection::{CAMERA_HEIGHT, NEAR_DISTANCE, Projector, VIEW_DISTANCE};
 use crate::road::{RoadShape, RoadView};
 use crate::scenery::Zones;
 use crate::sky::{Sky, SkyView};
-use crate::traffic::{MINUTES_PER_DAY, Traffic, TrafficLevel, TruckStyle};
+use crate::traffic::{CarBodies, MINUTES_PER_DAY, Traffic, TrafficLevel, TruckStyle};
 use crate::tunnel::{Tunnel, TunnelLighting, Tunnels, draw_entrance};
 use crate::ufo::Ufo;
 
@@ -38,6 +38,8 @@ pub struct SceneConfig {
     pub trucks: TruckStyle,
     /// How the lamps of the tunnels are colored; `None` means no tunnels.
     pub tunnels: TunnelLighting,
+    /// Whether the other cars have bodies that hide the lights behind them.
+    pub car_bodies: CarBodies,
     /// Whether the speed drifts slowly around `speed_kmh`.
     pub vary_speed: bool,
     /// Whether the traffic follows the time of day, given by `start_minute`.
@@ -59,6 +61,7 @@ impl Default for SceneConfig {
             mountains: true,
             trucks: TruckStyle::default(),
             tunnels: TunnelLighting::default(),
+            car_bodies: CarBodies::default(),
             // The three kinds of variation are off here, which is the road
             // as it was before them. The settings turn them on by default.
             vary_speed: false,
