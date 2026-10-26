@@ -38,7 +38,7 @@ END
 // sets every string from freeway-core's string table when it opens and when
 // the language changes (docs/adr/0007-localize-ui-strings-in-code.md), so
 // controls with text that changes have an ID.
-100 DIALOGEX 0, 0, 224, 192
+100 DIALOGEX 0, 0, 224, 212
 STYLE DIALOG_STYLE
 CAPTION "Night Freeway SS Settings"
 FONT 9, "Segoe UI"
@@ -54,8 +54,10 @@ BEGIN
     AUTOCHECKBOX    "Show distant mountains", 111, 12, 108, 160, 10
     LTEXT           "Trucks:", 112, 12, 128, 48, 8
     CONTROL         "", 113, "COMBOBOX", DROPDOWN_STYLE, 62, 126, 150, 60
-    LTEXT           "Language:", 110, 12, 148, 48, 8
-    CONTROL         "", 107, "COMBOBOX", DROPDOWN_STYLE, 62, 146, 150, 60
-    DEFPUSHBUTTON   "OK", 1, 108, 170, 50, 14
-    PUSHBUTTON      "Cancel", 2, 162, 170, 50, 14
+    LTEXT           "Tunnels:", 114, 12, 148, 48, 8
+    CONTROL         "", 115, "COMBOBOX", DROPDOWN_STYLE, 62, 146, 150, 60
+    LTEXT           "Language:", 110, 12, 168, 48, 8
+    CONTROL         "", 107, "COMBOBOX", DROPDOWN_STYLE, 62, 166, 150, 60
+    DEFPUSHBUTTON   "OK", 1, 108, 190, 50, 14
+    PUSHBUTTON      "Cancel", 2, 162, 190, 50, 14
 END

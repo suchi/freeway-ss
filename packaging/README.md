@@ -41,6 +41,7 @@ Windowsの「インストール」はファイルをコピーせず、展開し�
 | UFOの表示 | Show a UFO now and then | オン / オフ(オンのとき、平均10分に1回、UFOが現れる) | オフ |
 | 山並みの表示 | Show distant mountains | オン / オフ(オンのとき、地平線のところどころの方向に山並みが見え、山頂の赤い灯火がゆっくり点滅する) | オン |
 | トラック | Trucks | なし / 日本風 / 北米風(他の車の約5台に1台がトラックになり、日本風は上側の端灯と側面の橙のサイドマーカー、北米風は後ろの識別灯と車幅灯が付く) | 日本風 |
+| トンネル | Tunnels | なし / 混在 / ナトリウム灯(橙) / LED(白)(なし以外のとき、100 km/hで平均3分に1本、通り抜けるのに20秒〜1分のトンネルが現れる。混在はトンネルごとに照明の色が変わる。トンネルの中では空が見えない) | 混在 |
 | 表示言語 | Language | 自動(Windowsの表示言語) / English / 日本語 | 自動 |
 
 表示言語は、設定画面とエラーメッセージの言語です。「自動」のときは、Windowsの表示言語が日本語なら日本語、それ以外は英語で表示します。設定画面で言語を選ぶと、その場で表示が切り替わります(保存するには「OK」を押します)。
@@ -110,6 +111,7 @@ Select "Night Freeway SS" in the screensaver settings and click "Settings" to ch
 | Show a UFO now and then | On / Off (when on, a UFO appears about once every 10 minutes on average) | Off |
 | Show distant mountains | On / Off (when on, mountain ranges stand on the horizon in some directions, and red lights on some peaks blink slowly) | On |
 | Trucks | None / Japanese style / North American style (about one in five other vehicles is a truck; Japanese style has upper marker lamps and amber side markers, North American style has identification and clearance lamps) | Japanese style |
+| Tunnels | None / Mixed lighting / Sodium (orange) / LED (white) (unless None, a tunnel that takes 20 to 60 seconds to drive through appears about once every 3 minutes at 100 km/h; Mixed lighting changes the lamp color from tunnel to tunnel; the sky is not seen inside a tunnel) | Mixed lighting |
 | Language | Automatic (Windows display language) / English / 日本語 | Automatic |
 
 The language is used for the settings dialog and error messages. With "Automatic", Japanese is shown when the Windows display language is Japanese, and English otherwise. When you choose a language in the dialog, the display changes at once (click "OK" to save it).

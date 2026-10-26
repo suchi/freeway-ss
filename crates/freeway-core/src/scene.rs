@@ -7,6 +7,7 @@ use crate::projection::{CAMERA_HEIGHT, NEAR_DISTANCE, Projector, VIEW_DISTANCE};
 use crate::road::{RoadShape, RoadView};
 use crate::sky::{Sky, SkyView};
 use crate::traffic::{Traffic, TruckStyle};
+use crate::tunnel::{Tunnel, TunnelLighting, Tunnels, draw_entrance};
 use crate::ufo::Ufo;
 
 /// Longest time step the scene accepts, in seconds. A longer pause (for
@@ -33,6 +34,8 @@ pub struct SceneConfig {
     pub mountains: bool,
     /// How the trucks among the other cars are lit; `None` means no trucks.
     pub trucks: TruckStyle,
+    /// How the lamps of the tunnels are colored; `None` means no tunnels.
+    pub tunnels: TunnelLighting,
     pub seed: u64,
 }
 
@@ -44,6 +47,7 @@ impl Default for SceneConfig {
             ufo_mean_interval: None,
             mountains: true,
             trucks: TruckStyle::default(),
+            tunnels: TunnelLighting::default(),
             seed: 0,
         }
     }
@@ -184,6 +188,66 @@ const ROWS: [Row; 11] = [
     ),
 ];
 
+/// Lamps of a tunnel are twice as dense this far from the entrance, in meters.
+const ENTRANCE_LENGTH: f64 = 100.0;
+const TUNNEL_LAMP_SPACING: f64 = 8.0;
+const EMERGENCY_RED: Rgb = Rgb::new(255, 40, 25);
+
+/// A row of lights along a tunnel, from its entrance on.
+struct TunnelRow {
+    lateral: f32,
+    height: f32,
+    spacing: f64,
+    range: f32,
+    color: Rgb,
+    alpha: f32,
+    kind: Kind,
+    /// Whether more lights stand between them near the entrance.
+    doubled_at_entrance: bool,
+}
+
+/// The rows of a tunnel with lamps of the given color. The lamps hang at the
+/// walls, the pools of light lie in the lanes and the red lights, of the
+/// emergency equipment, stand at the left wall.
+fn tunnel_rows(lamp: Rgb) -> [TunnelRow; 5] {
+    let lamp_row = |lateral| TunnelRow {
+        lateral,
+        height: 5.0,
+        spacing: TUNNEL_LAMP_SPACING,
+        range: 450.0,
+        color: lamp,
+        alpha: 0.9,
+        kind: Kind::Glow { size: 0.3 },
+        doubled_at_entrance: true,
+    };
+    let pool_row = |lateral| TunnelRow {
+        lateral,
+        height: 0.0,
+        spacing: TUNNEL_LAMP_SPACING,
+        range: 220.0,
+        color: lamp,
+        alpha: 0.16,
+        kind: Kind::Pool { radius: 4.0 },
+        doubled_at_entrance: false,
+    };
+    [
+        lamp_row(-4.6),
+        lamp_row(5.1),
+        pool_row(-1.75),
+        pool_row(1.75),
+        TunnelRow {
+            lateral: -4.9,
+            height: 1.2,
+            spacing: 50.0,
+            range: 300.0,
+            color: EMERGENCY_RED,
+            alpha: 0.8,
+            kind: Kind::Glow { size: 0.12 },
+            doubled_at_entrance: false,
+        },
+    ]
+}
+
 /// Headlight reflections stay put in front of the car: (distance, alpha, radius in meters).
 const HEADLIGHT_POOLS: [(f32, f32, f32); 2] = [(14.0, 0.3, 3.0), (32.0, 0.2, 4.0)];
 
@@ -209,6 +273,7 @@ pub struct Scene {
     sky: Sky,
     traffic: Traffic,
     ufo: Ufo,
+    tunnels: Tunnels,
 }
 
 impl Scene {
@@ -222,6 +287,7 @@ impl Scene {
             sky: Sky::new(config.seed, config.mountains),
             traffic: Traffic::new(config.seed, config.trucks),
             ufo: Ufo::new(config.seed, config.ufo_mean_interval),
+            tunnels: Tunnels::new(config.seed, config.tunnels),
         }
     }
 
@@ -245,6 +311,16 @@ impl Scene {
             .is_some_and(|m| m.has_range_at(self.heading))
     }
 
+    /// Distance in meters to the entrance of the tunnel ahead, if it is in sight.
+    pub fn tunnel_entrance_ahead(&self) -> Option<f32> {
+        self.tunnels.entrance_ahead(self.track_s).map(|(_, d)| d)
+    }
+
+    /// Whether the car is in a tunnel now.
+    pub fn in_tunnel(&self) -> bool {
+        self.tunnels.sky_hidden(self.track_s)
+    }
+
     /// Whether a UFO is in the sky now.
     pub fn ufo_visible(&self) -> bool {
         self.ufo.is_visible()
@@ -266,6 +342,7 @@ impl Scene {
         self.sky.update(self.time, self.heading);
         self.ufo.update(self.time, self.heading, self.side());
         self.traffic.update(dt, self.config.speed_kmh / 3.6);
+        self.tunnels.update(self.track_s);
     }
 
     /// Draws the sky, then the lights of the road from far to near.
@@ -296,9 +373,16 @@ impl Scene {
             heading: self.heading,
             time: self.time,
         };
-        self.sky.draw(&sky_view, canvas);
-        // The UFO is far away: the lights of the road and of other cars lie in front of it.
-        self.ufo.draw(&sky_view, canvas);
+        // Inside a tunnel there is no sky to see.
+        if !self.tunnels.sky_hidden(self.track_s) {
+            self.sky.draw(&sky_view, canvas);
+            // The UFO is far away: the lights of the road and of other cars lie in front of it.
+            self.ufo.draw(&sky_view, canvas);
+        }
+        // The hill of an entrance hides the sky behind it, but not the lights in front of it.
+        if let Some((tunnel, d)) = self.tunnels.entrance_ahead(self.track_s) {
+            draw_entrance(tunnel, d, &projector, &view, canvas);
+        }
 
         for light in &self.lights() {
             let (bend, rise) = view.offset(light.d);
@@ -363,6 +447,10 @@ impl Scene {
                 if d < NEAR_DISTANCE || (row.dashed && s.rem_euclid(DASH_PERIOD) >= DASH_LENGTH) {
                     continue;
                 }
+                // The street lamps of the road outside do not light a tunnel.
+                if matches!(row.kind, Kind::Pool { .. }) && self.tunnels.contains(s) {
+                    continue;
+                }
                 lights.push(Light {
                     d,
                     lateral: row.lateral,
@@ -393,8 +481,51 @@ impl Scene {
                 Kind::Glow { size: car.size }
             },
         }));
+        // Only what fits through a tunnel is seen along it.
+        lights.retain(|l| !self.tunnels.hides(self.track_s, l.d, l.lateral, l.height));
+        for tunnel in self.tunnels.ahead() {
+            self.tunnel_lights(tunnel, &mut lights);
+        }
         lights.sort_by(|a, b| b.d.total_cmp(&a.d));
         lights
+    }
+
+    /// Adds the lamps, the light on the road and the emergency lights of a tunnel.
+    fn tunnel_lights(&self, tunnel: &Tunnel, lights: &mut Vec<Light>) {
+        for row in tunnel_rows(tunnel.lamp) {
+            // The lamps of the entrance are closer together than those inside.
+            let mut push = |offset: f64, spacing: f64, length: f64| {
+                let first = (self.track_s - tunnel.start - offset) / spacing;
+                let mut index = first.ceil().max(0.0);
+                loop {
+                    let along = offset + index * spacing;
+                    if along >= length {
+                        break;
+                    }
+                    index += 1.0;
+                    let d = (tunnel.start + along - self.track_s) as f32;
+                    if d >= row.range {
+                        break;
+                    }
+                    if d < NEAR_DISTANCE {
+                        continue;
+                    }
+                    lights.push(Light {
+                        d,
+                        lateral: row.lateral,
+                        height: row.height,
+                        color: row.color,
+                        alpha: row.alpha * (1.0 - d / row.range),
+                        kind: row.kind,
+                    });
+                }
+            };
+            let length = tunnel.end - tunnel.start;
+            push(0.0, row.spacing, length);
+            if row.doubled_at_entrance {
+                push(row.spacing * 0.5, row.spacing, ENTRANCE_LENGTH.min(length));
+            }
+        }
     }
 }
 
@@ -447,6 +578,7 @@ mod tests {
         },
         Silhouette {
             points: Vec<(f32, f32)>,
+            color: Rgb,
         },
         Beam {
             center_x: f32,
@@ -513,9 +645,10 @@ mod tests {
                 alpha,
             });
         }
-        fn silhouette(&mut self, points: &[(f32, f32)], _: Rgb) {
+        fn silhouette(&mut self, points: &[(f32, f32)], color: Rgb) {
             self.0.push(Command::Silhouette {
                 points: points.to_vec(),
+                color,
             });
         }
         fn beam(
@@ -685,6 +818,53 @@ mod tests {
         assert!(beam < first_pool);
     }
 
+    /// Checks that a command is valid and not wholly off screen. The sky
+    /// keeps its own tests of the geometry; here only the road's lights are
+    /// checked for what lies off screen.
+    fn assert_valid(command: &Command) {
+        let (values, alpha, radii) = match *command {
+            Command::Glow {
+                x,
+                y,
+                radius,
+                alpha,
+            } => ([x, y], alpha, [radius * GLOW_HALO_RATIO; 2]),
+            Command::Pool {
+                x,
+                y,
+                rx,
+                ry,
+                alpha,
+            } => ([x, y], alpha, [rx, ry]),
+            Command::Dot { x, y, size, alpha } => ([x, y], alpha, [size; 2]),
+            Command::Silhouette { ref points, .. } => {
+                assert!(points.len() >= 3);
+                assert!(points.iter().all(|(x, y)| x.is_finite() && y.is_finite()));
+                return;
+            }
+            Command::Band { alpha, .. }
+            | Command::Streak { alpha, .. }
+            | Command::Beam { alpha, .. } => {
+                assert!(alpha > 0.0 && alpha <= 1.0, "{command:?}");
+                return;
+            }
+        };
+        assert!(
+            values.iter().chain(&radii).all(|v| v.is_finite()),
+            "{command:?}"
+        );
+        assert!(radii.iter().all(|r| *r > 0.0), "{command:?}");
+        assert!(alpha > 0.0 && alpha <= 1.0, "{command:?}");
+        // Nothing that lies completely off screen is emitted.
+        assert!(
+            values[0] + radii[0] >= 0.0
+                && values[0] - radii[0] <= VIEWPORT.width
+                && values[1] + radii[1] >= 0.0
+                && values[1] - radii[1] <= VIEWPORT.height,
+            "{command:?}"
+        );
+    }
+
     #[test]
     fn draws_something_with_valid_parameters() {
         let mut scene = Scene::new(SceneConfig {
@@ -695,48 +875,54 @@ mod tests {
             scene.update(0.016);
             let commands = record(&scene, VIEWPORT);
             assert!(!commands.is_empty());
-            for command in &commands {
-                // The sky keeps its own tests of the geometry; here only
-                // the road's lights are checked for what lies off screen.
-                let (values, alpha, radii) = match *command {
-                    Command::Glow {
-                        x,
-                        y,
-                        radius,
-                        alpha,
-                    } => ([x, y], alpha, [radius * GLOW_HALO_RATIO; 2]),
-                    Command::Pool {
-                        x,
-                        y,
-                        rx,
-                        ry,
-                        alpha,
-                    } => ([x, y], alpha, [rx, ry]),
-                    Command::Dot { x, y, size, alpha } => ([x, y], alpha, [size; 2]),
-                    Command::Silhouette { .. } => continue,
-                    Command::Band { alpha, .. }
-                    | Command::Streak { alpha, .. }
-                    | Command::Beam { alpha, .. } => {
-                        assert!(alpha > 0.0 && alpha <= 1.0, "{command:?}");
-                        continue;
+            commands.iter().for_each(assert_valid);
+        }
+    }
+
+    #[test]
+    fn a_whole_tunnel_draws_valid_commands() {
+        let mut scene = Scene::new(SceneConfig {
+            seed: 11,
+            speed_kmh: 160.0,
+            ..Default::default()
+        });
+        let (mut entrance, mut inside, mut checked) = (0, 0, 0);
+        for step in 0..40_000 {
+            scene.update(0.05);
+            if scene.tunnel_entrance_ahead().is_none() && !scene.in_tunnel() {
+                if inside > 0 {
+                    break;
+                }
+                continue;
+            }
+            // Every frame near the entrance, and every few inside.
+            if scene.in_tunnel() {
+                inside += 1;
+            } else {
+                entrance += 1;
+            }
+            if step % 3 == 0 || scene.tunnel_entrance_ahead().is_some_and(|d| d < 30.0) {
+                for viewport in [
+                    VIEWPORT,
+                    Viewport {
+                        width: 152.0,
+                        height: 112.0,
+                        pixel_scale: 1.0,
+                    },
+                ] {
+                    let commands = record(&scene, viewport);
+                    assert!(!commands.is_empty());
+                    if viewport.width == VIEWPORT.width {
+                        commands.iter().for_each(assert_valid);
                     }
-                };
-                assert!(
-                    values.iter().chain(&radii).all(|v| v.is_finite()),
-                    "{command:?}"
-                );
-                assert!(radii.iter().all(|r| *r > 0.0), "{command:?}");
-                assert!(alpha > 0.0 && alpha <= 1.0, "{command:?}");
-                // Nothing that lies completely off screen is emitted.
-                assert!(
-                    values[0] + radii[0] >= 0.0
-                        && values[0] - radii[0] <= VIEWPORT.width
-                        && values[1] + radii[1] >= 0.0
-                        && values[1] - radii[1] <= VIEWPORT.height,
-                    "{command:?}"
-                );
+                }
+                checked += 1;
             }
         }
+        assert!(
+            entrance > 100 && inside > 100 && checked > 100,
+            "{entrance} {inside} {checked}"
+        );
     }
 
     #[test]
@@ -747,13 +933,16 @@ mod tests {
                 .filter(|c| matches!(c, Command::Silhouette { .. }))
                 .count()
         };
+        // No tunnels: they would hide the mountains for a while.
         let mut on = Scene::new(SceneConfig {
             seed: 8,
+            tunnels: TunnelLighting::None,
             ..Default::default()
         });
         let mut off = Scene::new(SceneConfig {
             seed: 8,
             mountains: false,
+            tunnels: TunnelLighting::None,
             ..Default::default()
         });
         let mut seen = 0;
@@ -929,6 +1118,347 @@ mod tests {
                 },
             );
         }
+    }
+
+    /// A scene whose camera is `before` meters short of the entrance of the
+    /// first tunnel (inside it when `before` is negative).
+    fn near_first_tunnel(lighting: TunnelLighting, before: f64) -> (Scene, Tunnel) {
+        let mut scene = Scene::new(SceneConfig {
+            seed: 11,
+            tunnels: lighting,
+            // The mountains are silhouettes too.
+            mountains: false,
+            ..Default::default()
+        });
+        // The first tunnel is not in sight at the start: drive on until it is.
+        let mut s = 0.0;
+        while scene.tunnels.ahead().next().is_none() {
+            s += 500.0;
+            scene.tunnels.update(s);
+        }
+        let tunnel = *scene.tunnels.ahead().next().unwrap();
+        scene.track_s = tunnel.start - before;
+        scene.tunnels.update(scene.track_s);
+        scene.traffic.update(0.0, 0.0);
+        (scene, tunnel)
+    }
+
+    fn lamp_distances(scene: &Scene, lateral: f32) -> Vec<f32> {
+        let mut d: Vec<f32> = scene
+            .lights()
+            .iter()
+            .filter(|l| l.lateral == lateral && l.height == 5.0)
+            .map(|l| l.d)
+            .collect();
+        d.sort_by(f32::total_cmp);
+        d
+    }
+
+    #[test]
+    fn only_what_fits_through_a_tunnel_is_seen_beyond_its_entrance() {
+        let (scene, tunnel) = near_first_tunnel(TunnelLighting::Led, 300.0);
+        let lights = scene.lights();
+        let beyond: Vec<&Light> = lights.iter().filter(|l| l.d > 300.0).collect();
+        assert!(!beyond.is_empty());
+        // The lights of the road outside are gone behind the entrance...
+        for light in &beyond {
+            let is_lamp = light.height == 5.0 && (light.lateral == -4.6 || light.lateral == 5.1);
+            assert!(
+                crate::tunnel::fits_through(light.lateral, light.height) || is_lamp,
+                "lateral {} height {}",
+                light.lateral,
+                light.height
+            );
+        }
+        // ...what is in the tunnel's way stays: the delineators, and its own lights.
+        assert!(beyond.iter().any(|l| l.lateral == -4.0));
+        assert!(beyond.iter().any(|l| l.lateral == 3.9));
+        assert!(beyond.iter().any(|l| l.color == tunnel.lamp));
+        // In front of the entrance nothing is hidden.
+        let before = lights.iter().filter(|l| l.d < 290.0);
+        assert!(before.clone().any(|l| l.lateral == 13.0));
+        assert!(before.clone().any(|l| l.lateral == 4.5 && l.height == 10.0));
+    }
+
+    #[test]
+    fn oncoming_cars_are_not_seen_through_a_tunnel() {
+        let (mut scene, _) = near_first_tunnel(TunnelLighting::Led, 300.0);
+        let mut same_direction = false;
+        for _ in 0..600 {
+            scene.traffic.update(0.05, 27.0);
+            for light in scene.lights() {
+                if light.d > 300.0 {
+                    assert!(light.lateral < 5.5, "{}", light.lateral);
+                    same_direction |=
+                        light.lateral == -1.75 && light.color == Rgb::new(255, 35, 20);
+                }
+            }
+        }
+        assert!(same_direction);
+    }
+
+    #[test]
+    fn inside_a_tunnel_only_lights_shine_and_there_is_no_sky() {
+        let (scene, tunnel) = near_first_tunnel(TunnelLighting::Sodium, -200.0);
+        assert!(scene.tunnels.sky_hidden(scene.track_s));
+        let commands = record(&scene, VIEWPORT);
+        assert!(!commands.is_empty());
+        assert!(
+            commands
+                .iter()
+                .all(|c| matches!(c, Command::Glow { .. } | Command::Pool { .. }))
+        );
+        // Lamps in both rows, lit orange, with the pools of light beneath.
+        assert!(!lamp_distances(&scene, -4.6).is_empty());
+        assert!(!lamp_distances(&scene, 5.1).is_empty());
+        assert!(
+            scene
+                .lights()
+                .iter()
+                .filter(|l| l.height == 5.0)
+                .all(|l| l.color == tunnel.lamp)
+        );
+        // The street lamps' pools of the road outside are not in the tunnel.
+        let exit = (tunnel.end - scene.track_s) as f32;
+        assert!(
+            scene
+                .lights()
+                .iter()
+                .filter(|l| l.d < exit && matches!(l.kind, Kind::Pool { .. }))
+                .all(|l| l.color == tunnel.lamp || l.color == WHITE)
+        );
+    }
+
+    #[test]
+    fn the_sky_returns_after_the_exit_and_is_there_before_the_entrance() {
+        let (before, tunnel) = near_first_tunnel(TunnelLighting::Led, 100.0);
+        assert!(!before.tunnels.sky_hidden(before.track_s));
+        assert!(matches!(record(&before, VIEWPORT)[0], Command::Band { .. }));
+        let (mut after, _) = near_first_tunnel(TunnelLighting::Led, -100.0);
+        after.track_s = tunnel.end + 1.0;
+        after.tunnels.update(after.track_s);
+        assert!(!after.tunnels.sky_hidden(after.track_s));
+        assert!(matches!(record(&after, VIEWPORT)[0], Command::Band { .. }));
+    }
+
+    #[test]
+    fn the_lamps_stand_every_eight_meters_and_closer_at_the_entrance() {
+        let (scene, tunnel) = near_first_tunnel(TunnelLighting::Led, 50.0);
+        let d = lamp_distances(&scene, -4.6);
+        // The entrance is 50 meters ahead: lamps every 4 meters for 100
+        // meters, then every 8 meters.
+        let inside = |from: f32, to: f32| -> Vec<f32> {
+            d.iter().copied().filter(|&d| d >= from && d < to).collect()
+        };
+        let near = inside(50.0, 150.0);
+        assert_eq!(near.len(), 25, "{near:?}");
+        assert!(near.windows(2).all(|w| (w[1] - w[0] - 4.0).abs() < 1e-3));
+        let far = inside(160.0, 400.0);
+        assert!(far.len() > 25);
+        assert!(far.windows(2).all(|w| (w[1] - w[0] - 8.0).abs() < 1e-3));
+        // Nothing stands beyond the exit.
+        assert!(
+            d.iter()
+                .all(|&d| f64::from(d) <= tunnel.end - scene.track_s)
+        );
+    }
+
+    #[test]
+    fn red_emergency_lights_stand_every_fifty_meters() {
+        let (scene, _) = near_first_tunnel(TunnelLighting::Led, -100.0);
+        let mut d: Vec<f32> = scene
+            .lights()
+            .iter()
+            .filter(|l| l.lateral == -4.9 && l.height == 1.2)
+            .map(|l| l.d)
+            .collect();
+        d.sort_by(f32::total_cmp);
+        assert!(d.len() >= 4);
+        assert!(d.windows(2).all(|w| (w[1] - w[0] - 50.0).abs() < 1e-3));
+    }
+
+    #[test]
+    fn no_tunnels_means_no_tunnel_lights_for_any_seed() {
+        for seed in 0..12 {
+            let mut scene = Scene::new(SceneConfig {
+                seed,
+                tunnels: TunnelLighting::None,
+                ..Default::default()
+            });
+            for _ in 0..400 {
+                scene.track_s += 40.0;
+                scene.tunnels.update(scene.track_s);
+                assert_eq!(scene.tunnels.ahead().count(), 0);
+                assert!(!scene.tunnels.sky_hidden(scene.track_s));
+                assert!(scene.lights().iter().all(|l| l.height != 5.0));
+            }
+        }
+    }
+
+    #[test]
+    fn the_picture_is_the_same_with_and_without_tunnels_while_none_is_near() {
+        let none = Scene::new(SceneConfig {
+            tunnels: TunnelLighting::None,
+            ..Default::default()
+        });
+        let mixed = Scene::new(SceneConfig {
+            tunnels: TunnelLighting::Mixed,
+            ..Default::default()
+        });
+        // The first tunnel is at least 1,000 meters away at the start.
+        assert_eq!(record(&none, VIEWPORT), record(&mixed, VIEWPORT));
+    }
+
+    fn silhouettes(commands: &[Command]) -> Vec<(&Vec<(f32, f32)>, Rgb)> {
+        commands
+            .iter()
+            .filter_map(|c| match c {
+                Command::Silhouette { points, color } => Some((points, *color)),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn an_entrance_shows_a_hill_with_an_opening_within_sight() {
+        for before in [599.0, 500.0, 300.0, 100.0, 20.0, 1.5] {
+            let (scene, _) = near_first_tunnel(TunnelLighting::Led, before);
+            let commands = record(&scene, VIEWPORT);
+            let shapes = silhouettes(&commands);
+            assert_eq!(shapes.len(), 2, "{before}");
+            let (hill, opening) = (shapes[0].0, shapes[1].0);
+            assert!(hill.len() >= 3 && opening.len() >= 3);
+            assert!(
+                hill.iter()
+                    .chain(opening)
+                    .all(|(x, y)| x.is_finite() && y.is_finite()),
+                "{before}"
+            );
+            let top =
+                |points: &Vec<(f32, f32)>| points.iter().map(|p| p.1).fold(f32::MAX, f32::min);
+            let width = |points: &Vec<(f32, f32)>| {
+                let xs = points.iter().map(|p| p.0);
+                xs.clone().fold(f32::MIN, f32::max) - xs.fold(f32::MAX, f32::min)
+            };
+            // The hill rises above the opening and is far wider than it.
+            assert!(top(hill) < top(opening), "{before}");
+            assert!(width(hill) > 10.0 * width(opening), "{before}");
+        }
+    }
+
+    #[test]
+    fn there_is_no_entrance_far_away_or_once_it_is_passed() {
+        for before in [650.0, 601.0, 0.5, 0.0, -50.0, -400.0] {
+            let (scene, _) = near_first_tunnel(TunnelLighting::Led, before);
+            assert!(
+                silhouettes(&record(&scene, VIEWPORT)).is_empty(),
+                "{before}"
+            );
+        }
+        // And without tunnels there is never one.
+        let (mut scene, _) = near_first_tunnel(TunnelLighting::Led, 300.0);
+        scene.config.tunnels = TunnelLighting::None;
+        scene.tunnels = Tunnels::new(scene.config.seed, TunnelLighting::None);
+        assert!(silhouettes(&record(&scene, VIEWPORT)).is_empty());
+    }
+
+    #[test]
+    fn the_entrance_is_dark_and_tinted_by_the_lamps() {
+        let (led, _) = near_first_tunnel(TunnelLighting::Led, 300.0);
+        let (sodium, _) = near_first_tunnel(TunnelLighting::Sodium, 300.0);
+        let (led, sodium) = (record(&led, VIEWPORT), record(&sodium, VIEWPORT));
+        let (led, sodium) = (silhouettes(&led), silhouettes(&sodium));
+        // The hill is as dark as the mountains, the opening is darker still.
+        assert_eq!(led[0].1, Rgb::new(5, 7, 15));
+        assert_eq!(sodium[0].1, Rgb::new(5, 7, 15));
+        assert_eq!(led[1].1, Rgb::new(6, 8, 12));
+        assert_eq!(sodium[1].1, Rgb::new(10, 7, 5));
+    }
+
+    #[test]
+    fn the_entrance_fades_in_from_the_dark_of_the_night() {
+        let color_at = |before: f64| {
+            let (scene, _) = near_first_tunnel(TunnelLighting::Led, before);
+            let commands = record(&scene, VIEWPORT);
+            silhouettes(&commands)[0].1
+        };
+        let background = Rgb::new(2, 3, 10);
+        let far = color_at(599.9);
+        assert!(far.r.abs_diff(background.r) <= 1 && far.b.abs_diff(background.b) <= 1);
+        // Brightest channel (blue) rises steadily from 10 to 15.
+        let blues: Vec<u8> = [599.9, 560.0, 520.0, 480.0, 450.0]
+            .map(|d| color_at(d).b)
+            .to_vec();
+        assert!(blues.windows(2).all(|w| w[0] <= w[1]), "{blues:?}");
+        assert_eq!(color_at(450.0), Rgb::new(5, 7, 15));
+        assert_eq!(color_at(200.0), Rgb::new(5, 7, 15));
+    }
+
+    #[test]
+    fn the_entrance_is_drawn_after_the_sky_and_before_the_lights() {
+        // With the mountains on, the sky has silhouettes of its own.
+        let mut scene = Scene::new(SceneConfig {
+            seed: 11,
+            ..Default::default()
+        });
+        let mut s = 0.0;
+        while scene.tunnels.ahead().next().is_none() {
+            s += 500.0;
+            scene.tunnels.update(s);
+        }
+        let start = scene.tunnels.ahead().next().unwrap().start;
+        scene.track_s = start - 300.0;
+        scene.tunnels.update(scene.track_s);
+        let commands = record(&scene, VIEWPORT);
+        let hill_commands: Vec<usize> = commands
+            .iter()
+            .enumerate()
+            .filter(|(_, c)| matches!(c, Command::Silhouette { .. }))
+            .map(|(i, _)| i)
+            .collect();
+        let first_pool = commands
+            .iter()
+            .position(|c| matches!(c, Command::Pool { .. }))
+            .unwrap();
+        // The last two silhouettes are the hill and its opening; the sky
+        // (stars, glow of the city) is already drawn, the lights come after.
+        let [.., hill, opening] = hill_commands[..] else {
+            panic!("no entrance");
+        };
+        assert_eq!(opening, hill + 1);
+        assert!(hill > 100 && opening < first_pool);
+        // Nothing of the sky comes after the hill.
+        assert!(
+            commands[hill..]
+                .iter()
+                .all(|c| !matches!(c, Command::Dot { .. } | Command::Band { .. }))
+        );
+    }
+
+    #[test]
+    fn driving_through_a_tunnel_shows_its_entrance_then_the_inside_then_the_sky() {
+        let mut scene = Scene::new(SceneConfig {
+            seed: 11,
+            speed_kmh: 160.0,
+            tunnels: TunnelLighting::Mixed,
+            ..Default::default()
+        });
+        let (mut sighted, mut inside, mut left) = (false, false, false);
+        for _ in 0..40_000 {
+            scene.update(0.05);
+            if scene.tunnel_entrance_ahead().is_some() {
+                sighted = true;
+            }
+            if scene.in_tunnel() {
+                // The entrance is drawn only until the car reaches it.
+                assert!(sighted && scene.tunnel_entrance_ahead().is_none());
+                inside = true;
+            } else if inside {
+                left = true;
+                break;
+            }
+        }
+        assert!(left);
     }
 
     #[test]
