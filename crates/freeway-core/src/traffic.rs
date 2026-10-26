@@ -56,6 +56,7 @@ const STREAM_BRAKE_LENGTH: u32 = 14;
 const STREAM_ESCAPE: u32 = 15;
 const STREAM_PHASE: u32 = 16;
 const STREAM_TRUCK: u32 = 17;
+const STREAM_ACTIVE: u32 = 18;
 
 /// The share of cars that are trucks, when trucks are enabled.
 pub const TRUCK_RATIO: f32 = 0.2;
@@ -67,6 +68,48 @@ const TRUCK_HALF_WIDTH: f32 = 1.25;
 const TRUCK_LEAD_RATIO: (f32, f32) = (0.80, 0.10);
 /// A passing truck is this much faster than the camera compared to a car.
 const TRUCK_PASSING_FACTOR: f32 = 0.5;
+
+/// How busy the road is: the share of the cars that run at all, and the
+/// share of trucks among the cars that run. A car is placed again when it
+/// leaves the view, and only then takes a new share into account, so the
+/// traffic changes over a minute or so instead of at once.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct TrafficLevel {
+    pub active: f32,
+    pub trucks: f32,
+}
+
+impl TrafficLevel {
+    /// All cars run, and a fifth of them are trucks.
+    pub const FULL: TrafficLevel = TrafficLevel {
+        active: 1.0,
+        trucks: TRUCK_RATIO,
+    };
+
+    /// The traffic at `minute` minutes after midnight (any value; a day has
+    /// 1,440 minutes): thin and full of trucks at night, full by day.
+    pub fn at_minute(minute: f32) -> Self {
+        let minute = if minute.is_finite() {
+            minute.rem_euclid(MINUTES_PER_DAY)
+        } else {
+            return Self::FULL;
+        };
+        match minute {
+            m if m < 5.0 * 60.0 => TrafficLevel {
+                active: 0.4,
+                trucks: 0.4,
+            },
+            m if m < 7.0 * 60.0 || m >= 21.0 * 60.0 => TrafficLevel {
+                active: 0.7,
+                trucks: 0.25,
+            },
+            _ => Self::FULL,
+        }
+    }
+}
+
+/// Minutes in a day.
+pub const MINUTES_PER_DAY: f32 = 24.0 * 60.0;
 
 /// How the lights of trucks are arranged.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -146,6 +189,10 @@ struct Car {
     escape_after: f32,
     /// How often the car has been placed again.
     generation: u32,
+    /// Whether the car runs at all; decided each time the car is placed. A
+    /// car that does not run is simulated but not drawn, so that it takes
+    /// nothing from the other cars.
+    active: bool,
     /// Whether the car is a truck; decided each time the car is placed.
     truck: bool,
     /// How often the car has braked.
@@ -155,7 +202,7 @@ struct Car {
 }
 
 impl Car {
-    fn new(seed: u64, id: u32, style: TruckStyle) -> Self {
+    fn new(seed: u64, id: u32, style: TruckStyle, level: TrafficLevel) -> Self {
         let kind = if id < LEAD_CARS {
             Kind::Lead
         } else if id < LEAD_CARS + PASSING_CARS {
@@ -174,12 +221,13 @@ impl Car {
             age: 0.0,
             escape_after: 0.0,
             generation: 0,
+            active: true,
             truck: false,
             brakes: 0,
             until_brake: 0.0,
             braking_left: 0.0,
         };
-        car.place(seed, style, true);
+        car.place(seed, style, level, true);
         car.until_brake = car.brake_interval(seed);
         car
     }
@@ -196,11 +244,12 @@ impl Car {
     /// Sets position, speed and lane. `initial` spreads the cars over the
     /// whole view; later they enter where they cannot be seen, except that
     /// lead cars keep appearing ahead.
-    fn place(&mut self, seed: u64, style: TruckStyle, initial: bool) {
+    fn place(&mut self, seed: u64, style: TruckStyle, level: TrafficLevel, initial: bool) {
         let position = self.roll(seed, STREAM_POSITION);
         let speed = self.roll(seed, STREAM_SPEED);
-        // A new stream keeps the other random values of the car as they were.
-        self.truck = style != TruckStyle::None && self.roll(seed, STREAM_TRUCK) < TRUCK_RATIO;
+        // New streams keep the other random values of the car as they were.
+        self.active = self.roll(seed, STREAM_ACTIVE) < level.active;
+        self.truck = style != TruckStyle::None && self.roll(seed, STREAM_TRUCK) < level.trucks;
         self.age = 0.0;
         self.phase = self.roll(seed, STREAM_PHASE) * std::f32::consts::TAU;
         self.escape_after = 40.0 + 80.0 * self.roll(seed, STREAM_ESCAPE);
@@ -287,7 +336,7 @@ impl Car {
         }
     }
 
-    fn step(&mut self, seed: u64, style: TruckStyle, dt: f32, own_speed: f32) {
+    fn step(&mut self, seed: u64, style: TruckStyle, level: TrafficLevel, dt: f32, own_speed: f32) {
         self.age += dt;
         self.rel += self.rel_velocity(own_speed) * dt;
         if self.kind != Kind::Oncoming {
@@ -299,7 +348,7 @@ impl Car {
         };
         if gone {
             self.generation = self.generation.wrapping_add(1);
-            self.place(seed, style, false);
+            self.place(seed, style, level, false);
         }
     }
 
@@ -320,7 +369,7 @@ impl Car {
 
     fn push_lights(&self, style: TruckStyle, out: &mut Vec<CarLight>) {
         let d = self.rel;
-        if !(NEAR_DISTANCE..VIEW_DISTANCE).contains(&d) {
+        if !self.active || !(NEAR_DISTANCE..VIEW_DISTANCE).contains(&d) {
             return;
         }
         if self.truck {
@@ -505,17 +554,41 @@ impl Car {
 pub struct Traffic {
     seed: u64,
     trucks: TruckStyle,
+    level: TrafficLevel,
     cars: Vec<Car>,
 }
 
 impl Traffic {
     pub fn new(seed: u64, trucks: TruckStyle) -> Self {
+        Self::with_level(seed, trucks, TrafficLevel::FULL)
+    }
+
+    /// Traffic that is as busy as `level` from the start.
+    pub fn with_level(seed: u64, trucks: TruckStyle, level: TrafficLevel) -> Self {
         let count = LEAD_CARS + PASSING_CARS + ONCOMING_CARS;
         Self {
             seed,
             trucks,
-            cars: (0..count).map(|id| Car::new(seed, id, trucks)).collect(),
+            level,
+            cars: (0..count)
+                .map(|id| Car::new(seed, id, trucks, level))
+                .collect(),
         }
+    }
+
+    /// Number of cars, whether they run or not.
+    pub fn car_count(&self) -> usize {
+        self.cars.len()
+    }
+
+    /// Number of cars that run, and are drawn when they are in view.
+    pub fn running_count(&self) -> usize {
+        self.cars.iter().filter(|c| c.active).count()
+    }
+
+    /// Sets how busy the road is for the cars that are placed from now on.
+    pub fn set_level(&mut self, level: TrafficLevel) {
+        self.level = level;
     }
 
     /// Moves the cars for `dt` seconds while the camera drives at
@@ -530,7 +603,7 @@ impl Traffic {
             0.0
         };
         for car in &mut self.cars {
-            car.step(self.seed, self.trucks, dt, own_speed);
+            car.step(self.seed, self.trucks, self.level, dt, own_speed);
         }
     }
 
@@ -720,7 +793,7 @@ mod tests {
 
     #[test]
     fn a_braking_car_shows_bigger_brighter_lights_and_a_third_lamp() {
-        let mut car = Car::new(0, 0, TruckStyle::None);
+        let mut car = Car::new(0, 0, TruckStyle::None, TrafficLevel::FULL);
         car.rel = 100.0;
         let lights = |car: &Car| {
             let mut out = Vec::new();
@@ -739,7 +812,12 @@ mod tests {
 
     #[test]
     fn glare_grows_as_an_oncoming_car_comes_near() {
-        let mut car = Car::new(0, LEAD_CARS + PASSING_CARS, TruckStyle::None);
+        let mut car = Car::new(
+            0,
+            LEAD_CARS + PASSING_CARS,
+            TruckStyle::None,
+            TrafficLevel::FULL,
+        );
         let glare = |car: &mut Car, d: f32| {
             car.rel = d;
             let mut out = Vec::new();
@@ -753,7 +831,7 @@ mod tests {
     }
 
     fn truck_of(kind_id: u32, style: TruckStyle, rel: f32) -> Car {
-        let mut car = Car::new(0, kind_id, style);
+        let mut car = Car::new(0, kind_id, style, TrafficLevel::FULL);
         car.truck = true;
         car.rel = rel;
         car.braking_left = 0.0;
@@ -804,6 +882,177 @@ mod tests {
             let ratio = trucks as f32 / placed as f32;
             assert!((0.15..0.25).contains(&ratio), "{ratio}");
         }
+    }
+
+    /// The shares of cars that run and of trucks among all the cars placed
+    /// in `steps` steps, for traffic of the given level.
+    fn shares(level: TrafficLevel, style: TruckStyle) -> (f32, f32) {
+        let (mut placed, mut active, mut trucks) = (0u32, 0u32, 0u32);
+        for seed in 0..60 {
+            let mut traffic = Traffic::with_level(seed, style, level);
+            let mut last: Vec<u32> = traffic.cars.iter().map(|c| c.generation).collect();
+            let mut tally = |traffic: &Traffic, last: &mut Vec<u32>, first: bool| {
+                for (car, last) in traffic.cars.iter().zip(last) {
+                    if first || car.generation != *last {
+                        placed += 1;
+                        active += u32::from(car.active);
+                        trucks += u32::from(car.active && car.truck);
+                    }
+                    *last = car.generation;
+                }
+            };
+            tally(&traffic, &mut last, true);
+            run(&mut traffic, 6000, |t| tally(t, &mut last, false));
+        }
+        assert!(placed > 1000, "{placed}");
+        // Whether a car is a truck is decided for every car placed, but only
+        // the ones that run are seen: count trucks among those.
+        (
+            active as f32 / placed as f32,
+            trucks as f32 / active.max(1) as f32,
+        )
+    }
+
+    #[test]
+    fn the_hours_of_the_day_have_the_designed_traffic() {
+        let at = |hour: f32| TrafficLevel::at_minute(hour * 60.0);
+        let night = TrafficLevel {
+            active: 0.4,
+            trucks: 0.4,
+        };
+        let edge = TrafficLevel {
+            active: 0.7,
+            trucks: 0.25,
+        };
+        for hour in [0.0, 1.5, 4.99] {
+            assert_eq!(at(hour), night, "{hour}");
+        }
+        for hour in [5.0, 6.5, 6.99, 21.0, 22.5, 23.99] {
+            assert_eq!(at(hour), edge, "{hour}");
+        }
+        for hour in [7.0, 12.0, 20.99] {
+            assert_eq!(at(hour), TrafficLevel::FULL, "{hour}");
+        }
+        assert_eq!(TrafficLevel::FULL.active, 1.0);
+        assert_eq!(TrafficLevel::FULL.trucks, 0.2);
+    }
+
+    #[test]
+    fn the_day_wraps_around_midnight() {
+        for day in [1.0, 2.0, 30.0] {
+            for hour in [0.5, 6.0, 12.0, 22.0] {
+                assert_eq!(
+                    TrafficLevel::at_minute((day * 24.0 + hour) * 60.0),
+                    TrafficLevel::at_minute(hour * 60.0)
+                );
+            }
+        }
+        // Just before midnight and just after it are on both sides of 21:00 and 5:00.
+        assert_eq!(
+            TrafficLevel::at_minute(-30.0),
+            TrafficLevel::at_minute(23.5 * 60.0)
+        );
+        assert_eq!(TrafficLevel::at_minute(f32::NAN), TrafficLevel::FULL);
+    }
+
+    #[test]
+    fn the_shares_of_running_cars_and_trucks_follow_the_level() {
+        for hour in [2.0, 6.0, 12.0, 22.0] {
+            let level = TrafficLevel::at_minute(hour * 60.0);
+            let (active, trucks) = shares(level, TruckStyle::Japanese);
+            assert!((active - level.active).abs() < 0.04, "{hour} {active}");
+            assert!((trucks - level.trucks).abs() < 0.05, "{hour} {trucks}");
+        }
+    }
+
+    #[test]
+    fn a_full_level_is_the_traffic_as_it_always_was() {
+        for seed in 0..10 {
+            let mut a = Traffic::new(seed, TruckStyle::Japanese);
+            let mut b = Traffic::with_level(seed, TruckStyle::Japanese, TrafficLevel::FULL);
+            b.set_level(TrafficLevel::FULL);
+            for _ in 0..4000 {
+                a.update(DT, OWN_SPEED);
+                b.update(DT, OWN_SPEED);
+            }
+            let key = |t: &Traffic| {
+                t.lights()
+                    .iter()
+                    .map(|l| (l.d, l.lateral, l.height, l.alpha))
+                    .collect::<Vec<_>>()
+            };
+            assert_eq!(key(&a), key(&b));
+            assert!(a.cars.iter().all(|c| c.active));
+        }
+    }
+
+    #[test]
+    fn cars_that_do_not_run_take_nothing_from_the_others() {
+        // The roll for running has a stream of its own: a quiet road is the
+        // full road with some cars left out, and the others drive the same.
+        for seed in 0..10 {
+            let mut full = Traffic::new(seed, TruckStyle::None);
+            let mut quiet = Traffic::with_level(
+                seed,
+                TruckStyle::None,
+                TrafficLevel {
+                    active: 0.4,
+                    trucks: 0.2,
+                },
+            );
+            quiet.set_level(TrafficLevel {
+                active: 0.4,
+                trucks: 0.2,
+            });
+            for _ in 0..4000 {
+                full.update(DT, OWN_SPEED);
+                quiet.update(DT, OWN_SPEED);
+                for (a, b) in full.cars.iter().zip(&quiet.cars) {
+                    assert_eq!(
+                        (a.rel, a.generation, a.lateral),
+                        (b.rel, b.generation, b.lateral)
+                    );
+                }
+            }
+            let drawn = |t: &Traffic| t.lights().len();
+            assert!(drawn(&quiet) <= drawn(&full));
+        }
+    }
+
+    #[test]
+    fn a_car_that_does_not_run_draws_no_light() {
+        let mut traffic = Traffic::with_level(
+            3,
+            TruckStyle::Japanese,
+            TrafficLevel {
+                active: 0.0,
+                trucks: 0.4,
+            },
+        );
+        run(&mut traffic, 2000, |t| assert!(t.lights().is_empty()));
+    }
+
+    #[test]
+    fn there_are_no_trucks_at_any_level_without_the_setting() {
+        for hour in [2.0, 6.0, 12.0] {
+            let level = TrafficLevel::at_minute(hour * 60.0);
+            let (_, trucks) = shares(level, TruckStyle::None);
+            assert_eq!(trucks, 0.0);
+        }
+    }
+
+    #[test]
+    fn the_traffic_changes_as_cars_are_placed_again() {
+        // Going from the night to the day, the cars that run grow in number
+        // as the old ones leave the view.
+        let mut traffic =
+            Traffic::with_level(8, TruckStyle::Japanese, TrafficLevel::at_minute(2.0 * 60.0));
+        let running = |t: &Traffic| t.cars.iter().filter(|c| c.active).count();
+        let before = running(&traffic);
+        traffic.set_level(TrafficLevel::FULL);
+        run(&mut traffic, 20 * 60 * 20, |_| {});
+        assert!(running(&traffic) > before, "{before}");
+        assert_eq!(running(&traffic), traffic.cars.len());
     }
 
     #[test]

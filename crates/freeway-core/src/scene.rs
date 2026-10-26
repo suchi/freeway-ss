@@ -7,7 +7,7 @@ use crate::cruise::Drift;
 use crate::projection::{CAMERA_HEIGHT, NEAR_DISTANCE, Projector, VIEW_DISTANCE};
 use crate::road::{RoadShape, RoadView};
 use crate::sky::{Sky, SkyView};
-use crate::traffic::{Traffic, TruckStyle};
+use crate::traffic::{MINUTES_PER_DAY, Traffic, TrafficLevel, TruckStyle};
 use crate::tunnel::{Tunnel, TunnelLighting, Tunnels, draw_entrance};
 use crate::ufo::Ufo;
 
@@ -293,6 +293,23 @@ pub struct Scene {
     drift: Drift,
 }
 
+/// The local time after `time` seconds of driving, in minutes after
+/// midnight (`0..1440`).
+fn minute_of_day(config: &SceneConfig, time: f64) -> f32 {
+    let day = f64::from(MINUTES_PER_DAY);
+    let start = f64::from(config.start_minute).rem_euclid(day);
+    (start + time / 60.0).rem_euclid(day) as f32
+}
+
+/// How busy the road is after `time` seconds of driving.
+fn traffic_level(config: &SceneConfig, time: f64) -> TrafficLevel {
+    if config.traffic_by_time {
+        TrafficLevel::at_minute(minute_of_day(config, time))
+    } else {
+        TrafficLevel::FULL
+    }
+}
+
 impl Scene {
     pub fn new(config: SceneConfig) -> Self {
         Self {
@@ -302,7 +319,8 @@ impl Scene {
             heading: 0.0,
             time: 0.0,
             sky: Sky::new(config.seed, config.mountains),
-            traffic: Traffic::new(config.seed, config.trucks),
+            // The cars start out as busy as the road is at the start time.
+            traffic: Traffic::with_level(config.seed, config.trucks, traffic_level(&config, 0.0)),
             ufo: Ufo::new(config.seed, config.ufo_mean_interval),
             tunnels: Tunnels::new(config.seed, config.tunnels),
             drift: Drift::new(config.seed, config.speed_kmh, config.vary_speed),
@@ -312,6 +330,12 @@ impl Scene {
     /// The speed now, in km/h: the chosen one, plus the drift if it is on.
     pub fn speed_kmh(&self) -> f32 {
         self.config.speed_kmh + self.drift.offset()
+    }
+
+    /// The local time now, in minutes after midnight (`0..1440`): the start
+    /// time plus the time driven.
+    pub fn minute_of_day(&self) -> f32 {
+        minute_of_day(&self.config, self.time)
     }
 
     pub fn track_s(&self) -> f64 {
@@ -366,6 +390,8 @@ impl Scene {
         self.time += f64::from(dt);
         self.sky.update(self.time, self.heading);
         self.ufo.update(self.time, self.heading, self.side());
+        self.traffic
+            .set_level(traffic_level(&self.config, self.time));
         self.traffic.update(dt, speed_kmh / 3.6);
         self.tunnels.update(self.track_s);
     }
@@ -1539,6 +1565,87 @@ mod tests {
             assert!(travelled > 0.0);
             assert!(highest - lowest > 5.0, "{base}: {lowest} {highest}");
         }
+    }
+
+    #[test]
+    fn the_time_of_day_runs_on_from_the_start_and_wraps_at_midnight() {
+        let mut scene = Scene::new(SceneConfig {
+            start_minute: 23 * 60 + 50,
+            ..Default::default()
+        });
+        assert_eq!(scene.minute_of_day(), 1430.0);
+        // 15 minutes of driving, in steps.
+        for _ in 0..(15.0 * 60.0 / 0.05) as usize {
+            scene.update(0.05);
+        }
+        assert!(
+            (scene.minute_of_day() - 5.0).abs() < 0.01,
+            "{}",
+            scene.minute_of_day()
+        );
+        // A start time out of range is taken modulo a day.
+        let late = Scene::new(SceneConfig {
+            start_minute: 3 * 1440 + 90,
+            ..Default::default()
+        });
+        assert_eq!(late.minute_of_day(), 90.0);
+    }
+
+    /// Cars that run in the traffic of a scene at the given hour, over a stretch of driving.
+    fn running_cars(hour: u32, seed: u64) -> usize {
+        let mut scene = Scene::new(SceneConfig {
+            start_minute: hour * 60,
+            ..varying(seed)
+        });
+        let mut total = 0;
+        for step in 0..4000 {
+            scene.update(0.05);
+            if step % 50 == 0 {
+                total += scene.traffic.running_count();
+            }
+        }
+        total
+    }
+
+    #[test]
+    fn the_night_is_quieter_than_the_day() {
+        let (night, evening, day): (usize, usize, usize) = (
+            (0..8).map(|seed| running_cars(2, seed)).sum(),
+            (0..8).map(|seed| running_cars(22, seed)).sum(),
+            (0..8).map(|seed| running_cars(12, seed)).sum(),
+        );
+        assert!(night < evening && evening < day, "{night} {evening} {day}");
+    }
+
+    #[test]
+    fn the_traffic_is_the_same_all_day_without_the_variation() {
+        let run = |hour: u32| {
+            let mut scene = Scene::new(SceneConfig {
+                start_minute: hour * 60,
+                seed: 4,
+                ..Default::default()
+            });
+            for _ in 0..2000 {
+                scene.update(0.05);
+            }
+            record(&scene, VIEWPORT)
+        };
+        assert_eq!(run(2), run(12));
+        assert_eq!(run(2), run(22));
+    }
+
+    #[test]
+    fn the_traffic_follows_the_time_driven_across_a_band() {
+        // Driving from 6:50 to 7:10 crosses into the full traffic.
+        let mut scene = Scene::new(SceneConfig {
+            start_minute: 6 * 60 + 50,
+            ..varying(3)
+        });
+        assert!(scene.traffic.running_count() < scene.traffic.car_count());
+        for _ in 0..(30.0 * 60.0 / 0.05) as usize {
+            scene.update(0.05);
+        }
+        assert_eq!(scene.traffic.running_count(), scene.traffic.car_count());
     }
 
     #[test]
