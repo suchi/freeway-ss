@@ -12,6 +12,7 @@
 | --- | --- |
 | `crates/freeway-core` | OS非依存のシーン計算(道路・背景・交通をPhase 2以降で実装予定)。すべてのプラットフォームでテストできる |
 | `crates/freeway-scr` | Windows固有部分(引数処理・ウィンドウ・Direct2D描画。設定画面はPhase 5で実装予定)。配布物の`.scr`になる |
+| `.github/workflows/` | CI(`ci.yml`)と、フェーズごとの成果物をGitHub Releaseに公開する手動実行のワークフロー(`release.yml`。手順は`AGENTS.md`) |
 | `docs/plans/` | 実装計画 |
 | `docs/adr/` | アーキテクチャ決定記録 |
 
