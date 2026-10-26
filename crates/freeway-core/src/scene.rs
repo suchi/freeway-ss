@@ -311,6 +311,16 @@ impl Scene {
             .is_some_and(|m| m.has_range_at(self.heading))
     }
 
+    /// Distance in meters to the entrance of the tunnel ahead, if it is in sight.
+    pub fn tunnel_entrance_ahead(&self) -> Option<f32> {
+        self.tunnels.entrance_ahead(self.track_s).map(|(_, d)| d)
+    }
+
+    /// Whether the car is in a tunnel now.
+    pub fn in_tunnel(&self) -> bool {
+        self.tunnels.sky_hidden(self.track_s)
+    }
+
     /// Whether a UFO is in the sky now.
     pub fn ufo_visible(&self) -> bool {
         self.ufo.is_visible()
@@ -1370,6 +1380,32 @@ mod tests {
                 .iter()
                 .all(|c| !matches!(c, Command::Dot { .. } | Command::Band { .. }))
         );
+    }
+
+    #[test]
+    fn driving_through_a_tunnel_shows_its_entrance_then_the_inside_then_the_sky() {
+        let mut scene = Scene::new(SceneConfig {
+            seed: 11,
+            speed_kmh: 160.0,
+            tunnels: TunnelLighting::Mixed,
+            ..Default::default()
+        });
+        let (mut sighted, mut inside, mut left) = (false, false, false);
+        for _ in 0..40_000 {
+            scene.update(0.05);
+            if scene.tunnel_entrance_ahead().is_some() {
+                sighted = true;
+            }
+            if scene.in_tunnel() {
+                // The entrance is drawn only until the car reaches it.
+                assert!(sighted && scene.tunnel_entrance_ahead().is_none());
+                inside = true;
+            } else if inside {
+                left = true;
+                break;
+            }
+        }
+        assert!(left);
     }
 
     #[test]

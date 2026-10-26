@@ -254,6 +254,38 @@ mod tests {
     }
 
     #[test]
+    fn renders_a_tunnel_from_far_to_near_and_from_inside() -> Result<()> {
+        let hwnd = window::create_hidden_window(640, 360)?;
+        let mut renderer = Renderer::new()?;
+        let mut target = renderer.create_target(hwnd)?;
+        let mut scene = Scene::new(freeway_core::SceneConfig {
+            seed: 11,
+            speed_kmh: 160.0,
+            ..Default::default()
+        });
+        // Draw while the entrance comes closer, so that the hill and its
+        // opening (silhouettes) are drawn together with the lights, and then
+        // from inside the tunnel, where there is no sky.
+        let mut steps = 0;
+        let mut drawn = (0, 0);
+        while !(drawn.0 >= 20 && drawn.1 >= 20) {
+            scene.update(0.05);
+            steps += 1;
+            assert!(steps < 40_000, "no tunnel within 2000 seconds");
+            let near = scene.tunnel_entrance_ahead().is_some_and(|d| d < 400.0);
+            if (near && drawn.0 < 20 && steps % 4 == 0) || (scene.in_tunnel() && drawn.1 < 20) {
+                renderer.draw_scene(&mut target, &scene, None, true)?;
+                if scene.in_tunnel() {
+                    drawn.1 += 1;
+                } else {
+                    drawn.0 += 1;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
     fn renders_a_ufo_with_its_beam() -> Result<()> {
         let hwnd = window::create_hidden_window(640, 360)?;
         let mut renderer = Renderer::new()?;
