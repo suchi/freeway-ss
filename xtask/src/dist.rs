@@ -14,6 +14,9 @@ pub const SCR_NAME: &str = "NightFreewaySS.scr";
 const SUMS_NAME: &str = "SHA256SUMS.txt";
 const BINARY_NAME: &str = "freeway-scr.exe";
 const PACKAGE_NAME: &str = "freeway-scr";
+/// The README for end users, packaged as `README.md`. The README at the
+/// workspace root is for developers and is not packaged.
+const DIST_README: &str = "packaging/README.md";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Arch {
@@ -132,8 +135,8 @@ pub struct Packaged {
     pub hash: String,
 }
 
-/// Copies `exe` to the `.scr` path, zips it with `LICENSE` and `README.md`
-/// from `root`, and records the checksum of the zip.
+/// Copies `exe` to the `.scr` path, zips it with `LICENSE` and the end-user
+/// README (`DIST_README`) from `root`, and records the checksum of the zip.
 pub fn package(
     root: &Path,
     exe: &Path,
@@ -143,7 +146,7 @@ pub fn package(
 ) -> Result<Packaged, String> {
     let exe_data = fs::read(exe).map_err(|e| format!("cannot read {}: {e}", exe.display()))?;
     let license = read_text(&root.join("LICENSE"))?;
-    let readme = read_text(&root.join("README.md"))?;
+    let readme = read_text(&root.join(DIST_README))?;
 
     write(&layout.scr, &exe_data)?;
     let archive = zip::write_stored(&[
@@ -316,7 +319,9 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         fs::write(dir.join("LICENSE"), "license text").unwrap();
-        fs::write(dir.join("README.md"), "readme text").unwrap();
+        fs::write(dir.join("README.md"), "developer readme").unwrap();
+        fs::create_dir_all(dir.join("packaging")).unwrap();
+        fs::write(dir.join(DIST_README), "readme text").unwrap();
         let exe = dir.join("freeway-scr.exe");
         fs::write(&exe, b"MZ fake executable").unwrap();
 

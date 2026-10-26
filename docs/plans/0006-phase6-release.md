@@ -19,7 +19,7 @@
 
 完了条件:
 
-- `cargo xtask dist`で、`NightFreewaySS.scr`と配布用zip(`.scr`・LICENSE・README.md)とSHA-256チェックサムが得られる。x64とARM64のどちらも指定できる
+- `cargo xtask dist`で、`NightFreewaySS.scr`と配布用zip(`.scr`・LICENSE・利用者向けの説明書`README.md`)とSHA-256チェックサムが得られる。x64とARM64のどちらも指定できる
 - スクリーンセイバーの一覧に「Night Freeway SS」と表示される(実行ファイルのファイル名ではなく、埋め込んだ表示名)
 - エクスプローラーで`.scr`にアイコンが表示される
 - 速度計がBahnschriftで描かれる。プレビューのような小さな画面でも、速度計が画面の大半を占めない
@@ -67,7 +67,7 @@ flowchart LR
 - `cargo xtask dist [--target x86_64-pc-windows-msvc|aarch64-pc-windows-msvc]`(省略時はx64):
   1. `cargo build --release --locked -p freeway-scr --target <target>`を実行する
   2. `target/dist/<arch>/NightFreewaySS.scr`へコピーする
-  3. `.scr`・LICENSE・README.mdをzipにまとめ、`target/dist/NightFreewaySS-v<version>-win-<arch>.zip`とする(`<version>`は`Cargo.toml`のワークスペースのバージョン)
+  3. `.scr`・LICENSE・利用者向けの説明書(`packaging/README.md`。zip内では`README.md`)をzipにまとめ、`target/dist/NightFreewaySS-v<version>-win-<arch>.zip`とする(`<version>`は`Cargo.toml`のワークスペースのバージョン)
   4. `target/dist/SHA256SUMS.txt`にzipのSHA-256を追記する
 - zipの作成とSHA-256の計算は外部コマンドに頼らずに済む方法を選ぶ。標準ライブラリだけで書くのが難しい場合(zipの圧縮など)は、依存を追加する前に調整役に伝える(依存の追加はユーザーの判断が必要)。たとえば、zipは無圧縮(格納のみ)で書けば標準ライブラリとCRC-32の自前実装で作れる
 - Windows以外では、`.scr`のビルドができない旨のエラーで終わってよい。ただし、パス・ファイル名・チェックサムなどOSに依存しない部分はLinuxでもテストする
@@ -92,6 +92,7 @@ flowchart LR
 - 「アンインストール」: スクリーンセイバーの設定で別のものを選び、`.scr`を削除し、設定(レジストリ)を削除する手順
 - 「開発」: `cargo xtask dist`の使い方。「Windowsで試す」の手作業のコピー手順は、このコマンドに置き換える
 - 「免責事項」: READMEの末尾に、AIコーディングエージェントを主体に開発したことと、品質・動作を保証せず利用によるトラブルに責任を負わないこと(MITライセンスの無保証の明示)を書く(2026-10-26のユーザーの依頼)
+- 配布用の説明書: zipには、開発者向けのリポジトリのREADMEではなく、利用者向けの説明書`packaging/README.md`(日本語と英語の併記。動作環境・同梱ファイル・インストール・設定・アンインストール・ライセンスと謝辞・免責事項)を`README.md`として入れる。開発の手順やリポジトリの構成は書かない(Phase 6の実機確認で挙がった改善点。2026-10-26のユーザー判断で言語は日本語と英語の併記、形式はMarkdown)
 
 ### 3.6 ワークフロー(調整役が行う)
 
