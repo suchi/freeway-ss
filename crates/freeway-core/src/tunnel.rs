@@ -9,7 +9,7 @@
 use std::collections::VecDeque;
 
 use crate::canvas::Rgb;
-use crate::projection::VIEW_DISTANCE;
+use crate::projection::{NEAR_DISTANCE, VIEW_DISTANCE};
 use crate::rng::hash01;
 
 /// Length of a tunnel, in meters: 20 to 60 seconds at 100 km/h.
@@ -26,6 +26,13 @@ const LOOKAHEAD: f64 = VIEW_DISTANCE as f64 + 100.0;
 const HILL_HALF_WIDTH: (f32, f32) = (100.0, 200.0);
 /// Height of the hill above the road at its middle, in meters.
 const HILL_HEIGHT: (f32, f32) = (25.0, 60.0);
+
+/// What fits through a tunnel, in meters: the lights of the road outside
+/// (the median's street lamps, the oncoming lanes) do not shine into it.
+/// The walls stand just beyond the delineators at -4.0 and 3.9 meters, where
+/// the lamps of the tunnel hang.
+const CLEARANCE_LATERAL: (f32, f32) = (-4.5, 4.5);
+const CLEARANCE_HEIGHT: f32 = 7.0;
 
 const SODIUM_LAMP: Rgb = Rgb::new(255, 150, 40);
 const LED_LAMP: Rgb = Rgb::new(225, 235, 255);
@@ -100,6 +107,13 @@ impl Tunnel {
     }
 }
 
+/// Whether a light of the road outside, at the given lateral position and
+/// height, can be seen through a tunnel.
+pub fn fits_through(lateral: f32, height: f32) -> bool {
+    (CLEARANCE_LATERAL.0..=CLEARANCE_LATERAL.1).contains(&lateral)
+        && (0.0..=CLEARANCE_HEIGHT).contains(&height)
+}
+
 /// The tunnels of a road, from just behind the camera to just beyond its view.
 pub struct Tunnels {
     seed: u64,
@@ -152,6 +166,27 @@ impl Tunnels {
     /// The tunnels that have not been passed and begin within sight.
     pub fn ahead(&self) -> impl Iterator<Item = &Tunnel> {
         self.ahead.iter()
+    }
+
+    /// Whether the camera at `track_s` is in a tunnel, or so close to the
+    /// entrance that the entrance is no longer drawn.
+    pub fn sky_hidden(&self, track_s: f64) -> bool {
+        self.ahead
+            .iter()
+            .any(|t| t.start < track_s + f64::from(NEAR_DISTANCE) && track_s < t.end)
+    }
+
+    /// Whether the point `s` meters along the road is inside a tunnel.
+    pub fn contains(&self, s: f64) -> bool {
+        self.ahead.iter().any(|t| t.contains(s))
+    }
+
+    /// Whether a light of the road outside, `d` meters ahead of the camera at
+    /// `track_s`, is hidden: some tunnel lies between the camera and the
+    /// light (or around it), and the light is not in the way of the tunnel.
+    pub fn hides(&self, track_s: f64, d: f32, lateral: f32, height: f32) -> bool {
+        let at = track_s + f64::from(d);
+        !fits_through(lateral, height) && self.ahead.iter().any(|t| t.start < at && t.end > track_s)
     }
 
     /// The tunnel number `index`, which comes after the road up to `after`.
