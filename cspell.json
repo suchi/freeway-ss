@@ -1,0 +1,13 @@
+{
+  "version": "0.2",
+  "ignorePaths": [
+    "**/node_modules/**",
+    "**/dist/**",
+    "**/build/**",
+    "**/.git/**",
+    "**/.vscode/**",
+    "**/*.min.js",
+    "**/*.bundle.js"
+  ],
+  "words": ["Dxgi", "mhatta", "nightfreeway"]
+}
