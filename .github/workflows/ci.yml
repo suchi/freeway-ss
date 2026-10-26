@@ -35,6 +35,9 @@ jobs:
       - name: Check Windows target
         if: runner.os == 'Linux'
         run: cargo check --workspace --all-targets --locked --target x86_64-pc-windows-msvc
-      - name: Build release
+      - name: Package (x64)
         if: runner.os == 'Windows'
-        run: cargo build --release -p freeway-scr --locked
+        run: cargo xtask dist
+      - name: Package (ARM64)
+        if: runner.os == 'Windows'
+        run: cargo xtask dist --target aarch64-pc-windows-msvc
