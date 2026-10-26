@@ -12,7 +12,8 @@ use windows::Win32::Foundation::{
     D2DERR_RECREATE_TARGET, DXGI_STATUS_OCCLUDED, HMODULE, HWND, RECT,
 };
 use windows::Win32::Graphics::Direct2D::Common::{
-    D2D_RECT_F, D2D1_ALPHA_MODE_IGNORE, D2D1_COLOR_F, D2D1_GRADIENT_STOP, D2D1_PIXEL_FORMAT,
+    D2D_RECT_F, D2D1_ALPHA_MODE_IGNORE, D2D1_COLOR_F, D2D1_FIGURE_BEGIN_FILLED,
+    D2D1_FIGURE_END_CLOSED, D2D1_GRADIENT_STOP, D2D1_PIXEL_FORMAT,
 };
 use windows::Win32::Graphics::Direct2D::{
     D2D1_BITMAP_OPTIONS_CANNOT_DRAW, D2D1_BITMAP_OPTIONS_TARGET, D2D1_BITMAP_PROPERTIES1,
@@ -110,6 +111,8 @@ pub fn is_device_lost(error: &Error) -> bool {
 pub struct Renderer {
     d3d_device: ID3D11Device,
     dxgi_factory: IDXGIFactory2,
+    /// Makes the path geometry of a beam.
+    d2d_factory: ID2D1Factory1,
     context: ID2D1DeviceContext,
     glow_brushes: HashMap<Rgb, ID2D1RadialGradientBrush>,
     pool_brushes: HashMap<Rgb, ID2D1RadialGradientBrush>,
@@ -180,6 +183,7 @@ impl Renderer {
         Ok(Self {
             d3d_device,
             dxgi_factory,
+            d2d_factory,
             context,
             glow_brushes: HashMap::new(),
             pool_brushes: HashMap::new(),
@@ -257,6 +261,7 @@ impl Renderer {
         }
         let mut canvas = D2dCanvas {
             context,
+            factory: &self.d2d_factory,
             glow_brushes: &mut self.glow_brushes,
             pool_brushes: &mut self.pool_brushes,
             dot_brushes: &mut self.dot_brushes,
@@ -477,9 +482,11 @@ fn create_d3d_device() -> Result<ID3D11Device> {
 /// Draws the scene's commands. Lights fill a unit circle, scaled into place
 /// with the context transform, with a radial gradient brush per color; dots
 /// use a solid brush per color; the sky band and the shooting stars use a
-/// linear gradient brush made for each draw.
+/// linear gradient brush made for each draw; a beam fills a trapezoid path
+/// with such a brush.
 struct D2dCanvas<'a> {
     context: &'a ID2D1DeviceContext,
+    factory: &'a ID2D1Factory1,
     glow_brushes: &'a mut HashMap<Rgb, ID2D1RadialGradientBrush>,
     pool_brushes: &'a mut HashMap<Rgb, ID2D1RadialGradientBrush>,
     dot_brushes: &'a mut HashMap<Rgb, ID2D1SolidColorBrush>,
@@ -693,6 +700,72 @@ impl Canvas for D2dCanvas<'_> {
             Err(e) => {
                 self.error.get_or_insert(e);
             }
+        }
+    }
+
+    fn beam(
+        &mut self,
+        center_x: f32,
+        top_y: f32,
+        top_half_width: f32,
+        bottom_y: f32,
+        bottom_half_width: f32,
+        color: Rgb,
+        top_alpha: f32,
+        bottom_alpha: f32,
+    ) {
+        // A gradient needs two distinct points.
+        if bottom_y - top_y < 1.0 {
+            return;
+        }
+        let stops = [
+            (0.0, color_f(color, top_alpha)),
+            (1.0, color_f(color, bottom_alpha)),
+        ];
+        let properties = D2D1_LINEAR_GRADIENT_BRUSH_PROPERTIES {
+            startPoint: Vector2 {
+                X: center_x,
+                Y: top_y,
+            },
+            endPoint: Vector2 {
+                X: center_x,
+                Y: bottom_y,
+            },
+        };
+        let corners = [
+            Vector2 {
+                X: center_x + top_half_width,
+                Y: top_y,
+            },
+            Vector2 {
+                X: center_x + bottom_half_width,
+                Y: bottom_y,
+            },
+            Vector2 {
+                X: center_x - bottom_half_width,
+                Y: bottom_y,
+            },
+            Vector2 {
+                X: center_x - top_half_width,
+                Y: top_y,
+            },
+        ];
+        let result = stop_collection(self.context, &stops).and_then(|collection| unsafe {
+            let brush = self
+                .context
+                .CreateLinearGradientBrush(&properties, None, &collection)?;
+            let geometry = self.factory.CreatePathGeometry()?;
+            let sink = geometry.Open()?;
+            sink.BeginFigure(corners[0], D2D1_FIGURE_BEGIN_FILLED);
+            sink.AddLines(&corners[1..]);
+            sink.EndFigure(D2D1_FIGURE_END_CLOSED);
+            sink.Close()?;
+            self.context.SetTransform(&Matrix3x2::identity());
+            self.context.FillGeometry(&geometry, &brush, None);
+            Ok(())
+        });
+        if let Err(e) = result {
+            self.error.get_or_insert(e);
         }
     }
 }

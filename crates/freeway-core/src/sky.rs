@@ -91,7 +91,7 @@ impl SkyView {
         self.width * 0.5 + self.side * wrapped as f32 * self.focal
     }
 
-    fn horizon_y(&self) -> f32 {
+    pub(crate) fn horizon_y(&self) -> f32 {
         self.height * 0.5
     }
 
@@ -445,6 +445,9 @@ mod tests {
                 width,
                 alpha,
             });
+        }
+        fn beam(&mut self, _: f32, _: f32, _: f32, _: f32, _: f32, _: Rgb, _: f32, _: f32) {
+            unreachable!("the sky has no beams");
         }
     }
 

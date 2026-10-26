@@ -13,6 +13,7 @@ pub mod scene;
 pub mod settings;
 pub mod sky;
 pub mod traffic;
+pub mod ufo;
 
 pub use canvas::{Canvas, Rgb};
 pub use scene::{Scene, SceneConfig, Viewport};

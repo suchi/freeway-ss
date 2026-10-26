@@ -32,7 +32,7 @@ BEGIN
     1 "Night Freeway SS"
 END
 
-100 DIALOGEX 0, 0, 224, 122
+100 DIALOGEX 0, 0, 224, 136
 STYLE DIALOG_STYLE
 CAPTION "Night Freeway SS Settings"
 FONT 9, "Segoe UI"
@@ -44,6 +44,7 @@ BEGIN
     AUTORADIOBUTTON "Left-hand traffic", 103, 12, 62, 96, 10, GROUP_START
     AUTORADIOBUTTON "Right-hand traffic", 104, 112, 62, 96, 10
     AUTOCHECKBOX    "Show speedometer", 105, 12, 80, 120, 10
-    DEFPUSHBUTTON   "OK", 1, 108, 100, 50, 14
-    PUSHBUTTON      "Cancel", 2, 162, 100, 50, 14
+    AUTOCHECKBOX    "Show a UFO now and then", 106, 12, 94, 160, 10
+    DEFPUSHBUTTON   "OK", 1, 108, 114, 50, 14
+    PUSHBUTTON      "Cancel", 2, 162, 114, 50, 14
 END

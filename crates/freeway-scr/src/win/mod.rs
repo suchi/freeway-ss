@@ -125,6 +125,10 @@ fn draw_frame(
     Ok(visible)
 }
 
+/// Average seconds between UFO visits in a build with the `ufo-demo` feature.
+#[cfg(feature = "ufo-demo")]
+const UFO_DEMO_MEAN_SECONDS: f32 = 20.0;
+
 /// One scene per window, each with its own road.
 fn create_scenes(count: usize, settings: &Settings) -> Vec<Scene> {
     let nanos = SystemTime::now()
@@ -132,10 +136,14 @@ fn create_scenes(count: usize, settings: &Settings) -> Vec<Scene> {
         .map_or(0, |elapsed| elapsed.as_nanos() as u64);
     (0..count)
         .map(|index| {
-            Scene::new(
-                settings
-                    .scene_config(nanos ^ (index as u64 + 1).wrapping_mul(0x9E37_79B9_7F4A_7C15)),
-            )
+            let seed = nanos ^ (index as u64 + 1).wrapping_mul(0x9E37_79B9_7F4A_7C15);
+            let config = settings.scene_config(seed);
+            #[cfg(feature = "ufo-demo")]
+            let config = freeway_core::SceneConfig {
+                ufo_mean_interval: config.ufo_mean_interval.map(|_| UFO_DEMO_MEAN_SECONDS),
+                ..config
+            };
+            Scene::new(config)
         })
         .collect()
 }
@@ -191,6 +199,32 @@ mod tests {
 
         unsafe { SetWindowPos(hwnd, None, 0, 0, 800, 450, SWP_NOMOVE | SWP_NOZORDER)? };
         renderer.draw_scene(&mut target, &scene, Some(160), true)?;
+        Ok(())
+    }
+
+    #[test]
+    fn renders_a_ufo_with_its_beam() -> Result<()> {
+        let hwnd = window::create_hidden_window(640, 360)?;
+        let mut renderer = Renderer::new()?;
+        let mut target = renderer.create_target(hwnd)?;
+        let mut scene = Scene::new(freeway_core::SceneConfig {
+            seed: 2,
+            ufo_mean_interval: Some(5.0),
+            ..Default::default()
+        });
+        let mut steps = 0;
+        while !scene.ufo_visible() {
+            scene.update(0.05);
+            steps += 1;
+            assert!(steps < 40_000, "no UFO within 2000 seconds");
+        }
+        // 7 seconds into the visit the beam is down; draw before and after.
+        for step in 0..150 {
+            scene.update(0.05);
+            if step % 50 == 49 {
+                renderer.draw_scene(&mut target, &scene, None, true)?;
+            }
+        }
         Ok(())
     }
 }
