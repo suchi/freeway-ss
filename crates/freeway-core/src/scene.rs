@@ -216,7 +216,7 @@ impl Scene {
             track_s: 0.0,
             heading: 0.0,
             time: 0.0,
-            sky: Sky::new(config.seed),
+            sky: Sky::new(config.seed, config.mountains),
             traffic: Traffic::new(config.seed),
             ufo: Ufo::new(config.seed, config.ufo_mean_interval),
         }
@@ -233,6 +233,13 @@ impl Scene {
     /// Number of shooting stars in the sky now.
     pub fn meteors_visible(&self) -> usize {
         self.sky.meteors_visible()
+    }
+
+    /// Whether the car faces a range of mountains now.
+    pub fn mountains_ahead(&self) -> bool {
+        self.sky
+            .mountains()
+            .is_some_and(|m| m.has_range_at(self.heading))
     }
 
     /// Whether a UFO is in the sky now.
@@ -727,6 +734,41 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn mountains_are_drawn_only_when_the_setting_is_on() {
+        let silhouettes = |scene: &Scene| {
+            record(scene, VIEWPORT)
+                .iter()
+                .filter(|c| matches!(c, Command::Silhouette { .. }))
+                .count()
+        };
+        let mut on = Scene::new(SceneConfig {
+            seed: 8,
+            ..Default::default()
+        });
+        let mut off = Scene::new(SceneConfig {
+            seed: 8,
+            mountains: false,
+            ..Default::default()
+        });
+        let mut seen = 0;
+        // 40 minutes of driving turns the car through every direction.
+        for step in 0..48_000 {
+            on.update(0.05);
+            off.update(0.05);
+            // Drawing is the slow part; every two seconds is often enough.
+            if step % 40 == 0 {
+                let count = silhouettes(&on);
+                seen += count;
+                // Facing a range always shows it.
+                assert!(count > 0 || !on.mountains_ahead());
+                assert_eq!(silhouettes(&off), 0);
+                assert!(!off.mountains_ahead());
+            }
+        }
+        assert!(seen > 0);
     }
 
     #[test]

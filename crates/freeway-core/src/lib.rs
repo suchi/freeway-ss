@@ -7,6 +7,7 @@
 
 pub mod canvas;
 pub mod i18n;
+pub mod mountains;
 pub mod projection;
 pub mod rng;
 pub mod road;

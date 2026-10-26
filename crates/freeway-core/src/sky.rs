@@ -1,5 +1,5 @@
 //! The night sky and the distant horizon: stars, city lights, the glow of the
-//! horizon and shooting stars.
+//! horizon, shooting stars and, when enabled, mountains.
 //!
 //! The backdrop is a cylinder around the car. Everything on it is stored as
 //! an angle around the cylinder and an elevation above the horizon in units
@@ -9,10 +9,11 @@
 use std::f64::consts::{PI, TAU};
 
 use crate::canvas::{Canvas, GLOW_HALO_RATIO, Rgb};
+use crate::mountains::Mountains;
 use crate::rng::hash01;
 
 /// Focal length that the sizes below are given for, in pixels.
-const REF_FOCAL: f32 = 960.0;
+pub(crate) const REF_FOCAL: f32 = 960.0;
 /// Alphas below this are invisible and not worth a draw call.
 const MIN_ALPHA: f32 = 0.004;
 
@@ -95,15 +96,15 @@ impl SkyView {
         self.height * 0.5
     }
 
-    fn y(&self, elevation: f32) -> f32 {
+    pub(crate) fn y(&self, elevation: f32) -> f32 {
         self.horizon_y() - elevation * self.focal
     }
 
-    fn scale(&self) -> f32 {
+    pub(crate) fn scale(&self) -> f32 {
         self.focal / REF_FOCAL
     }
 
-    fn contains(&self, x: f32, y: f32, margin: f32) -> bool {
+    pub(crate) fn contains(&self, x: f32, y: f32, margin: f32) -> bool {
         x.is_finite()
             && y.is_finite()
             && x + margin >= 0.0
@@ -134,6 +135,9 @@ enum CityKind {
 
 struct CityLight {
     turn: f32,
+    /// Whether the mountains in front of it hide it; always false when
+    /// there are no mountains.
+    thinned: bool,
     elevation: f32,
     brightness: f32,
     phase: f32,
@@ -161,6 +165,7 @@ pub struct Sky {
     stars: Vec<Star>,
     city: Vec<CityLight>,
     meteors: Vec<Meteor>,
+    mountains: Option<Mountains>,
     /// Number of meteors started so far; also the index of the next one.
     started: i64,
     next_start: f64,
@@ -175,7 +180,9 @@ fn lerp(range: (f32, f32), t: f32) -> f32 {
 }
 
 impl Sky {
-    pub fn new(seed: u64) -> Self {
+    /// A sky for `seed`; `mountains` adds ranges of mountains on the horizon.
+    pub fn new(seed: u64, mountains: bool) -> Self {
+        let mountains = mountains.then(|| Mountains::new(seed));
         let star_count = (STAR_DENSITY * TAU as f32 * (STAR_TOP - STAR_BOTTOM)).round() as i64;
         let stars = (0..star_count)
             .map(|i| {
@@ -211,8 +218,12 @@ impl Sky {
                 } else {
                     CityKind::Beacon
                 };
+                let turn = h(0);
                 CityLight {
-                    turn: h(0),
+                    turn,
+                    thinned: mountains
+                        .as_ref()
+                        .is_some_and(|m| m.thins_city_light(turn, i)),
                     elevation: lerp((CITY_LOW, CITY_HIGH), low) / REF_FOCAL,
                     brightness: lerp((0.35, 0.9), h(3)),
                     phase: h(4),
@@ -224,6 +235,7 @@ impl Sky {
             seed,
             stars,
             city,
+            mountains,
             meteors: Vec::new(),
             started: 0,
             next_start: 0.0,
@@ -238,6 +250,16 @@ impl Sky {
 
     pub fn city_light_count(&self) -> usize {
         self.city.len()
+    }
+
+    /// Number of city lights that mountains hide.
+    pub fn thinned_city_light_count(&self) -> usize {
+        self.city.iter().filter(|c| c.thinned).count()
+    }
+
+    /// The mountains, if there are any.
+    pub fn mountains(&self) -> Option<&Mountains> {
+        self.mountains.as_ref()
     }
 
     /// Number of meteors that have started so far.
@@ -300,8 +322,14 @@ impl Sky {
             BAND_ALPHA,
         );
         self.draw_stars(view, canvas);
-        self.draw_city(view, canvas);
         self.draw_meteors(view, canvas);
+        // The mountains cover the glow, the stars and the meteors behind
+        // them; the lights of the city lie in front of them.
+        if let Some(mountains) = &self.mountains {
+            mountains.draw_silhouettes(view, canvas);
+            mountains.draw_lights(view, canvas);
+        }
+        self.draw_city(view, canvas);
     }
 
     fn draw_stars(&self, view: &SkyView, canvas: &mut dyn Canvas) {
@@ -328,7 +356,7 @@ impl Sky {
         let k = view.scale();
         let size = (1.2 * k).max(view.pixel_scale);
         let core = (1.1 * k).max(0.9 * view.pixel_scale);
-        for light in &self.city {
+        for light in self.city.iter().filter(|light| !light.thinned) {
             let x = view.screen_x(f64::from(light.turn) * TAU);
             let y = view.y(light.elevation);
             let (alpha, margin) = match light.kind {
@@ -410,6 +438,7 @@ mod tests {
             width: f32,
             alpha: f32,
         },
+        Silhouette(Vec<(f32, f32)>),
     }
 
     #[derive(Default)]
@@ -446,8 +475,8 @@ mod tests {
                 alpha,
             });
         }
-        fn silhouette(&mut self, _: &[(f32, f32)], _: Rgb) {
-            unreachable!("the sky has no silhouettes yet");
+        fn silhouette(&mut self, points: &[(f32, f32)], _: Rgb) {
+            self.0.push(Command::Silhouette(points.to_vec()));
         }
         fn beam(&mut self, _: f32, _: f32, _: f32, _: f32, _: f32, _: Rgb, _: f32, _: f32) {
             unreachable!("the sky has no beams");
@@ -474,7 +503,7 @@ mod tests {
 
     #[test]
     fn counts_follow_the_design() {
-        let sky = Sky::new(1);
+        let sky = Sky::new(1, false);
         assert_eq!(sky.city_light_count(), 900);
         // About 1400 stars would span the screen height of 1080p; the whole
         // sky is taller so that portrait screens are filled too.
@@ -494,7 +523,7 @@ mod tests {
     #[test]
     fn same_seed_gives_the_same_sky_and_other_seeds_differ() {
         let positions = |seed| {
-            Sky::new(seed)
+            Sky::new(seed, false)
                 .stars
                 .iter()
                 .take(20)
@@ -507,7 +536,7 @@ mod tests {
 
     #[test]
     fn generated_values_are_in_range() {
-        let sky = Sky::new(9);
+        let sky = Sky::new(9, false);
         for s in &sky.stars {
             assert!((0.0..1.0).contains(&s.turn));
             assert!((STAR_BOTTOM..=STAR_TOP).contains(&s.elevation));
@@ -529,7 +558,7 @@ mod tests {
 
     #[test]
     fn a_full_turn_brings_the_stars_back() {
-        let sky = Sky::new(2);
+        let sky = Sky::new(2, false);
         let mut a = view(1280.0, 720.0);
         a.heading = 0.7;
         let mut b = a;
@@ -560,7 +589,7 @@ mod tests {
 
     #[test]
     fn the_same_view_shows_a_similar_number_of_stars_at_any_resolution() {
-        let sky = Sky::new(5);
+        let sky = Sky::new(5, false);
         let count = |v: SkyView| record(&sky, &v).len() as f32;
         let (small, large) = (count(view(1280.0, 720.0)), count(view(3840.0, 2160.0)));
         assert!((small / large - 1.0).abs() < 0.1, "{small} {large}");
@@ -568,7 +597,7 @@ mod tests {
 
     #[test]
     fn commands_are_valid() {
-        let mut sky = Sky::new(11);
+        let mut sky = Sky::new(11, false);
         let mut v = view(1280.0, 720.0);
         for step in 0..4000 {
             v.time = f64::from(step) * 0.05;
@@ -607,6 +636,11 @@ mod tests {
                         assert!(width > 0.0);
                         (vec![tail.0, tail.1, head.0, head.1, width], alpha)
                     }
+                    Command::Silhouette(points) => {
+                        assert!(points.len() >= 3);
+                        assert!(points.iter().all(|p| p.0.is_finite() && p.1.is_finite()));
+                        continue;
+                    }
                 };
                 assert!(values.iter().all(|v| v.is_finite()));
                 assert!(alpha > 0.0 && alpha <= 1.0, "{alpha}");
@@ -616,7 +650,7 @@ mod tests {
 
     /// Runs `seconds` of 50 ms steps and returns the times at which meteors started.
     fn start_times(seed: u64, seconds: f64) -> Vec<f64> {
-        let mut sky = Sky::new(seed);
+        let mut sky = Sky::new(seed, false);
         let mut starts = Vec::new();
         let mut started = 0;
         let mut time = 0.0;
@@ -651,7 +685,7 @@ mod tests {
 
     #[test]
     fn a_meteor_burns_out_and_stays_above_the_floor() {
-        let mut sky = Sky::new(12);
+        let mut sky = Sky::new(12, false);
         let first = sky.next_start;
         sky.update(first, 0.0);
         assert_eq!(sky.meteors_visible(), 1);
@@ -666,7 +700,7 @@ mod tests {
 
     #[test]
     fn every_meteor_stays_above_the_floor() {
-        let sky = Sky::new(13);
+        let sky = Sky::new(13, false);
         for i in 0..2000 {
             let m = sky.meteor(i, 0.0, 0.0);
             assert!(m.life >= 0.1, "{}", m.life);
@@ -677,7 +711,7 @@ mod tests {
 
     #[test]
     fn a_meteor_is_drawn_while_it_burns() {
-        let mut sky = Sky::new(14);
+        let mut sky = Sky::new(14, false);
         let mut v = view(1280.0, 720.0);
         let first = sky.next_start;
         sky.update(first, 0.0);
@@ -689,9 +723,131 @@ mod tests {
         assert_eq!(streaks, 1);
     }
 
+    /// The heading that puts the middle of the first range at the center.
+    fn facing_the_first_range(sky: &Sky) -> f64 {
+        let range = &sky.mountains().unwrap().ranges()[0];
+        range.start() + range.width() * 0.5
+    }
+
+    fn silhouettes(commands: &[Command]) -> usize {
+        commands
+            .iter()
+            .filter(|c| matches!(c, Command::Silhouette(_)))
+            .count()
+    }
+
+    #[test]
+    fn mountains_come_only_when_asked_and_do_not_change_the_rest_of_the_sky() {
+        let with = Sky::new(21, true);
+        let without = Sky::new(21, false);
+        assert!(without.mountains().is_none());
+        assert_eq!(without.thinned_city_light_count(), 0);
+        assert_eq!(with.city_light_count(), without.city_light_count());
+        assert_eq!(with.star_count(), without.star_count());
+        for degrees in (0..360).step_by(5) {
+            let mut v = view(1280.0, 720.0);
+            v.heading = f64::from(degrees).to_radians();
+            assert_eq!(silhouettes(&record(&without, &v)), 0);
+        }
+        let mut v = view(1280.0, 720.0);
+        v.heading = facing_the_first_range(&with);
+        assert!(silhouettes(&record(&with, &v)) >= 1);
+    }
+
+    #[test]
+    fn the_silhouette_is_drawn_after_the_stars_and_before_the_city() {
+        let sky = Sky::new(22, true);
+        let mut v = view(1280.0, 720.0);
+        v.heading = facing_the_first_range(&sky);
+        let commands = record(&sky, &v);
+        let first = commands
+            .iter()
+            .position(|c| matches!(c, Command::Silhouette(_)))
+            .unwrap();
+        let last = commands
+            .iter()
+            .rposition(|c| matches!(c, Command::Silhouette(_)))
+            .unwrap();
+        let streak = commands
+            .iter()
+            .rposition(|c| matches!(c, Command::Streak { .. }));
+        assert!(streak.is_none_or(|i| i < first));
+        // The stars come first; only the lights of the city follow.
+        assert!(
+            commands[..first]
+                .iter()
+                .any(|c| matches!(c, Command::Band { .. }))
+        );
+        assert!(commands[..first].len() > 100);
+        assert!(
+            commands[last + 1..]
+                .iter()
+                .all(|c| matches!(c, Command::Dot { .. } | Command::Glow { .. }))
+        );
+    }
+
+    #[test]
+    fn city_lights_in_front_of_a_range_are_thinned_and_the_rest_stay() {
+        let with = Sky::new(23, true);
+        let without = Sky::new(23, false);
+        let thinned = with.thinned_city_light_count();
+        // The ranges cover at most half of the circle and keep a quarter.
+        assert!(thinned > 0 && thinned < with.city_light_count() * 3 / 8);
+
+        let mut v = view(1920.0, 1080.0);
+        v.heading = facing_the_first_range(&with);
+        let range = &with.mountains().unwrap().ranges()[0];
+        let half = (range.width() * 0.5) as f32 * v.focal;
+        let (left, right) = (v.width * 0.5 - half, v.width * 0.5 + half);
+        // Lights of the city stand within 41 px of the horizon; stars are
+        // higher. Count those in front of the range.
+        let city_lights = |sky: &Sky| {
+            record(sky, &v)
+                .iter()
+                .filter(|c| match c {
+                    Command::Dot { x, y, .. } | Command::Glow { x, y, .. } => {
+                        (left..right).contains(x) && (0.0..45.0).contains(&(v.horizon_y() - y))
+                    }
+                    _ => false,
+                })
+                .count()
+        };
+        let (kept, all) = (city_lights(&with), city_lights(&without));
+        assert!(all > 30, "{all}");
+        // A quarter stays; the bound leaves room for chance.
+        assert!(kept * 5 < all * 2, "{kept} of {all}");
+        assert!(kept > 0, "{kept} of {all}");
+    }
+
+    #[test]
+    fn commands_with_mountains_are_valid() {
+        let mut sky = Sky::new(24, true);
+        let mut v = view(1280.0, 720.0);
+        let mut silhouettes_seen = 0;
+        for step in 0..4000 {
+            v.time = f64::from(step) * 0.05;
+            v.heading = v.time * 0.1;
+            sky.update(v.time, v.heading);
+            for command in record(&sky, &v) {
+                match command {
+                    Command::Silhouette(points) => {
+                        silhouettes_seen += 1;
+                        assert!(points.len() >= 4);
+                        assert!(points.iter().all(|p| p.0.is_finite() && p.1.is_finite()));
+                    }
+                    Command::Glow { alpha, .. } => assert!(alpha > 0.0 && alpha <= 1.0),
+                    _ => {}
+                }
+            }
+        }
+        assert!(silhouettes_seen > 0);
+    }
+
     #[test]
     fn invalid_sizes_do_not_panic() {
-        let sky = Sky::new(1);
-        record(&sky, &view(1.0, 1.0));
+        for mountains in [false, true] {
+            let sky = Sky::new(1, mountains);
+            record(&sky, &view(1.0, 1.0));
+        }
     }
 }
