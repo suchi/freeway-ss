@@ -2,6 +2,7 @@
   "version": "0.2",
   "ignorePaths": [
     "**/node_modules/**",
+    "**/target/**",
     "**/dist/**",
     "**/build/**",
     "**/.git/**",

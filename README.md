@@ -23,7 +23,7 @@
 1. [GitHub Releases](https://github.com/suchi/freeway-ss/releases)から、お使いのPCに合うzipを取得する。
    - `NightFreewaySS-v<バージョン>-win-x64.zip`: 一般的なIntel/AMDのPC
    - `NightFreewaySS-v<バージョン>-win-arm64.zip`: ARM64のPC(「設定」の「システム」「バージョン情報」で、システムの種類が「ARMベースのプロセッサ」と表示される)
-2. 取得したzipの整合性を確かめたい場合は、同じリリースの`SHA256SUMS.txt`の値と、`Get-FileHash <zipのパス>`(PowerShell)の結果を比べる。
+2. 取得したzipの整合性を確かめたい場合は、同じリリースの`SHA256SUMS.txt`の値と、PowerShellの`Get-FileHash <zipのパス>`の結果を比べる(`Get-FileHash`は16進を大文字で表示するが、大文字・小文字の違いは無視してよい)。
 3. zipを、スクリーンセイバーを置いておくフォルダーに展開する。
 4. 展開した`NightFreewaySS.scr`を右クリックして「インストール」を選ぶ。スクリーンセイバーの設定画面が開き、一覧に「Night Freeway SS」が現れる。Windowsの「インストール」はファイルをコピーせず、展開した場所の`.scr`をそのまま登録する(`HKEY_CURRENT_USER\Control Panel\Desktop`の`SCRNSAVE.EXE`)ため、このファイルを移動・削除するとスクリーンセイバーは動かなくなる。
 5. 設定画面の「設定」から、巡航速度・通行方向・速度計の表示を変える(下の「設定」を参照)。
@@ -85,7 +85,7 @@ ARM64向けは`cargo xtask dist --target aarch64-pc-windows-msvc`で作る。`.s
 
 設定はスクリーンセイバーを削除しても残る。設定を消すには、レジストリエディターで上記のキーを削除するか、次のコマンドを実行する。
 
-```sh
+```bat
 reg delete HKCU\Software\NightFreewaySS /f
 ```
 

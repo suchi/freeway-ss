@@ -2,8 +2,6 @@
 
 GitHub Copilot・Claude Code・Codexすべてに対する指示の単一ソース。指示の追加・変更は本ファイルに行う。エージェント固有ファイル(`CLAUDE.md`・`.github/copilot-instructions.md`)は薄いポインタに保つ。
 
-`TODO(project):`のプレースホルダは、テンプレートからリポジトリを作成したらテンプレートリポジトリのセットアップガイドに従って埋める。
-
 ## プロジェクト概要
 
 - mhatta氏の[nightfreeway](https://github.com/mhatta/nightfreeway) のWindows スクリーンセイバー
@@ -79,7 +77,6 @@ Qiita、Zenn、note、AI生成記事、SEO目的の記事は、特定の記事�
 | コード内コメント                                   | 英語   |
 | ログ・エラーメッセージ・UIラベル                   | 英語   |
 
-<!-- TODO(project): UIラベル等を日本語にする場合はこの表を上書きする -->
 
 - 図はMermaidで書く。ASCIIアートの図は使わない。
 - ドキュメントに絵文字を使わない。

@@ -104,7 +104,7 @@ AGENTS.mdの方針「2026年10月現在で最も一般的かつオープンソ�
 
 ### 5.1 構成
 
-Cargoワークスペースを2クレートに分ける。
+Cargoワークスペースを2クレートに分ける(計画時の構成。実際のモジュール構成はREADMEの構成表と各フェーズの詳細設計を参照。開発用の`xtask`クレートはPhase 6で追加した。[ADR-0006](../adr/0006-build-release-artifacts-with-cargo-xtask.md))。
 
 - `crates/freeway-core`: OS非依存のシーン計算と描画命令の生成。外部依存なしを目標にする
 - `crates/freeway-scr`: Windows固有部分(引数解析、ウィンドウ、Direct2D描画、設定画面、設定の保存)。成果物は`.exe`を`.scr`にリネームして配布する
@@ -286,7 +286,7 @@ flowchart LR
 - スリープ復帰・ディスプレイドライバ更新後の再描画
 - 4K表示時のフレームレートとCPU使用率
 
-検証コマンド表(Phase 0でAGENTS.mdに記入する案):
+検証コマンド表(Phase 0でAGENTS.mdに記入する案。現在の検証コマンドはAGENTS.mdを正とする):
 
 | 用途 | コマンド |
 | --- | --- |
@@ -296,7 +296,7 @@ flowchart LR
 | 型チェック | `cargo check --workspace --all-targets` |
 | ビルド | `cargo build --release -p freeway-scr` |
 
-`freeway-scr`のWindows固有コードは`cfg(windows)`で分離し、Linux上でもワークスペース全体のコマンドが失敗しないようにする(Windows固有コードの検査はWindowsランナーのCIで行う)。
+`freeway-scr`のWindows固有コードは`cfg(windows)`で分離し、Linux上でもワークスペース全体のコマンドが失敗しないようにする(Windows固有コードの検査はWindowsランナーのCIで行う。あわせて、Linux上でも`--target x86_64-pc-windows-msvc`付きの`cargo check`で型チェックする)。
 
 ## 8. 配布形態
 

@@ -1,4 +1,5 @@
-//! Embeds the resources (settings dialog and manifest) into the Windows executable.
+//! Embeds the resources (display name, icon, settings dialog and manifest) into
+//! the Windows executable.
 
 fn main() {
     println!("cargo:rerun-if-changed=freeway.rc");
