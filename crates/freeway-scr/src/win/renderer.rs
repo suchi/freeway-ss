@@ -15,19 +15,25 @@ use windows::Win32::Graphics::Direct2D::Common::{
 use windows::Win32::Graphics::Direct2D::{
     D2D1_BITMAP_OPTIONS_CANNOT_DRAW, D2D1_BITMAP_OPTIONS_TARGET, D2D1_BITMAP_PROPERTIES1,
     D2D1_BUFFER_PRECISION_8BPC_UNORM, D2D1_CAP_STYLE_ROUND, D2D1_COLOR_INTERPOLATION_MODE_STRAIGHT,
-    D2D1_COLOR_SPACE_SRGB, D2D1_DASH_STYLE_SOLID, D2D1_DEVICE_CONTEXT_OPTIONS_NONE, D2D1_ELLIPSE,
-    D2D1_EXTEND_MODE_CLAMP, D2D1_FACTORY_TYPE_SINGLE_THREADED, D2D1_LINE_JOIN_ROUND,
-    D2D1_LINEAR_GRADIENT_BRUSH_PROPERTIES, D2D1_PRIMITIVE_BLEND_ADD,
-    D2D1_PRIMITIVE_BLEND_SOURCE_OVER, D2D1_RADIAL_GRADIENT_BRUSH_PROPERTIES,
-    D2D1_STROKE_STYLE_PROPERTIES1, D2D1_UNIT_MODE_PIXELS, D2D1CreateFactory, ID2D1Bitmap1,
-    ID2D1DeviceContext, ID2D1Factory1, ID2D1GradientStopCollection1, ID2D1Image,
-    ID2D1RadialGradientBrush, ID2D1SolidColorBrush, ID2D1StrokeStyle,
+    D2D1_COLOR_SPACE_SRGB, D2D1_DASH_STYLE_SOLID, D2D1_DEVICE_CONTEXT_OPTIONS_NONE,
+    D2D1_DRAW_TEXT_OPTIONS_NONE, D2D1_ELLIPSE, D2D1_EXTEND_MODE_CLAMP,
+    D2D1_FACTORY_TYPE_SINGLE_THREADED, D2D1_LINE_JOIN_ROUND, D2D1_LINEAR_GRADIENT_BRUSH_PROPERTIES,
+    D2D1_PRIMITIVE_BLEND_ADD, D2D1_PRIMITIVE_BLEND_SOURCE_OVER,
+    D2D1_RADIAL_GRADIENT_BRUSH_PROPERTIES, D2D1_STROKE_STYLE_PROPERTIES1, D2D1_UNIT_MODE_PIXELS,
+    D2D1CreateFactory, ID2D1Bitmap1, ID2D1DeviceContext, ID2D1Factory1,
+    ID2D1GradientStopCollection1, ID2D1Image, ID2D1RadialGradientBrush, ID2D1SolidColorBrush,
+    ID2D1StrokeStyle,
 };
 use windows::Win32::Graphics::Direct3D::{
     D3D_DRIVER_TYPE, D3D_DRIVER_TYPE_HARDWARE, D3D_DRIVER_TYPE_WARP,
 };
 use windows::Win32::Graphics::Direct3D11::{
     D3D11_CREATE_DEVICE_BGRA_SUPPORT, D3D11_SDK_VERSION, D3D11CreateDevice, ID3D11Device,
+};
+use windows::Win32::Graphics::DirectWrite::{
+    DWRITE_FACTORY_TYPE_SHARED, DWRITE_FONT_STRETCH_NORMAL, DWRITE_FONT_STYLE_NORMAL,
+    DWRITE_FONT_WEIGHT_NORMAL, DWRITE_LINE_METRICS, DWRITE_TEXT_METRICS,
+    DWRITE_WORD_WRAPPING_NO_WRAP, DWriteCreateFactory, IDWriteFactory, IDWriteTextLayout,
 };
 use windows::Win32::Graphics::Dxgi::Common::{
     DXGI_ALPHA_MODE_IGNORE, DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_FORMAT_UNKNOWN, DXGI_SAMPLE_DESC,
@@ -40,7 +46,7 @@ use windows::Win32::Graphics::Dxgi::{
 };
 use windows::Win32::UI::HiDpi::GetDpiForWindow;
 use windows::Win32::UI::WindowsAndMessaging::GetClientRect;
-use windows::core::{Error, Interface, Result};
+use windows::core::{Error, Interface, Result, w};
 use windows_numerics::{Matrix3x2, Vector2};
 
 /// Background color of the night sky (#02030a).
@@ -48,6 +54,22 @@ const BACKGROUND: D2D1_COLOR_F = D2D1_COLOR_F {
     r: 2.0 / 255.0,
     g: 3.0 / 255.0,
     b: 10.0 / 255.0,
+    a: 1.0,
+};
+
+/// Speedometer text, in pixels at a `pixel_scale` of 1. The number is large
+/// and the unit small, both in amber like the dashboard of the original.
+const SPEEDOMETER_MARGIN: f32 = 28.0;
+const SPEEDOMETER_NUMBER_SIZE: f32 = 56.0;
+const SPEEDOMETER_UNIT_SIZE: f32 = 20.0;
+const SPEEDOMETER_GAP: f32 = 8.0;
+const SPEEDOMETER_NUMBER_ALPHA: f32 = 0.9;
+const SPEEDOMETER_UNIT_ALPHA: f32 = 0.6;
+/// Amber (#ffb000).
+const SPEEDOMETER_COLOR: D2D1_COLOR_F = D2D1_COLOR_F {
+    r: 1.0,
+    g: 176.0 / 255.0,
+    b: 0.0,
     a: 1.0,
 };
 
@@ -72,6 +94,22 @@ pub struct Renderer {
     dot_brushes: HashMap<Rgb, ID2D1SolidColorBrush>,
     /// Round caps, so that a shooting star has no square end.
     streak_style: ID2D1StrokeStyle,
+    dwrite_factory: IDWriteFactory,
+    speedometer_brush: ID2D1SolidColorBrush,
+    /// Laid out text per (speed, pixel scale); a window on another monitor
+    /// may have another scale.
+    speedometer_text: HashMap<(u32, u32), SpeedometerText>,
+}
+
+/// The text of the speedometer, laid out for one speed and pixel scale.
+struct SpeedometerText {
+    number: IDWriteTextLayout,
+    unit: IDWriteTextLayout,
+    number_width: f32,
+    number_height: f32,
+    /// Distance from the top of each line to its baseline.
+    number_baseline: f32,
+    unit_baseline: f32,
 }
 
 /// The swap chain of one window and the Direct2D bitmap that wraps its back buffer.
@@ -113,6 +151,10 @@ impl Renderer {
             )?
         };
 
+        let dwrite_factory: IDWriteFactory =
+            unsafe { DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED)? };
+        let speedometer_brush = unsafe { context.CreateSolidColorBrush(&SPEEDOMETER_COLOR, None)? };
+
         Ok(Self {
             d3d_device,
             dxgi_factory,
@@ -121,6 +163,9 @@ impl Renderer {
             pool_brushes: HashMap::new(),
             dot_brushes: HashMap::new(),
             streak_style: streak_style.into(),
+            dwrite_factory,
+            speedometer_brush,
+            speedometer_text: HashMap::new(),
         })
     }
 
@@ -158,7 +203,8 @@ impl Renderer {
         })
     }
 
-    /// Draws `scene` into the window of `target` and presents it.
+    /// Draws `scene` into the window of `target` and presents it. With
+    /// `speedometer_kmh` the speed is drawn in the lower left corner.
     ///
     /// With `wait_for_vsync` the call blocks until the frame can be shown,
     /// which paces the render loop. Returns `false` when the window is not
@@ -167,6 +213,7 @@ impl Renderer {
         &mut self,
         target: &mut Target,
         scene: &Scene,
+        speedometer_kmh: Option<u32>,
         wait_for_vsync: bool,
     ) -> Result<bool> {
         self.resize_if_needed(target)?;
@@ -196,10 +243,18 @@ impl Renderer {
             error: None,
         };
         scene.draw(viewport, &mut canvas);
-        let brush_error = canvas.error;
+        let mut brush_error = canvas.error;
         unsafe {
             context.SetTransform(&Matrix3x2::identity());
             context.SetPrimitiveBlend(D2D1_PRIMITIVE_BLEND_SOURCE_OVER);
+        }
+        if let Some(speed) = speedometer_kmh
+            && let Err(error) = self.draw_speedometer(speed, viewport)
+        {
+            brush_error.get_or_insert(error);
+        }
+        let context = &self.context;
+        unsafe {
             let ended = context.EndDraw(None, None);
             context.SetTarget(None::<&ID2D1Image>);
             ended?;
@@ -212,6 +267,48 @@ impl Renderer {
             status.ok()?;
             Ok(status != DXGI_STATUS_OCCLUDED)
         }
+    }
+
+    /// Draws the speed over the scene with normal blending. Errors are
+    /// returned for the caller to report after `EndDraw`.
+    fn draw_speedometer(&mut self, speed_kmh: u32, viewport: Viewport) -> Result<()> {
+        let key = (speed_kmh, viewport.pixel_scale.to_bits());
+        if !self.speedometer_text.contains_key(&key) {
+            let text = SpeedometerText::new(&self.dwrite_factory, speed_kmh, viewport.pixel_scale)?;
+            // The speed does not change while running, so this stays small.
+            self.speedometer_text.insert(key, text);
+        }
+        let text = &self.speedometer_text[&key];
+        let scale = viewport.pixel_scale;
+        let left = SPEEDOMETER_MARGIN * scale;
+        let bottom = viewport.height - SPEEDOMETER_MARGIN * scale;
+        let number_top = bottom - text.number_height;
+        // Why: the two sizes share a baseline, not the bottom of the lines.
+        let unit_top = number_top + text.number_baseline - text.unit_baseline;
+        unsafe {
+            self.context.SetTransform(&Matrix3x2::identity());
+            self.speedometer_brush.SetOpacity(SPEEDOMETER_NUMBER_ALPHA);
+            self.context.DrawTextLayout(
+                Vector2 {
+                    X: left,
+                    Y: number_top,
+                },
+                &text.number,
+                &self.speedometer_brush,
+                D2D1_DRAW_TEXT_OPTIONS_NONE,
+            );
+            self.speedometer_brush.SetOpacity(SPEEDOMETER_UNIT_ALPHA);
+            self.context.DrawTextLayout(
+                Vector2 {
+                    X: left + text.number_width + SPEEDOMETER_GAP * scale,
+                    Y: unit_top,
+                },
+                &text.unit,
+                &self.speedometer_brush,
+                D2D1_DRAW_TEXT_OPTIONS_NONE,
+            );
+        }
+        Ok(())
     }
 
     fn resize_if_needed(&self, target: &mut Target) -> Result<()> {
@@ -251,6 +348,55 @@ impl Renderer {
             self.context
                 .CreateBitmapFromDxgiSurface(&surface, Some(&properties))
         }
+    }
+}
+
+impl SpeedometerText {
+    fn new(factory: &IDWriteFactory, speed_kmh: u32, pixel_scale: f32) -> Result<Self> {
+        let (number, number_metrics, number_baseline) = layout(
+            factory,
+            &speed_kmh.to_string(),
+            SPEEDOMETER_NUMBER_SIZE * pixel_scale,
+        )?;
+        let (unit, _, unit_baseline) =
+            layout(factory, "km/h", SPEEDOMETER_UNIT_SIZE * pixel_scale)?;
+        Ok(Self {
+            number,
+            unit,
+            number_width: number_metrics.width,
+            number_height: number_metrics.height,
+            number_baseline,
+            unit_baseline,
+        })
+    }
+}
+
+/// A single line of text in Segoe UI, with its size and baseline.
+fn layout(
+    factory: &IDWriteFactory,
+    text: &str,
+    size: f32,
+) -> Result<(IDWriteTextLayout, DWRITE_TEXT_METRICS, f32)> {
+    let wide: Vec<u16> = text.encode_utf16().collect();
+    unsafe {
+        let format = factory.CreateTextFormat(
+            w!("Segoe UI"),
+            None,
+            DWRITE_FONT_WEIGHT_NORMAL,
+            DWRITE_FONT_STYLE_NORMAL,
+            DWRITE_FONT_STRETCH_NORMAL,
+            size,
+            w!("en-us"),
+        )?;
+        format.SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP)?;
+        // The box is wide and tall enough that nothing is cut off.
+        let layout = factory.CreateTextLayout(&wide, &format, size * 16.0, size * 2.0)?;
+        let mut metrics = DWRITE_TEXT_METRICS::default();
+        layout.GetMetrics(&mut metrics)?;
+        let mut line = [DWRITE_LINE_METRICS::default()];
+        let mut count = 0;
+        layout.GetLineMetrics(Some(&mut line), &mut count)?;
+        Ok((layout, metrics, line[0].baseline))
     }
 }
 
