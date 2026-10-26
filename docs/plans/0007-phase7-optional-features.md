@@ -19,7 +19,7 @@
 | 7.2 | 設定画面の多言語化(日本語・英語) | v1.2.0 | [0009](0009-phase7-2-localization.md) | 完了(実機確認済み。[#17](https://github.com/suchi/freeway-ss/pull/17)) |
 | 7.3 | 遠くの山並み | v1.3.0 | [0010](0010-phase7-3-mountains.md) | 完了(実機確認済み。[#18](https://github.com/suchi/freeway-ss/pull/18)) |
 | 7.4 | トラック(マーカーランプ) | v1.4.0 | [0011](0011-phase7-4-trucks.md) | 完了(実機確認済み。[#19](https://github.com/suchi/freeway-ss/pull/19)) |
-| 7.5 | トンネル(照明と坑口) | v1.5.0 | 着手時に作成 | 未着手 |
+| 7.5 | トンネル(照明と坑口) | v1.5.0 | [0012](0012-phase7-5-tunnels.md) | 実装中 |
 | 7.6 | 設定値の時間的な変化 | v1.6.0 | 仕様をユーザーと決めてから作成 | 未着手 |
 
 順序の理由:
