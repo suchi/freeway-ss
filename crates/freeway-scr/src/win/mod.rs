@@ -1,19 +1,21 @@
 //! Windows-specific screensaver host: windows, message loop and rendering.
 
 mod renderer;
+mod settings_dialog;
+mod settings_store;
 mod window;
 
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use freeway_core::{Scene, SceneConfig};
+use freeway_core::{Scene, Settings};
 
 use windows::Win32::Foundation::HWND;
 use windows::Win32::UI::HiDpi::{
     DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, SetProcessDpiAwarenessContext,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    DispatchMessageW, IsWindow, MB_ICONERROR, MB_ICONINFORMATION, MB_OK, MSG, MessageBoxW,
-    PM_REMOVE, PeekMessageW, TranslateMessage, WM_QUIT,
+    DispatchMessageW, IsWindow, MB_ICONERROR, MB_OK, MSG, MessageBoxW, PM_REMOVE, PeekMessageW,
+    TranslateMessage, WM_QUIT,
 };
 use windows::core::{HSTRING, Result, w};
 
@@ -36,20 +38,20 @@ pub fn run(mode: Mode) -> Result<()> {
                 None => Ok(()),
             }
         }
-        Mode::Configure { parent } => {
-            // The settings dialog is implemented in Phase 5.
-            let owner = parent.map(window::hwnd_from_handle);
-            unsafe {
-                MessageBoxW(
-                    owner,
-                    w!("Night Freeway SS has no settings yet."),
-                    w!("Night Freeway SS"),
-                    MB_OK | MB_ICONINFORMATION,
-                )
-            };
-            Ok(())
+        Mode::Configure { parent } => configure(parent.map(window::hwnd_from_handle)),
+    }
+}
+
+/// Shows the settings dialog and saves the result when the user chose OK.
+fn configure(owner: Option<HWND>) -> Result<()> {
+    if let Some(settings) = settings_dialog::show(owner, settings_store::load())? {
+        // Why: a save failure is shown here, with its cause, instead of
+        // ending the program with the generic message of `main`.
+        if let Err(error) = settings_store::save(&settings) {
+            show_error(&format!("The settings could not be saved: {error}"));
         }
     }
+    Ok(())
 }
 
 /// Shows an error to the user; a screensaver has no console to print to.
@@ -65,11 +67,13 @@ pub fn show_error(message: &str) {
 }
 
 fn animate(windows: &[HWND], preview_parent: Option<HWND>) -> Result<()> {
+    let settings = settings_store::load();
+    let speedometer = settings.show_speedometer.then_some(settings.speed_kmh);
     let mut renderer = Renderer::new()?;
     let mut targets = create_targets(&renderer, windows)?;
     // Why: each window gets its own scene (docs/adr/0003); the scenes live
     // outside the device resources, so losing the device does not restart them.
-    let mut scenes = create_scenes(windows.len());
+    let mut scenes = create_scenes(windows.len(), &settings);
     let mut last_frame = Instant::now();
     loop {
         if !pump_messages() {
@@ -87,7 +91,7 @@ fn animate(windows: &[HWND], preview_parent: Option<HWND>) -> Result<()> {
         for scene in &mut scenes {
             scene.update(dt);
         }
-        match draw_frame(&mut renderer, &mut targets, &scenes) {
+        match draw_frame(&mut renderer, &mut targets, &scenes, speedometer) {
             Ok(true) => {}
             // Nothing is visible (for example, the session is locked).
             Ok(false) => std::thread::sleep(Duration::from_millis(100)),
@@ -104,29 +108,34 @@ fn animate(windows: &[HWND], preview_parent: Option<HWND>) -> Result<()> {
 }
 
 /// Draws every window once and returns whether any of them is visible.
-fn draw_frame(renderer: &mut Renderer, targets: &mut [Target], scenes: &[Scene]) -> Result<bool> {
+fn draw_frame(
+    renderer: &mut Renderer,
+    targets: &mut [Target],
+    scenes: &[Scene],
+    speedometer: Option<u32>,
+) -> Result<bool> {
     let last = targets.len().saturating_sub(1);
     let mut visible = false;
     for (index, (target, scene)) in targets.iter_mut().zip(scenes).enumerate() {
         // Why: waiting for vertical sync only on the last window paces the
         // loop once per frame; waiting on every window would divide the
         // frame rate by the number of monitors.
-        visible |= renderer.draw_scene(target, scene, index == last)?;
+        visible |= renderer.draw_scene(target, scene, speedometer, index == last)?;
     }
     Ok(visible)
 }
 
 /// One scene per window, each with its own road.
-fn create_scenes(count: usize) -> Vec<Scene> {
+fn create_scenes(count: usize, settings: &Settings) -> Vec<Scene> {
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |elapsed| elapsed.as_nanos() as u64);
     (0..count)
         .map(|index| {
-            Scene::new(SceneConfig {
-                seed: nanos ^ (index as u64 + 1).wrapping_mul(0x9E37_79B9_7F4A_7C15),
-                ..SceneConfig::default()
-            })
+            Scene::new(
+                settings
+                    .scene_config(nanos ^ (index as u64 + 1).wrapping_mul(0x9E37_79B9_7F4A_7C15)),
+            )
         })
         .collect()
 }
@@ -165,7 +174,7 @@ mod tests {
         let hwnd = window::create_hidden_window(640, 360)?;
         let mut renderer = Renderer::new()?;
         let mut target = renderer.create_target(hwnd)?;
-        let mut scene = create_scenes(1).remove(0);
+        let mut scene = create_scenes(1, &Settings::default()).remove(0);
         // Run until a shooting star burns, so that every kind of sky command
         // (dot, sky band, streak) reaches Direct2D.
         let mut steps = 0;
@@ -175,11 +184,13 @@ mod tests {
             assert!(steps < 2000, "no shooting star within 100 seconds");
         }
         for _ in 0..3 {
-            renderer.draw_scene(&mut target, &scene, true)?;
+            renderer.draw_scene(&mut target, &scene, None, true)?;
         }
+        // The speedometer needs the text to be laid out and drawn.
+        renderer.draw_scene(&mut target, &scene, Some(100), true)?;
 
         unsafe { SetWindowPos(hwnd, None, 0, 0, 800, 450, SWP_NOMOVE | SWP_NOZORDER)? };
-        renderer.draw_scene(&mut target, &scene, true)?;
+        renderer.draw_scene(&mut target, &scene, Some(160), true)?;
         Ok(())
     }
 }
