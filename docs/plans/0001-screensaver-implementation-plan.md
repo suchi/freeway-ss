@@ -208,7 +208,7 @@ MVPの項目は、本家の実行中の操作と表示(速度・通行方向・H
 | Phase 3: 背景 | 完了(実機確認済み) | [0003](0003-phase3-background.md) | [#8](https://github.com/suchi/freeway-ss/pull/8) | [v0.3.0](https://github.com/suchi/freeway-ss/releases/tag/v0.3.0) |
 | Phase 4: 他車 | 完了(実機確認済み) | [0004](0004-phase4-traffic.md) | [#11](https://github.com/suchi/freeway-ss/pull/11) | [v0.4.0](https://github.com/suchi/freeway-ss/releases/tag/v0.4.0) |
 | Phase 5: 設定画面と保存 | 完了(実機確認済み) | [0005](0005-phase5-settings.md) | [#12](https://github.com/suchi/freeway-ss/pull/12) | [v0.5.0](https://github.com/suchi/freeway-ss/releases/tag/v0.5.0) |
-| Phase 6: リリース | 未着手 | - | - | - |
+| Phase 6: リリース | 実装中 | [0006](0006-phase6-release.md) | (作成後に記入) | 未リリース |
 | Phase 7: 任意機能 | 未着手 | - | - | - |
 
 ```mermaid
@@ -336,6 +336,7 @@ flowchart LR
 | D7 | UFO(イースターエッグ) | 後続フェーズで設定項目として実装する | 本書 |
 | D8 | 対応アーキテクチャ | x64とARM64。ARM64版の配布はVer.1.0から。それまでの各フェーズのリリースはx64のみ | 本書 |
 | D9 | フェーズごとのリリース | Phase Nを`v0.N.0`のプレリリースとし、手動実行のワークフローで作成する(AGENTS.mdの「フェーズごとのリリース」) | 本書 |
+| D10 | Phase 6の成果物のバージョン | 正式版`v1.0.0`(プレリリースにしない。x64とARM64を含む)。2026-10-26のユーザー判断 | [0006](0006-phase6-release.md) |
 
 検討時の選択肢:
 
