@@ -1,0 +1,65 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1225 1061" font-family="Segoe UI, Yu Gothic UI, Meiryo, DejaVu Sans, sans-serif"><rect width="100%" height="100%" fill="#fff"/><text x="10" y="20" font-size="15" font-weight="600">English</text><text x="632" y="20" font-size="15" font-weight="600">日本語</text><rect x="10" y="30" width="582" height="971" fill="#f0f0f0" stroke="#7a7a7a"/>
+<rect x="10" y="30" width="582" height="30" fill="#fff" stroke="#7a7a7a"/><text x="20" y="51" font-size="14">Night Freeway SS Settings</text>
+<text x="41" y="112" font-size="13">Cruising speed:</text>
+<line x1="39" y1="155" x2="413" y2="155" stroke="#999" stroke-width="3"/><rect x="101" y="131" width="10" height="20" fill="#0067c0"/>
+<text x="561" y="159" font-size="13" text-anchor="end">100 km/h</text>
+<text x="41" y="218" font-size="13">Driving side:</text>
+<circle cx="48" cy="248" r="6" fill="#fff" stroke="#333"/><circle cx="48" cy="248" r="3" fill="#333"/><text x="61" y="255" font-size="13">Left-hand traffic</text>
+<circle cx="308" cy="248" r="6" fill="#fff" stroke="#333"/><text x="321" y="255" font-size="13">Right-hand traffic</text>
+<text x="41" y="308" font-size="13">Speedometer:</text>
+<rect x="171" y="284" width="390" height="36" fill="#fff" stroke="#8a8a8a"/><path d="M545 292 l6 6 l6 -6" fill="none" stroke="#333"/>
+<rect x="41" y="342" width="13" height="13" fill="#fff" stroke="#333"/><text x="61" y="362" font-size="13">Show a UFO now and then</text>
+<rect x="41" y="381" width="13" height="13" fill="#fff" stroke="#333"/><text x="61" y="401" font-size="13">Show distant mountains</text>
+<rect x="41" y="420" width="13" height="13" fill="#fff" stroke="#333"/><text x="61" y="440" font-size="13">Vary the cruising speed</text>
+<rect x="41" y="460" width="13" height="13" fill="#fff" stroke="#333"/><text x="61" y="479" font-size="13">Traffic follows the time of day</text>
+<rect x="41" y="499" width="13" height="13" fill="#fff" stroke="#333"/><text x="61" y="519" font-size="13">Alternate mountains and plains</text>
+<text x="41" y="571" font-size="13">Trucks:</text>
+<rect x="171" y="547" width="390" height="36" fill="#fff" stroke="#8a8a8a"/><path d="M545 555 l6 6 l6 -6" fill="none" stroke="#333"/>
+<text x="41" y="621" font-size="13">Tunnels:</text>
+<rect x="171" y="598" width="390" height="36" fill="#fff" stroke="#8a8a8a"/><path d="M545 606 l6 6 l6 -6" fill="none" stroke="#333"/>
+<text x="41" y="672" font-size="13">Car bodies:</text>
+<rect x="171" y="648" width="390" height="36" fill="#fff" stroke="#8a8a8a"/><path d="M545 656 l6 6 l6 -6" fill="none" stroke="#333"/>
+<text x="41" y="722" font-size="13">Body color:</text>
+<rect x="171" y="698" width="390" height="36" fill="#fff" stroke="#8a8a8a"/><path d="M545 706 l6 6 l6 -6" fill="none" stroke="#333"/>
+<text x="41" y="772" font-size="13">Language:</text>
+<rect x="171" y="749" width="390" height="36" fill="#fff" stroke="#8a8a8a"/><path d="M545 757 l6 6 l6 -6" fill="none" stroke="#333"/>
+<rect x="31" y="813" width="541" height="115" fill="none" stroke="#c0392b" stroke-width="2"/><text x="39" y="819" font-size="13" fill="#000" style="paint-order:stroke" stroke="#f0f0f0" stroke-width="6">Keep it running</text>
+<circle cx="53" cy="852" r="6" fill="#fff" stroke="#333"/><circle cx="53" cy="852" r="3" fill="#333"/><text x="66" y="860" font-size="13">In a window</text>
+<circle cx="308" cy="852" r="6" fill="#fff" stroke="#333"/><text x="321" y="860" font-size="13">Full screen</text>
+<text x="46" y="904" font-size="13">Close after (min, 0 = never):</text>
+<rect x="348" y="878" width="73" height="34" fill="#fff" stroke="#c0392b" stroke-width="2"/><text x="354" y="902" font-size="13">0</text>
+<rect x="442" y="875" width="114" height="39" rx="2" fill="#e1e1e1" stroke="#c0392b" stroke-width="2"/><text x="499" y="901" font-size="13" text-anchor="middle">Start</text>
+<rect x="291" y="945" width="130" height="39" rx="2" fill="#e1e1e1" stroke="#0067c0" stroke-width="2"/><text x="356" y="971" font-size="13" text-anchor="middle">OK</text>
+<rect x="431" y="945" width="130" height="39" rx="2" fill="#e1e1e1" stroke="#8a8a8a" stroke-width="1"/><text x="496" y="971" font-size="13" text-anchor="middle">Cancel</text><rect x="632.4" y="30" width="582" height="941" fill="#f0f0f0" stroke="#7a7a7a"/>
+<rect x="632.4" y="30" width="582" height="30" fill="#fff" stroke="#7a7a7a"/><text x="642.4" y="51" font-size="14">Night Freeway SS の設定</text>
+<text x="664" y="112" font-size="13">巡航速度:</text>
+<line x1="661" y1="155" x2="1035" y2="155" stroke="#999" stroke-width="3"/><rect x="723" y="131" width="10" height="20" fill="#0067c0"/>
+<text x="1184" y="159" font-size="13" text-anchor="end">100 km/h</text>
+<text x="664" y="218" font-size="13">通行方向:</text>
+<circle cx="671" cy="248" r="6" fill="#fff" stroke="#333"/><circle cx="671" cy="248" r="3" fill="#333"/><text x="684" y="255" font-size="13">左側通行</text>
+<circle cx="931" cy="248" r="6" fill="#fff" stroke="#333"/><text x="944" y="255" font-size="13">右側通行</text>
+<text x="664" y="308" font-size="13">速度計:</text>
+<rect x="794" y="284" width="390" height="36" fill="#fff" stroke="#8a8a8a"/><path d="M1168 292 l6 6 l6 -6" fill="none" stroke="#333"/>
+<rect x="664" y="342" width="13" height="13" fill="#fff" stroke="#333"/><text x="684" y="362" font-size="13">ときどき UFO を表示する</text>
+<rect x="664" y="381" width="13" height="13" fill="#fff" stroke="#333"/><text x="684" y="401" font-size="13">遠くの山並みを表示する</text>
+<rect x="664" y="420" width="13" height="13" fill="#fff" stroke="#333"/><text x="684" y="440" font-size="13">巡航速度をゆっくり変える</text>
+<rect x="664" y="460" width="13" height="13" fill="#fff" stroke="#333"/><text x="684" y="479" font-size="13">時刻に合わせて交通量を変える</text>
+<rect x="664" y="499" width="13" height="13" fill="#fff" stroke="#333"/><text x="684" y="519" font-size="13">山あいと平野を交互に走る</text>
+<text x="664" y="571" font-size="13">トラック:</text>
+<rect x="794" y="547" width="390" height="36" fill="#fff" stroke="#8a8a8a"/><path d="M1168 555 l6 6 l6 -6" fill="none" stroke="#333"/>
+<text x="664" y="621" font-size="13">トンネル:</text>
+<rect x="794" y="598" width="390" height="36" fill="#fff" stroke="#8a8a8a"/><path d="M1168 606 l6 6 l6 -6" fill="none" stroke="#333"/>
+<text x="664" y="672" font-size="13">他車の車体:</text>
+<rect x="794" y="648" width="390" height="36" fill="#fff" stroke="#8a8a8a"/><path d="M1168 656 l6 6 l6 -6" fill="none" stroke="#333"/>
+<text x="664" y="722" font-size="13">車体の色:</text>
+<rect x="794" y="698" width="390" height="36" fill="#fff" stroke="#8a8a8a"/><path d="M1168 706 l6 6 l6 -6" fill="none" stroke="#333"/>
+<text x="664" y="772" font-size="13">言語:</text>
+<rect x="794" y="749" width="390" height="36" fill="#fff" stroke="#8a8a8a"/><path d="M1168 757 l6 6 l6 -6" fill="none" stroke="#333"/>
+<rect x="653" y="813" width="541" height="115" fill="none" stroke="#c0392b" stroke-width="2"/><text x="661" y="819" font-size="13" fill="#000" style="paint-order:stroke" stroke="#f0f0f0" stroke-width="6">流しておく</text>
+<circle cx="676" cy="852" r="6" fill="#fff" stroke="#333"/><circle cx="676" cy="852" r="3" fill="#333"/><text x="689" y="860" font-size="13">ウィンドウで</text>
+<circle cx="931" cy="852" r="6" fill="#fff" stroke="#333"/><text x="944" y="860" font-size="13">全画面で</text>
+<text x="669" y="904" font-size="13">閉じる時間(分、0 = 制限なし):</text>
+<rect x="970" y="878" width="73" height="34" fill="#fff" stroke="#c0392b" stroke-width="2"/><text x="976" y="902" font-size="13">0</text>
+<rect x="1064" y="875" width="114" height="39" rx="2" fill="#e1e1e1" stroke="#c0392b" stroke-width="2"/><text x="1121" y="901" font-size="13" text-anchor="middle">開始</text>
+<rect x="913" y="945" width="130" height="39" rx="2" fill="#e1e1e1" stroke="#0067c0" stroke-width="2"/><text x="978" y="971" font-size="13" text-anchor="middle">OK</text>
+<rect x="1054" y="945" width="130" height="39" rx="2" fill="#e1e1e1" stroke="#8a8a8a" stroke-width="1"/><text x="1119" y="971" font-size="13" text-anchor="middle">キャンセル</text><text x="10" y="1053" font-size="12" fill="#555">Layout drawn from crates/freeway-scr/freeway.rc (336 x 224 dialog units). The new part is outlined in red. Not a screenshot.</text></svg>
