@@ -153,6 +153,7 @@ pub fn package(
     let notices = read_text(&root.join(NOTICES))?;
     let readme = read_text(&root.join(DIST_README))?;
 
+    check_version_info(&exe_data, version)?;
     write(&layout.scr, &exe_data)?;
     let archive = zip::write_stored(&[
         Entry {
@@ -189,6 +190,60 @@ pub fn package(
         zip_name: name,
         hash,
     })
+}
+
+/// The text as UTF-16LE with its terminating NUL, the way the strings of the
+/// version resource are stored.
+fn utf16_nul(text: &str) -> Vec<u8> {
+    text.encode_utf16()
+        .chain(std::iter::once(0))
+        .flat_map(u16::to_le_bytes)
+        .collect()
+}
+
+fn contains(haystack: &[u8], needle: &[u8], from: usize) -> Option<usize> {
+    haystack
+        .get(from..)?
+        .windows(needle.len())
+        .position(|window| window == needle)
+        .map(|at| from + at)
+}
+
+/// Whether the string `key` of the version resource in `exe` has the value
+/// `value`. The resource stores a string as its key, up to two bytes of
+/// padding that align the value to four bytes, and the value, all in UTF-16.
+fn version_string_is(exe: &[u8], key: &str, value: &str) -> bool {
+    let key = utf16_nul(key);
+    let value = utf16_nul(value);
+    let mut from = 0;
+    while let Some(at) = contains(exe, &key, from) {
+        let after = at + key.len();
+        if (0..=2).step_by(2).any(|pad| {
+            exe.get(after..after + pad)
+                .is_some_and(|p| p.iter().all(|&b| b == 0))
+                && exe
+                    .get(after + pad..)
+                    .is_some_and(|rest| rest.starts_with(&value))
+        }) {
+            return true;
+        }
+        from = at + 1;
+    }
+    false
+}
+
+/// Checks that the version information embedded in `exe` (docs/plans/0021,
+/// 3.1) is the version of the workspace. The unit tests of the binary are
+/// linked without the resources, so the built executable is checked here.
+fn check_version_info(exe: &[u8], version: &str) -> Result<(), String> {
+    for key in ["FileVersion", "ProductVersion"] {
+        if !version_string_is(exe, key, version) {
+            return Err(format!(
+                "the version information of the executable has no {key} of {version}"
+            ));
+        }
+    }
+    Ok(())
 }
 
 fn read_text(path: &Path) -> Result<Vec<u8>, String> {
@@ -339,19 +394,20 @@ mod tests {
         fs::write(dir.join(DIST_README), "readme text").unwrap();
         fs::write(dir.join(NOTICES), "notices text").unwrap();
         let exe = dir.join("freeway-scr.exe");
-        fs::write(&exe, b"MZ fake executable").unwrap();
+        let fake = fake_executable("1.0.0");
+        fs::write(&exe, &fake).unwrap();
 
         let target = dir.join("target");
         let paths = layout(&target, "1.0.0", Arch::X64);
         let packaged = package(&dir, &exe, &paths, "1.0.0", Arch::X64).unwrap();
 
-        assert_eq!(fs::read(&paths.scr).unwrap(), b"MZ fake executable");
+        assert_eq!(fs::read(&paths.scr).unwrap(), fake);
         let archive = fs::read(&paths.zip).unwrap();
         let files = zip::read_stored(&archive).unwrap();
         assert_eq!(
             files,
             vec![
-                (SCR_NAME.to_owned(), b"MZ fake executable".to_vec()),
+                (SCR_NAME.to_owned(), fake.clone()),
                 ("LICENSE".to_owned(), b"license text".to_vec()),
                 (NOTICES_NAME.to_owned(), b"notices text".to_vec()),
                 ("README.md".to_owned(), b"readme text".to_vec()),
@@ -381,6 +437,54 @@ mod tests {
         package(&dir, &exe, &arm, "1.0.0", Arch::Arm64).unwrap();
         assert_eq!(fs::read_to_string(&paths.sums).unwrap().lines().count(), 2);
 
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// Bytes that contain the version strings the way a resource stores
+    /// them, with the padding of `pad` bytes.
+    fn version_resource(version: &str, pad: usize) -> Vec<u8> {
+        let mut bytes = b"MZ".to_vec();
+        for key in ["FileVersion", "ProductVersion"] {
+            bytes.extend(utf16_nul(key));
+            bytes.extend(vec![0; pad]);
+            bytes.extend(utf16_nul(version));
+        }
+        bytes
+    }
+
+    fn fake_executable(version: &str) -> Vec<u8> {
+        version_resource(version, 2)
+    }
+
+    #[test]
+    fn the_version_information_must_hold_the_version_of_the_workspace() {
+        for pad in [0, 2] {
+            let exe = version_resource("1.14.0", pad);
+            assert!(check_version_info(&exe, "1.14.0").is_ok());
+            assert!(check_version_info(&exe, "1.14.1").is_err());
+            assert!(check_version_info(&exe, "1.14").is_err());
+        }
+        // Only one of the two strings.
+        let mut half = utf16_nul("FileVersion");
+        half.extend(utf16_nul("1.14.0"));
+        assert!(check_version_info(&half, "1.14.0").is_err());
+        assert!(check_version_info(b"MZ", "1.14.0").is_err());
+    }
+
+    #[test]
+    fn an_executable_without_the_version_is_not_packaged() {
+        let dir = std::env::temp_dir().join(format!("xtask-dist-version-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(dir.join("packaging")).unwrap();
+        for (path, text) in [("LICENSE", "l"), (DIST_README, "r"), (NOTICES, "n")] {
+            fs::write(dir.join(path), text).unwrap();
+        }
+        let exe = dir.join("freeway-scr.exe");
+        fs::write(&exe, fake_executable("0.9.0")).unwrap();
+        let paths = layout(&dir.join("target"), "1.0.0", Arch::X64);
+        let error = package(&dir, &exe, &paths, "1.0.0", Arch::X64).unwrap_err();
+        assert!(error.contains("FileVersion"), "{error}");
+        assert!(!paths.zip.exists());
         let _ = fs::remove_dir_all(&dir);
     }
 
