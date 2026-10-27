@@ -4,7 +4,9 @@
 //! IDs below must match it.
 
 use freeway_core::settings::{SPEED_CHOICES, position_to_speed, speed_to_position};
-use freeway_core::{DisplayLanguage, Language, Settings, Text, TruckStyle, TunnelLighting};
+use freeway_core::{
+    CarBodies, DisplayLanguage, Language, Settings, Text, TruckStyle, TunnelLighting,
+};
 use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::Controls::{
@@ -37,9 +39,11 @@ const TUNNELS: i32 = 115;
 const VARY_SPEED: i32 = 116;
 const TRAFFIC_BY_TIME: i32 = 117;
 const SCENERY_ZONES: i32 = 118;
+const CAR_BODIES_LABEL: i32 = 119;
+const CAR_BODIES: i32 = 120;
 
 /// The texts of the controls that are set from the string table, by ID.
-const CONTROL_TEXTS: [(i32, Text); 15] = [
+const CONTROL_TEXTS: [(i32, Text); 16] = [
     (SPEED_LABEL, Text::SpeedLabel),
     (SIDE_LABEL, Text::DrivingSideLabel),
     (LEFT_HAND, Text::LeftHandTraffic),
@@ -52,6 +56,7 @@ const CONTROL_TEXTS: [(i32, Text); 15] = [
     (SCENERY_ZONES, Text::SceneryZones),
     (TRUCKS_LABEL, Text::TrucksLabel),
     (TUNNELS_LABEL, Text::TunnelsLabel),
+    (CAR_BODIES_LABEL, Text::CarBodiesLabel),
     (LANGUAGE_LABEL, Text::LanguageLabel),
     // OK and Cancel use the IDs of the standard buttons.
     (IDOK.0, Text::Ok),
@@ -78,6 +83,13 @@ const TUNNEL_TEXTS: [Text; 4] = [
     Text::TunnelsMixed,
     Text::TunnelsSodium,
     Text::TunnelsLed,
+];
+
+/// The items of the car bodies drop-down, in the order of `CarBodies::ALL`.
+const CAR_BODY_TEXTS: [Text; 3] = [
+    Text::CarBodiesTransparent,
+    Text::CarBodiesTranslucent,
+    Text::CarBodiesBlack,
 ];
 
 /// `WM_USER`; the windows crate does not define this message.
@@ -137,6 +149,7 @@ unsafe extern "system" fn dialog_proc(
                 // The drop-down is empty until the language is applied.
                 select_trucks(hwnd, state.settings.trucks);
                 select_tunnels(hwnd, state.settings.tunnels);
+                select_car_bodies(hwnd, state.settings.car_bodies);
             }
             // Let the dialog manager give the focus to the first control.
             1
@@ -245,6 +258,30 @@ fn select_tunnels(hwnd: HWND, tunnels: TunnelLighting) {
     }
 }
 
+/// The car body choice selected in the drop-down; the default while the
+/// drop-down is still empty.
+fn selected_car_bodies(hwnd: HWND) -> CarBodies {
+    let index =
+        unsafe { SendDlgItemMessageW(hwnd, CAR_BODIES, CB_GETCURSEL, WPARAM(0), LPARAM(0)) }.0;
+    // CB_ERR (-1) means nothing is selected.
+    u32::try_from(index)
+        .ok()
+        .and_then(|index| CarBodies::from_raw(Some(index)))
+        .unwrap_or_default()
+}
+
+fn select_car_bodies(hwnd: HWND, car_bodies: CarBodies) {
+    unsafe {
+        SendDlgItemMessageW(
+            hwnd,
+            CAR_BODIES,
+            CB_SETCURSEL,
+            WPARAM(car_bodies.to_raw() as usize),
+            LPARAM(0),
+        );
+    }
+}
+
 /// Shows the dialog in the language that `selected` means, and selects it in
 /// the drop-down.
 fn apply_language(hwnd: HWND, selected: Language) {
@@ -258,9 +295,17 @@ fn apply_language(hwnd: HWND, selected: Language) {
     // The drop-downs are refilled, so the chosen items are kept across it.
     let trucks = selected_trucks(hwnd);
     let tunnels = selected_tunnels(hwnd);
+    let car_bodies = selected_car_bodies(hwnd);
     fill_dropdown(hwnd, LANGUAGE, &LANGUAGE_TEXTS, language, selected.to_raw());
     fill_dropdown(hwnd, TRUCKS, &TRUCK_TEXTS, language, trucks.to_raw());
     fill_dropdown(hwnd, TUNNELS, &TUNNEL_TEXTS, language, tunnels.to_raw());
+    fill_dropdown(
+        hwnd,
+        CAR_BODIES,
+        &CAR_BODY_TEXTS,
+        language,
+        car_bodies.to_raw(),
+    );
 }
 
 /// Replaces the items of a drop-down by `texts` in `language`, and selects
@@ -328,6 +373,7 @@ fn read_controls(hwnd: HWND) -> Settings {
         show_mountains: unsafe { IsDlgButtonChecked(hwnd, MOUNTAINS) } == BST_CHECKED.0,
         trucks: selected_trucks(hwnd),
         tunnels: selected_tunnels(hwnd),
+        car_bodies: selected_car_bodies(hwnd),
         language: selected_language(hwnd),
         vary_speed: unsafe { IsDlgButtonChecked(hwnd, VARY_SPEED) } == BST_CHECKED.0,
         traffic_by_time: unsafe { IsDlgButtonChecked(hwnd, TRAFFIC_BY_TIME) } == BST_CHECKED.0,

@@ -632,7 +632,11 @@ impl Canvas for D2dCanvas<'_> {
         }
     }
 
-    fn silhouette(&mut self, points: &[(f32, f32)], color: Rgb) {
+    fn silhouette(&mut self, points: &[(f32, f32)], color: Rgb, alpha: f32) {
+        // A NaN opacity would be passed on to Direct2D as it is.
+        if !alpha.is_finite() {
+            return;
+        }
         let Some(brush) = self.solid_brush(color) else {
             return;
         };
@@ -652,7 +656,7 @@ impl Canvas for D2dCanvas<'_> {
                 sink.AddLines(&corners);
                 sink.EndFigure(D2D1_FIGURE_END_CLOSED);
                 sink.Close()?;
-                brush.SetOpacity(1.0);
+                brush.SetOpacity(alpha.clamp(0.0, 1.0));
                 self.context.SetTransform(&Matrix3x2::identity());
                 // Why: the lights are added to the picture, but a mountain
                 // must cover the stars behind it, so it is drawn with the

@@ -188,8 +188,8 @@ pub fn draw_entrance(
     let (Some(hill), Some(opening)) = (hill, opening) else {
         return;
     };
-    canvas.silhouette(&hill, mix(BACKGROUND, HILL_COLOR, fade));
-    canvas.silhouette(&opening, mix(BACKGROUND, tunnel.opening_color(), fade));
+    canvas.silhouette(&hill, mix(BACKGROUND, HILL_COLOR, fade), 1.0);
+    canvas.silhouette(&opening, mix(BACKGROUND, tunnel.opening_color(), fade), 1.0);
 }
 
 fn mix(from: Rgb, to: Rgb, t: f32) -> Rgb {

@@ -22,6 +22,7 @@ const LANGUAGE: PCWSTR = w!("Language");
 const VARY_SPEED: PCWSTR = w!("VarySpeed");
 const TRAFFIC_BY_TIME: PCWSTR = w!("TrafficByTime");
 const SCENERY_ZONES: PCWSTR = w!("SceneryZones");
+const CAR_BODIES: PCWSTR = w!("CarBodies");
 
 /// Reads the saved settings; anything missing or invalid is the default.
 pub fn load() -> Settings {
@@ -46,6 +47,7 @@ fn load_from(root: HKEY, key: PCWSTR) -> Settings {
         read_dword(root, key, VARY_SPEED),
         read_dword(root, key, TRAFFIC_BY_TIME),
         read_dword(root, key, SCENERY_ZONES),
+        read_dword(root, key, CAR_BODIES),
     )
 }
 
@@ -80,7 +82,8 @@ fn save_to(root: HKEY, key: PCWSTR, settings: &Settings) -> Result<()> {
         TRAFFIC_BY_TIME,
         u32::from(settings.traffic_by_time),
     )?;
-    write_dword(root, key, SCENERY_ZONES, u32::from(settings.scenery_zones))
+    write_dword(root, key, SCENERY_ZONES, u32::from(settings.scenery_zones))?;
+    write_dword(root, key, CAR_BODIES, settings.car_bodies.to_raw())
 }
 
 /// Returns `None` when the key or value is missing, or is not a `REG_DWORD`.
@@ -121,7 +124,7 @@ fn write_dword(root: HKEY, key: PCWSTR, name: PCWSTR, value: u32) -> Result<()> 
 #[cfg(test)]
 mod tests {
     use freeway_core::settings::DEFAULT_SPEED_KMH;
-    use freeway_core::{Language, TruckStyle, TunnelLighting};
+    use freeway_core::{CarBodies, Language, TruckStyle, TunnelLighting};
     use windows::Win32::System::Registry::{REG_SZ, RegDeleteTreeW};
     use windows::core::HSTRING;
 
@@ -177,6 +180,7 @@ mod tests {
             show_mountains: false,
             trucks: TruckStyle::NorthAmerican,
             tunnels: TunnelLighting::Led,
+            car_bodies: CarBodies::TranslucentBlack,
             language: Language::Japanese,
             vary_speed: false,
             traffic_by_time: false,
@@ -205,6 +209,7 @@ mod tests {
         write_dword(HKEY_CURRENT_USER, test.key(), VARY_SPEED, 2)?;
         write_dword(HKEY_CURRENT_USER, test.key(), TRAFFIC_BY_TIME, 7)?;
         write_dword(HKEY_CURRENT_USER, test.key(), SCENERY_ZONES, u32::MAX)?;
+        write_dword(HKEY_CURRENT_USER, test.key(), CAR_BODIES, 3)?;
         let settings = test.load();
         assert_eq!(settings.speed_kmh, DEFAULT_SPEED_KMH);
         assert!(!settings.left_hand_traffic);
@@ -213,6 +218,7 @@ mod tests {
         assert!(settings.show_mountains);
         assert_eq!(settings.trucks, TruckStyle::Japanese);
         assert_eq!(settings.tunnels, TunnelLighting::Mixed);
+        assert_eq!(settings.car_bodies, CarBodies::Transparent);
         assert_eq!(settings.language, Language::Auto);
         assert!(settings.vary_speed && settings.traffic_by_time && settings.scenery_zones);
         Ok(())
@@ -270,6 +276,29 @@ mod tests {
             }
             let loaded = invalid.load();
             assert!(loaded.vary_speed && loaded.traffic_by_time && loaded.scenery_zones);
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn every_car_body_choice_is_read_back() -> Result<()> {
+        let test = TestKey::new("car-bodies");
+        for car_bodies in CarBodies::ALL {
+            let settings = Settings {
+                car_bodies,
+                ..Settings::default()
+            };
+            save_to(HKEY_CURRENT_USER, test.key(), &settings)?;
+            assert_eq!(test.load().car_bodies, car_bodies);
+        }
+        // Without the value, or with one out of range, the bodies are transparent.
+        let missing = TestKey::new("car-bodies-missing");
+        write_dword(HKEY_CURRENT_USER, missing.key(), SPEED, 60)?;
+        assert_eq!(missing.load().car_bodies, CarBodies::Transparent);
+        let invalid = TestKey::new("car-bodies-invalid");
+        for raw in [3, u32::MAX] {
+            write_dword(HKEY_CURRENT_USER, invalid.key(), CAR_BODIES, raw)?;
+            assert_eq!(invalid.load().car_bodies, CarBodies::Transparent, "{raw}");
         }
         Ok(())
     }

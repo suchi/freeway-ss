@@ -1,6 +1,6 @@
 # Phase 7 計画: 任意機能
 
-- ステータス: 作成済み(7.1 UFOに着手)
+- ステータス: 完了(7.1〜7.7)
 - 日付: 2026-10-26
 - 親計画: [実装計画](0001-screensaver-implementation-plan.md)の6章 Phase 7
 
@@ -21,7 +21,7 @@
 | 7.4 | トラック(マーカーランプ) | v1.4.0 | [0011](0011-phase7-4-trucks.md) | 完了(実機確認済み。[#19](https://github.com/suchi/freeway-ss/pull/19)) |
 | 7.5 | トンネル(照明と坑口) | v1.5.0 | [0012](0012-phase7-5-tunnels.md) | 完了([#20](https://github.com/suchi/freeway-ss/pull/20)) |
 | 7.6 | 設定値の時間的な変化 | v1.6.0 | [0013](0013-phase7-6-time-variation.md) | 完了(実機確認済み。[#21](https://github.com/suchi/freeway-ss/pull/21)) |
-| 7.7 | 他車の車体(不透明化) | v1.7.0 | 着手時に作成 | 未着手 |
+| 7.7 | 他車の車体(不透明化) | v1.7.0 | [0014](0014-phase7-7-car-bodies.md) | 完了(実機確認済み。[#22](https://github.com/suchi/freeway-ss/pull/22)) |
 
 順序の理由:
 

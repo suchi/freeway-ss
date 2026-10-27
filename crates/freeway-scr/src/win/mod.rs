@@ -369,4 +369,29 @@ mod tests {
         }
         Ok(())
     }
+
+    #[test]
+    fn renders_car_bodies_over_the_lights() -> Result<()> {
+        use freeway_core::CarBodies;
+        let hwnd = window::create_hidden_window(640, 360)?;
+        let mut renderer = Renderer::new()?;
+        let mut target = renderer.create_target(hwnd)?;
+        for car_bodies in [CarBodies::TranslucentBlack, CarBodies::Black] {
+            let mut scene = Scene::new(freeway_core::SceneConfig {
+                seed: 4,
+                car_bodies,
+                ..Default::default()
+            });
+            // Silhouettes of the bodies are drawn among the lights, with
+            // their own opacity, and the additive blend must be back after
+            // each of them.
+            for _ in 0..20 {
+                for _ in 0..10 {
+                    scene.update(0.05);
+                }
+                renderer.draw_scene(&mut target, &scene, None, true)?;
+            }
+        }
+        Ok(())
+    }
 }
