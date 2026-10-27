@@ -389,14 +389,18 @@ mod tests {
 
     #[test]
     fn renders_car_bodies_over_the_lights() -> Result<()> {
-        use freeway_core::CarBodies;
+        use freeway_core::{CarColor, CarShapes};
         let hwnd = window::create_hidden_window(640, 360)?;
         let mut renderer = Renderer::new()?;
         let mut target = renderer.create_target(hwnd)?;
-        for car_bodies in [CarBodies::TranslucentBlack, CarBodies::Black] {
+        let choices = CarShapes::ALL
+            .into_iter()
+            .flat_map(|shapes| CarColor::ALL.into_iter().map(move |color| (shapes, color)));
+        for (car_shapes, car_color) in choices {
             let mut scene = Scene::new(freeway_core::SceneConfig {
                 seed: 4,
-                car_bodies,
+                car_shapes,
+                car_color,
                 ..Default::default()
             });
             // Silhouettes of the bodies are drawn among the lights, with

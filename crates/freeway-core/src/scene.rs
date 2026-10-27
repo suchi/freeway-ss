@@ -10,7 +10,7 @@ use crate::road::{RoadShape, RoadView};
 use crate::scenery::Zones;
 use crate::sky::{Sky, SkyView};
 use crate::traffic::{
-    BodyBox, CarBodies, FacePart, MINUTES_PER_DAY, Traffic, TrafficLevel, TruckStyle,
+    BodyBox, CarColor, CarShapes, FacePart, MINUTES_PER_DAY, Traffic, TrafficLevel, TruckStyle,
 };
 use crate::tunnel::{Tunnel, TunnelLighting, Tunnels, draw_entrance};
 use crate::ufo::Ufo;
@@ -41,8 +41,11 @@ pub struct SceneConfig {
     pub trucks: TruckStyle,
     /// How the lamps of the tunnels are colored; `None` means no tunnels.
     pub tunnels: TunnelLighting,
-    /// Whether the other cars have bodies that hide the lights behind them.
-    pub car_bodies: CarBodies,
+    /// How the bodies of the other cars are drawn; bodies hide the lights
+    /// behind them.
+    pub car_shapes: CarShapes,
+    /// The color of the bodies.
+    pub car_color: CarColor,
     /// Whether the speed drifts slowly around `speed_kmh`.
     pub vary_speed: bool,
     /// Whether the traffic follows the time of day, given by `start_minute`.
@@ -64,7 +67,8 @@ impl Default for SceneConfig {
             mountains: true,
             trucks: TruckStyle::default(),
             tunnels: TunnelLighting::default(),
-            car_bodies: CarBodies::default(),
+            car_shapes: CarShapes::default(),
+            car_color: CarColor::default(),
             // The three kinds of variation are off here, which is the road
             // as it was before them. The settings turn them on by default.
             vary_speed: false,
@@ -148,8 +152,6 @@ const SHADOW_REACH: f32 = 9.0;
 /// the pools of light with this opacity.
 const SHADOW_COLOR: Rgb = Rgb::new(2, 3, 10);
 const SHADOW_ALPHA: f32 = 0.8;
-/// Boxes of a car no higher than this cast no shadow of their own.
-const LOW_BOX: f32 = 1.25;
 /// A convex shadow of a box has at most eight corners, and clipping it at the
 /// near and far end of the view adds two.
 const MAX_SHADOW_POINTS: usize = 10;
@@ -411,11 +413,11 @@ impl Scene {
             time: 0.0,
             sky,
             // The cars start out as busy as the road is at the start time.
-            traffic: Traffic::with_spacing(
+            traffic: Traffic::with_shapes(
                 config.seed,
                 config.trucks,
                 traffic_level(&config, 0.0),
-                config.car_bodies.opacity().is_some(),
+                config.car_shapes,
             ),
             ufo: Ufo::new(config.seed, config.ufo_mean_interval),
             tunnels: Tunnels::with_zones(config.seed, config.tunnels, config.scenery_zones),
@@ -597,6 +599,14 @@ impl Scene {
         }
     }
 
+    /// How much the bodies of the other cars hide; `None` where they have none.
+    fn body_opacity(&self) -> Option<f32> {
+        self.config
+            .car_shapes
+            .has_bodies()
+            .then(|| self.config.car_color.opacity())
+    }
+
     #[cfg(test)]
     fn lights(&self) -> Vec<Light> {
         let projector = Projector::new(1280.0, 720.0, self.config.left_hand_traffic);
@@ -663,7 +673,7 @@ impl Scene {
             },
             lamp_pool: false,
         }));
-        if let Some(opacity) = self.config.car_bodies.opacity() {
+        if let Some(opacity) = self.body_opacity() {
             for body in self.traffic.boxes() {
                 self.push_body(&body, opacity, &mut lights);
             }
@@ -694,7 +704,7 @@ impl Scene {
         // With bodies, the lights on the road come first, and the shadows
         // among them (see `Light::layer`): a body covers the lights behind it,
         // and those in front of it lie below it.
-        let with_bodies = self.config.car_bodies.opacity().is_some();
+        let with_bodies = self.config.car_shapes.has_bodies();
         let layer = |l: &Light| if with_bodies { l.layer() } else { 0 };
         lights.sort_by(|a, b| layer(a).cmp(&layer(b)).then(b.order.total_cmp(&a.order)));
         lights
@@ -724,10 +734,10 @@ impl Scene {
                 lamp_pool: false,
             });
         }
-        // The low parts, wheels and frames, cast shadows that the body's hide.
-        if body.top <= LOW_BOX {
+        // The low parts, wheels and frames, cast no shadow of their own.
+        let Some(shadow_heights) = body.shadow else {
             return;
-        }
+        };
         // The street lamps near the car, that have a pool of light on the road.
         let reach = SHADOW_REACH + body.half_length;
         let (low, high) = (body.center - reach, body.center + reach);
@@ -742,7 +752,7 @@ impl Scene {
             if lamp < NEAR_DISTANCE || lamp >= LAMP_POOL_RANGE || self.tunnels.contains(s) {
                 continue;
             }
-            let Some(shadow) = Shadow::of(body, lamp) else {
+            let Some(shadow) = Shadow::of(body, shadow_heights, lamp) else {
                 continue;
             };
             lights.push(Light {
@@ -772,7 +782,7 @@ impl Scene {
     /// side can still be nearer than the side is there. The lights of a car
     /// are drawn right after its own body.
     fn place_among_bodies(&self, lights: &mut Vec<Light>, view: &RoadView, projector: &Projector) {
-        let Some(opacity) = self.config.car_bodies.opacity() else {
+        let Some(opacity) = self.body_opacity() else {
             return;
         };
         let faces: Vec<(u32, Corners, f32)> = lights
@@ -911,9 +921,9 @@ impl Shadow {
     ///
     /// Each corner of the box is projected from the lamp onto the road, and
     /// the shadow is the convex hull of the projections.
-    fn of(body: &BodyBox, lamp: f32) -> Option<Self> {
+    fn of(body: &BodyBox, heights: (f32, f32), lamp: f32) -> Option<Self> {
         let mut cast = Vec::with_capacity(8);
-        for height in [body.bottom, body.top] {
+        for height in [heights.0, heights.1] {
             if height >= LAMP_HEIGHT {
                 return None;
             }
@@ -2011,7 +2021,6 @@ mod tests {
         SceneConfig {
             seed,
             scenery_zones: true,
-            car_bodies: CarBodies::Transparent,
             ..Default::default()
         }
     }
@@ -2258,7 +2267,7 @@ mod tests {
         let (mut behind, mut front) = (0, 0);
         for seed in 1..=2 {
             covered_pairs(
-                bodies_config(seed, CarBodies::TranslucentBlack),
+                bodies_config(seed, CarColor::TranslucentBlack),
                 |lights, light, body, is_behind| {
                     // The lights of cars are drawn right after their own bodies; one
                     // that lies behind the body of another car, which is farther
@@ -2280,7 +2289,7 @@ mod tests {
         let (mut behind, mut front) = (0, 0);
         for seed in 1..=2 {
             covered_pairs(
-                bodies_config(seed, CarBodies::Black),
+                bodies_config(seed, CarColor::Black),
                 |lights, light, body, is_behind| {
                     behind += usize::from(is_behind);
                     front += usize::from(!is_behind);
@@ -2313,8 +2322,8 @@ mod tests {
 
     #[test]
     fn the_median_shows_through_a_translucent_body_but_not_an_opaque_one() {
-        let count = |car_bodies| {
-            let mut scene = Scene::new(bodies_config(2, car_bodies));
+        let count = |car_color| {
+            let mut scene = Scene::new(bodies_config(2, car_color));
             let mut found = 0;
             for _ in 0..3000 {
                 scene.update(MAX_STEP_SECONDS);
@@ -2326,7 +2335,7 @@ mod tests {
             }
             found
         };
-        assert!(count(CarBodies::Black) < count(CarBodies::TranslucentBlack));
+        assert!(count(CarColor::Black) < count(CarColor::TranslucentBlack));
     }
 
     fn varying(seed: u64) -> SceneConfig {
@@ -2536,10 +2545,19 @@ mod tests {
         record(&scene, tiny);
     }
 
-    fn bodies_config(seed: u64, car_bodies: CarBodies) -> SceneConfig {
+    /// A scene whose cars have bodies of realistic shapes.
+    fn bodies_config(seed: u64, car_color: CarColor) -> SceneConfig {
+        SceneConfig {
+            car_shapes: CarShapes::Detailed,
+            car_color,
+            ..plain_config(seed)
+        }
+    }
+
+    /// A scene whose cars have no bodies.
+    fn plain_config(seed: u64) -> SceneConfig {
         SceneConfig {
             seed,
-            car_bodies,
             // The mountains and the tunnels are silhouettes too.
             mountains: false,
             tunnels: TunnelLighting::None,
@@ -2592,7 +2610,7 @@ mod tests {
     #[test]
     fn transparent_cars_draw_no_body() {
         for seed in [1, 2, 3] {
-            let scene = driven(bodies_config(seed, CarBodies::Transparent), 30);
+            let scene = driven(plain_config(seed), 30);
             assert!(body_shapes(&record(&scene, VIEWPORT)).is_empty(), "{seed}");
             assert!(
                 scene
@@ -2605,11 +2623,10 @@ mod tests {
 
     #[test]
     fn black_bodies_are_opaque_and_translucent_ones_let_a_tenth_through() {
-        for (car_bodies, expected) in [(CarBodies::Black, 1.0), (CarBodies::TranslucentBlack, 0.9)]
-        {
+        for (car_color, expected) in [(CarColor::Black, 1.0), (CarColor::TranslucentBlack, 0.9)] {
             let mut drawn = 0;
             for seed in [1, 2, 3] {
-                let scene = driven(bodies_config(seed, car_bodies), 20);
+                let scene = driven(bodies_config(seed, car_color), 20);
                 for (points, color, alpha) in body_shapes(&record(&scene, VIEWPORT)) {
                     drawn += 1;
                     assert!(
@@ -2621,7 +2638,7 @@ mod tests {
                     assert!(points.iter().all(|(x, y)| x.is_finite() && y.is_finite()));
                 }
             }
-            assert!(drawn > 10, "{car_bodies:?}");
+            assert!(drawn > 10, "{car_color:?}");
         }
     }
 
@@ -2631,7 +2648,7 @@ mod tests {
         for (seed, left_hand_traffic) in [(1, true), (2, false), (3, true)] {
             let mut scene = Scene::new(SceneConfig {
                 left_hand_traffic,
-                ..bodies_config(seed, CarBodies::Black)
+                ..bodies_config(seed, CarColor::Black)
             });
             for step in 0..4000 {
                 scene.update(MAX_STEP_SECONDS);
@@ -2664,7 +2681,7 @@ mod tests {
 
     #[test]
     fn translucent_faces_have_the_same_shades_at_nine_tenths() {
-        let scene = driven(bodies_config(2, CarBodies::TranslucentBlack), 20);
+        let scene = driven(bodies_config(2, CarColor::TranslucentBlack), 20);
         let commands = record(&scene, VIEWPORT);
         let shapes = body_shapes(&commands);
         assert!(shapes.iter().any(|s| s.1 == BODY_SIDE));
@@ -2674,8 +2691,7 @@ mod tests {
     #[test]
     fn bodies_add_nothing_but_the_bodies_and_hide_lights_behind_them() {
         // The same traffic in both: bodies keep the cars apart, which moves them.
-        let loose = |car_bodies| {
-            let config = bodies_config(5, car_bodies);
+        let loose = |config: SceneConfig| {
             let mut scene = Scene::new(config);
             scene.traffic = Traffic::with_level(config.seed, config.trucks, TrafficLevel::FULL);
             for _ in 0..20 * 20 {
@@ -2683,7 +2699,10 @@ mod tests {
             }
             scene
         };
-        let (transparent, black) = (loose(CarBodies::Transparent), loose(CarBodies::Black));
+        let (transparent, black) = (
+            loose(plain_config(5)),
+            loose(bodies_config(5, CarColor::Black)),
+        );
         let mut without: Vec<String> = record(&transparent, VIEWPORT)
             .iter()
             .map(|c| format!("{c:?}"))
@@ -2705,7 +2724,7 @@ mod tests {
     fn a_body_comes_before_the_lights_of_its_car_and_the_lights_in_front() {
         let mut checked = (0, 0);
         for seed in [1, 2, 3, 4] {
-            let scene = driven(bodies_config(seed, CarBodies::Black), 40);
+            let scene = driven(bodies_config(seed, CarColor::Black), 40);
             let lights = scene.lights();
             // The lights come in layers, each from far to near.
             assert!(lights.windows(2).all(|w| w[0].layer() <= w[1].layer()));
@@ -2744,7 +2763,7 @@ mod tests {
         // Some lights are drawn before the first body and some after the last.
         let (mut before, mut after) = (0, 0);
         for seed in 1..=4 {
-            let scene = driven(bodies_config(seed, CarBodies::Black), 20);
+            let scene = driven(bodies_config(seed, CarColor::Black), 20);
             let commands = record(&scene, VIEWPORT);
             let is_body = |c: &Command| matches!(c, Command::Silhouette { color, .. } if *color != SHADOW_COLOR);
             let first = commands.iter().position(is_body).unwrap();
@@ -2763,7 +2782,7 @@ mod tests {
         let scene = driven(
             SceneConfig {
                 trucks: TruckStyle::None,
-                ..bodies_config(1, CarBodies::Black)
+                ..bodies_config(1, CarColor::Black)
             },
             10,
         );
@@ -2792,7 +2811,8 @@ mod tests {
     #[test]
     fn no_body_of_an_oncoming_car_is_seen_through_a_tunnel() {
         let (mut scene, _) = near_first_tunnel(TunnelLighting::Led, 300.0);
-        scene.config.car_bodies = CarBodies::Black;
+        scene.config.car_shapes = CarShapes::Detailed;
+        scene.config.car_color = CarColor::Black;
         let mut same_direction = false;
         for _ in 0..600 {
             scene.traffic.update(0.05, 27.0);
@@ -2811,7 +2831,7 @@ mod tests {
         let quiet = SceneConfig {
             traffic_by_time: true,
             start_minute: 3 * 60,
-            ..bodies_config(7, CarBodies::Black)
+            ..bodies_config(7, CarColor::Black)
         };
         let busy = SceneConfig {
             start_minute: 12 * 60,
@@ -2839,7 +2859,14 @@ mod tests {
             has_end: true,
             center: lamp + ahead + 2.25,
             half_length: 2.25,
+            shadow: Some((0.0, 1.45)),
+            covered: None,
         }
+    }
+
+    /// The shadow of the whole box.
+    fn cast(body: &BodyBox, lamp: f32) -> Option<Shadow> {
+        Shadow::of(body, (body.bottom, body.top), lamp)
     }
 
     fn extent(shadow: &Shadow, axis: fn(&(f32, f32)) -> f32) -> (f32, f32) {
@@ -2855,7 +2882,7 @@ mod tests {
         // The car is right under the lamp, along the road; the lamp stands
         // beside the lane, so the shadow reaches a little away from it.
         let body = box_beside_a_lamp(-2.25, 100.0);
-        let shadow = Shadow::of(&body, 100.0).unwrap();
+        let shadow = cast(&body, 100.0).unwrap();
         let (low, high) = extent(&shadow, |p| p.1);
         // The top is 1.45 m high under a lamp 10 m high: it casts 17% farther away.
         assert!(
@@ -2873,15 +2900,15 @@ mod tests {
         let lamp = 100.0;
         // A car 9 m ahead of the lamp: the shadow reaches on ahead of it.
         let ahead = box_beside_a_lamp(9.0, lamp);
-        let (_, far) = extent(&Shadow::of(&ahead, lamp).unwrap(), |p| p.0);
+        let (_, far) = extent(&cast(&ahead, lamp).unwrap(), |p| p.0);
         assert!(far > ahead.far + 1.5, "{far} {}", ahead.far);
         // A car 15 m behind the lamp: it reaches on back.
         let behind = box_beside_a_lamp(-15.0, lamp);
-        let (near, _) = extent(&Shadow::of(&behind, lamp).unwrap(), |p| p.0);
+        let (near, _) = extent(&cast(&behind, lamp).unwrap(), |p| p.0);
         assert!(near < behind.near - 1.5, "{near} {}", behind.near);
         // And always away from the lamp across the road too.
         for body in [ahead, behind] {
-            let (low, _) = extent(&Shadow::of(&body, lamp).unwrap(), |p| p.1);
+            let (low, _) = extent(&cast(&body, lamp).unwrap(), |p| p.1);
             assert!(low < body.left - 0.4, "{low}");
         }
     }
@@ -2896,7 +2923,7 @@ mod tests {
                         top,
                         ..box_beside_a_lamp(ahead, lamp)
                     };
-                    let Some(shadow) = Shadow::of(&body, lamp) else {
+                    let Some(shadow) = cast(&body, lamp) else {
                         continue;
                     };
                     let points = shadow.points();
@@ -2928,14 +2955,14 @@ mod tests {
             top: LAMP_HEIGHT,
             ..box_beside_a_lamp(0.0, 50.0)
         };
-        assert!(Shadow::of(&body, 50.0).is_none());
+        assert!(cast(&body, 50.0).is_none());
     }
 
     #[test]
     fn cars_cast_shadows_on_the_pools_of_the_street_lamps_when_they_have_bodies() {
         let (mut frames, mut shadows) = (0, 0);
         for seed in 1..=3 {
-            let mut scene = Scene::new(bodies_config(seed, CarBodies::Black));
+            let mut scene = Scene::new(bodies_config(seed, CarColor::Black));
             for step in 0..2000 {
                 scene.update(MAX_STEP_SECONDS);
                 if step % 5 != 0 {
@@ -2975,7 +3002,7 @@ mod tests {
     fn a_shadow_is_drawn_between_the_pools_of_the_street_lamps_and_the_other_lights() {
         // In the commands: after the last pool of a street lamp (pools at the
         // lamps' lateral positions are the wide ones) and before the first body.
-        let scene = driven(bodies_config(2, CarBodies::Black), 40);
+        let scene = driven(bodies_config(2, CarColor::Black), 40);
         let commands = record(&scene, VIEWPORT);
         let first_shadow = commands
             .iter()
@@ -3001,7 +3028,7 @@ mod tests {
     #[test]
     fn transparent_cars_cast_no_shadow() {
         for seed in [1, 2, 3] {
-            let scene = driven(bodies_config(seed, CarBodies::Transparent), 30);
+            let scene = driven(plain_config(seed), 30);
             assert!(shadow_shapes(&record(&scene, VIEWPORT)).is_empty());
             assert!(
                 scene
@@ -3015,7 +3042,8 @@ mod tests {
     #[test]
     fn there_are_no_shadows_inside_a_tunnel() {
         let (mut scene, tunnel) = near_first_tunnel(TunnelLighting::Led, -300.0);
-        scene.config.car_bodies = CarBodies::Black;
+        scene.config.car_shapes = CarShapes::Detailed;
+        scene.config.car_color = CarColor::Black;
         assert!(scene.in_tunnel());
         let mut cars_seen = 0;
         for _ in 0..600 {
@@ -3042,7 +3070,7 @@ mod tests {
             let mut scene = Scene::new(SceneConfig {
                 left_hand_traffic,
                 trucks: TruckStyle::NorthAmerican,
-                ..bodies_config(9, CarBodies::TranslucentBlack)
+                ..bodies_config(9, CarColor::TranslucentBlack)
             });
             for _ in 0..1200 {
                 scene.update(0.05);
@@ -3050,6 +3078,105 @@ mod tests {
                     assert_valid(&command);
                 }
             }
+        }
+    }
+    /// A hash of the commands drawn over a drive, which tests that a picture
+    /// without car bodies is that of v1.10.0.
+    fn commands_hash(config: SceneConfig) -> u64 {
+        let mut scene = Scene::new(config);
+        let mut hash = 0xcbf2_9ce4_8422_2325u64;
+        for step in 0..900 {
+            scene.update(0.05);
+            if step % 150 == 149 {
+                for command in record(&scene, VIEWPORT) {
+                    for byte in format!("{command:?}").bytes() {
+                        hash = (hash ^ u64::from(byte)).wrapping_mul(0x100_0000_01b3);
+                    }
+                }
+            }
+        }
+        hash
+    }
+
+    /// The scene of the golden hashes: every kind of variation and the UFO on.
+    fn golden_config(seed: u64, trucks: TruckStyle) -> SceneConfig {
+        SceneConfig {
+            seed,
+            trucks,
+            ufo_mean_interval: Some(20.0),
+            traffic_by_time: true,
+            scenery_zones: true,
+            vary_speed: true,
+            start_minute: 3 * 60,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn without_car_bodies_the_commands_are_those_of_v1_10_0() {
+        for (trucks, golden) in [
+            (
+                TruckStyle::None,
+                [
+                    3_747_085_965_833_721_906,
+                    10_061_296_263_306_752_667,
+                    56_210_606_116_699_451,
+                ],
+            ),
+            (
+                TruckStyle::Japanese,
+                [
+                    12_498_055_424_280_975_874,
+                    8_061_650_184_240_585_894,
+                    15_783_032_712_771_803_535,
+                ],
+            ),
+            (
+                TruckStyle::NorthAmerican,
+                [
+                    2_220_682_745_943_549_350,
+                    4_681_926_326_815_209_319,
+                    14_456_919_141_875_129_913,
+                ],
+            ),
+        ] {
+            let hashes: Vec<u64> = (0..3)
+                .map(|seed| commands_hash(golden_config(seed, trucks)))
+                .collect();
+            assert_eq!(hashes, golden, "{trucks:?}");
+            // The color means nothing without bodies.
+            let black = SceneConfig {
+                car_color: CarColor::Black,
+                ..golden_config(0, trucks)
+            };
+            assert_eq!(commands_hash(black), golden[0], "{trucks:?}");
+        }
+    }
+
+    #[test]
+    fn the_shapes_of_car_bodies_draw_what_they_should() {
+        for seed in [1, 2, 3] {
+            // Trucks are made of several boxes that cast shadows when they are
+            // detailed, so there are none: cars cast one shadow in both.
+            let config = |car_shapes| SceneConfig {
+                car_shapes,
+                trucks: TruckStyle::None,
+                ..bodies_config(seed, CarColor::Black)
+            };
+            let drawn = |car_shapes| {
+                let scene = driven(config(car_shapes), 30);
+                let commands = record(&scene, VIEWPORT);
+                (body_shapes(&commands).len(), shadow_shapes(&commands).len())
+            };
+            let (none_bodies, none_shadows) = drawn(CarShapes::None);
+            assert_eq!((none_bodies, none_shadows), (0, 0), "{seed}");
+            let (boxes_bodies, boxes_shadows) = drawn(CarShapes::Boxes);
+            let (detailed_bodies, detailed_shadows) = drawn(CarShapes::Detailed);
+            assert!(boxes_bodies > 5, "{seed}");
+            // The same cars in the same places: a detailed car is made of more
+            // faces, and casts one shadow, as the box of a simple car does.
+            assert!(detailed_bodies > boxes_bodies, "{seed}");
+            assert_eq!(detailed_shadows, boxes_shadows, "{seed}");
         }
     }
 }
