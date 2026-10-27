@@ -47,6 +47,7 @@ Windowsの「インストール」はファイルをコピーせず、展開し�
 | 他車の車体 | Car bodies | なし(灯火だけ) / シンプルな箱 / ブロック / 詳細な形(なしのときは車の灯火だけを描く。シンプルな箱・ブロック・詳細な形のときは、先行車・追い越し車・対向車(トラックを含む)の車体を黒っぽい面(端・側面・屋根の面ごとに濃さが違う)で描き、車の奥の光を隠す。シンプルな箱は、どの車も全体を囲む1つの箱で描く。ブロックは、普通車をセダン・ハッチバック・ミニバン・SUVの形で、箱の組み合わせで描き(トラックの設定が日本風のときは軽自動車、北米風のときはピックアップトラックも加わる)、トラックを運転台・荷台・タイヤのある形で描く。詳細な形は、同じ車種を、ボンネット・傾いたフロントガラスと窓(車体より少し青みのある暗い色)・屋根に向かって狭まる側面のある実際の車に近い輪郭で描き、トラックの運転台も輪郭のある形で描く(遠くの車はブロックで描く)。車体を描くときは、中央分離帯の街灯の路面の光と、トンネルの中の路面の光の上に、他車の影が落ち、影はその光だけをさえぎり、縁がやわらかい。前の版で車体を描く設定にしていた場合は、ブロックになる) | なし |
 | 車体の色 | Body color | 半透明の黒 / 黒(車体を描くときの色。半透明の黒は奥の光が1割だけ透け、黒は完全に隠す。車体がなしのときは使われず、設定画面では選べない) | 半透明の黒 |
 | 車線変更 | Lane changes | なし / 自車だけ / 自車と他車(自車だけのとき、自分の車が遅い前の車に追いつくと、追い越し車線が空いていれば、ウインカーを3秒点滅させてから追い越し車線に移って抜き、元の車線に戻る。空いていなければ、前の車との間を保って後ろを走り、空いたら抜く。自車と他車のときは、他の車も同じように車線を変える。車線を変える車は、移る側の後ろの角で橙のウインカーを点滅させる。自分の車が車線を移るあいだは、視点がわずかに進む方向へ振れる。トンネルの中と、入口の手前で移り終えられない位置では、車線を変えない。速度計は、前の車に合わせて落とした実際の速さを表示する。なしのときは、車線を変えない) | 自車と他車 |
+| 複数のモニターを1つの画面として描く | Span all monitors as one screen | オン / オフ(オンのとき、スクリーンセーバーと`/play`で、すべてのモニターを1つの大きな画面とみなして、景色がモニターにまたがってつながるように描く。道路の先の消失点は、Windowsのメインディスプレイ(主モニター)の中央に置き、速度計と操作の案内は主モニターにだけ出す。主モニターが並びの端にあるときは、消失点から遠い側の絵が広く、近い側の絵は画面の外になる。オフのときは、モニターごとに別の景色を描く。モニターが1台のとき、プレビュー、`/window`には関係しない) | オフ |
 | 表示言語 | Language | 自動(Windowsの表示言語) / English / 日本語 | 自動 |
 
 表示言語は、設定画面とエラーメッセージの言語です。「自動」のときは、Windowsの表示言語が日本語なら日本語、それ以外は英語で表示します。設定画面で言語を選ぶと、その場で表示が切り替わります(保存するには「OK」を押します)。
@@ -65,10 +66,12 @@ Windowsの「インストール」はファイルをコピーせず、展開し�
 | `/window` | 大きさを変えられる普通のウィンドウで流します(既定は1280×720。画面の中央に開き、収まらないときは縮みます)。閉じるボタン・Alt+F4・Escで終わります |
 | `/play` | すべてのモニターに全画面で流します。EscかAlt+F4で終わります。マウスのカーソルは、動かしてから2秒だけ見えます |
 | `/minutes:<n>` | `/window`か`/play`と一緒に使います。n分(1〜1440)たつと閉じます |
+| `/span` | `/s`か`/play`と一緒に使います。その回だけ、設定にかかわらず、すべてのモニターを1つの画面として描きます |
+| `/nospan` | `/s`か`/play`と一緒に使います。その回だけ、設定にかかわらず、モニターごとに別の景色を描きます |
 
-例: `NightFreewaySS.scr /window /minutes:30`
+例: `NightFreewaySS.scr /window /minutes:30`、`NightFreewaySS.scr /play /span`
 
-引数は、大文字と小文字を区別せず、`/`と`-`のどちらでも始められ、順序は問いません。流しているあいだは、ディスプレイとシステムがスリープしません。終わると元に戻ります。
+引数は、大文字と小文字を区別せず、`/`と`-`のどちらでも始められ、順序は問いません。流しているあいだは、ディスプレイとシステムがスリープしません。終わると元に戻ります。Windowsがスクリーンセーバーとして起動するときは`/s`だけを渡すので、そのときは設定の値が使われます。
 
 流しているあいだは、次のキーが使えます。
 
@@ -78,9 +81,9 @@ Windowsの「インストール」はファイルをコピーせず、展開し�
 | ↑ / ↓ | 押しているあいだ、速度を上げ下げします。範囲は設定画面と同じ30〜160 km/hで、巡航速度のゆらぎは、新しい速度のまわりで続きます |
 | Space | 一時停止と再開 |
 | D | 左側通行と右側通行を切り替えます(画面が左右に反転します) |
-| F | ウィンドウと全画面を切り替えます。`/play`でウィンドウにするときは、Fを押した画面のウィンドウだけが残ります |
+| F | ウィンドウと全画面を切り替えます。`/play`でウィンドウにするときは、Fを押した画面のウィンドウだけが残ります。ウィンドウから全画面に戻すときは、モニターを1つの画面として描く設定(または`/span`)がオンなら、すべてのモニターの全画面に戻ります |
 
-キーによる変更はその回だけのもので、設定には保存されません。複数のモニターに流しているときは、すべての画面に同じように効きます。画面の下の中央には、終わり方を含む操作の案内が出ます。始めたときと、マウスを動かしたときやキーを押したときに出て、入力がないまま4秒たつと消えます。一時停止しているあいだは出たままになります。
+キーによる変更はその回だけのもので、設定には保存されません。複数のモニターに流しているときは、すべての画面に同じように効きます。画面の下の中央には、終わり方を含む操作の案内が出ます(モニターを1つの画面として描いているときは、主モニターにだけ出ます)。始めたときと、マウスを動かしたときやキーを押したときに出て、入力がないまま4秒たつと消えます。一時停止しているあいだは出たままになります。
 
 ### アンインストール
 
@@ -151,6 +154,7 @@ Select "Night Freeway SS" in the screensaver settings and click "Settings" to ch
 | Car bodies | None (lights only) / Simple boxes / Blocks / Detailed shapes (with None, only the lights of the cars are drawn; with Simple boxes, Blocks or Detailed shapes, the bodies of the cars ahead, the passing cars and the oncoming cars, trucks included, are drawn as blackish surfaces, with a different shade for the end, the sides and the roof, that hide the lights behind them; Simple boxes draws every vehicle as one box that holds its whole shape; Blocks draws cars as sedans, hatchbacks, minivans and SUVs out of boxes (with the Japanese trucks setting, kei cars are added; with the North American one, pickup trucks), and trucks with a cab, a cargo area and wheels; Detailed shapes draws the same cars with outlines close to those of real ones, with a hood, a raked windshield and windows (a slightly bluer dark color than the body) and sides that narrow toward the roof, and the cabs of trucks with outlines too (cars far away are drawn as blocks); with bodies, the cars also cast shadows on the pools of light of the street lamps on the median and of the lamps in tunnels, each shadow shades only the pool of its own lamp and has a soft edge; if a version before 1.11 had the bodies on, they are Blocks) | None |
 | Body color | Translucent black / Black (the color of the bodies when they are drawn; translucent black lets a tenth of the light behind them through, and black hides it completely; it is not used, and cannot be chosen in the settings dialog, while the car bodies are None) | Translucent black |
 | Lane changes | None / Own car only / Own car and other cars (with own car only, when your car catches up with a slower car ahead, it signals for 3 seconds, moves into the passing lane if that is free, passes, and returns to its lane; if the passing lane is not free, it keeps a distance behind the car ahead and passes when the lane is free; with own car and other cars, the other cars change lanes in the same way; a car that changes lanes blinks an amber turn signal on the rear corner on the side it moves to; while your car moves between lanes, the view turns slightly in the direction of the move; no car starts a lane change inside a tunnel or where it could not finish before the entrance; the speedometer shows the actual speed, which falls behind the car ahead; with none, no car changes lanes) | Own car and other cars |
+| Span all monitors as one screen | Span all monitors as one screen | On / Off (when on, the screensaver and `/play` treat all the monitors as one large screen and draw the scenery so that it continues across them; the vanishing point at the end of the road is in the middle of the primary monitor, the main display of Windows, and the speedometer and the line about the keys appear only on the primary monitor; when the primary monitor is at the end of the row, the picture on the side farther from the vanishing point is wider, and that on the nearer side is outside the screen; when off, each monitor draws its own scenery; it has no effect with one monitor, in the preview or with `/window`) | Off |
 | Language | Automatic (Windows display language) / English / 日本語 | Automatic |
 
 The language is used for the settings dialog and error messages. With "Automatic", Japanese is shown when the Windows display language is Japanese, and English otherwise. When you choose a language in the dialog, the display changes at once (click "OK" to save it).
@@ -169,10 +173,12 @@ There are two ways to keep the road running as something other than a screensave
 | `/window` | Runs in an ordinary window that can be resized (1280 by 720 by default; it opens in the middle of the screen and shrinks if it does not fit). The close button, Alt+F4 and Esc end it |
 | `/play` | Runs full screen on every monitor. Esc and Alt+F4 end it. The mouse cursor is seen for 2 seconds after the mouse moved |
 | `/minutes:<n>` | Goes with `/window` or `/play`. Closes it after n minutes (1 to 1440) |
+| `/span` | Goes with `/s` or `/play`. For that run only, draws all the monitors as one screen, whatever the setting is |
+| `/nospan` | Goes with `/s` or `/play`. For that run only, draws separate scenery on each monitor, whatever the setting is |
 
-Example: `NightFreewaySS.scr /window /minutes:30`
+Examples: `NightFreewaySS.scr /window /minutes:30`, `NightFreewaySS.scr /play /span`
 
-Arguments are not case-sensitive, may start with `/` or `-`, and may come in any order. While it runs, the display and the system do not go to sleep; that is undone when it ends.
+Arguments are not case-sensitive, may start with `/` or `-`, and may come in any order. While it runs, the display and the system do not go to sleep; that is undone when it ends. When Windows starts the screensaver, it passes only `/s`, so the setting is used then.
 
 While it runs, these keys work.
 
@@ -182,9 +188,9 @@ While it runs, these keys work.
 | Up / Down | Raise or lower the speed while the key is held. The range is 30 to 160 km/h, as in the settings dialog, and the slow variation of the speed goes on around the new speed |
 | Space | Pauses and resumes |
 | D | Switches between left-hand and right-hand traffic (the picture turns over from left to right) |
-| F | Switches between a window and full screen. When going from `/play` to a window, only the window of the screen where F was pressed stays |
+| F | Switches between a window and full screen. When going from `/play` to a window, only the window of the screen where F was pressed stays. When going back to full screen, it takes all the monitors again if the setting to draw the monitors as one screen (or `/span`) is on |
 
-The changes made with the keys last only for that run and are not saved in the settings. With several monitors, they act on every screen alike. A line about the keys, including how to end it, appears at the bottom center of the picture. It appears when the run starts and when the mouse moves or a key is pressed, and goes away after 4 seconds without input. While paused, it stays.
+The changes made with the keys last only for that run and are not saved in the settings. With several monitors, they act on every screen alike. A line about the keys, including how to end it, appears at the bottom center of the picture (only on the primary monitor when the monitors are drawn as one screen). It appears when the run starts and when the mouse moves or a key is pressed, and goes away after 4 seconds without input. While paused, it stays.
 
 ### Uninstallation
 

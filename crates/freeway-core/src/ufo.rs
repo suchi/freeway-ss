@@ -351,12 +351,7 @@ impl<'a> Craft<'a> {
         let radius = natural.max(minimum);
         let alpha = (alpha * self.pose.alpha * (natural / minimum).min(1.0)).min(1.0);
         let halo = radius * GLOW_HALO_RATIO;
-        let visible = x.is_finite()
-            && y.is_finite()
-            && x + halo >= 0.0
-            && x - halo <= self.view.width
-            && y + halo >= 0.0
-            && y - halo <= self.view.height;
+        let visible = self.view.contains(x, y, halo);
         if alpha >= MIN_ALPHA && visible {
             self.canvas.glow(x, y, radius, color, alpha);
         }
@@ -507,6 +502,7 @@ mod tests {
             side: 1.0,
             heading: 0.0,
             time: 0.0,
+            span: None,
         }
     }
 

@@ -62,12 +62,13 @@ const RUN_START: i32 = 129;
 const RUN_END_NOTE: i32 = 130;
 const LANE_CHANGES_LABEL: i32 = 131;
 const LANE_CHANGES: i32 = 132;
+const SPAN_MONITORS: i32 = 133;
 
 /// How many characters the minutes may have: `MINUTES_RANGE` ends at 1440.
 const MINUTES_DIGITS: usize = 4;
 
 /// The texts of the controls that are set from the string table, by ID.
-const CONTROL_TEXTS: [(i32, Text); 19] = [
+const CONTROL_TEXTS: [(i32, Text); 20] = [
     (SPEED_LABEL, Text::SpeedLabel),
     (SIDE_LABEL, Text::DrivingSideLabel),
     (LEFT_HAND, Text::LeftHandTraffic),
@@ -78,6 +79,7 @@ const CONTROL_TEXTS: [(i32, Text); 19] = [
     (VARY_SPEED, Text::VarySpeed),
     (TRAFFIC_BY_TIME, Text::TrafficByTime),
     (SCENERY_ZONES, Text::SceneryZones),
+    (SPAN_MONITORS, Text::SpanMonitors),
     (TRUCKS_LABEL, Text::TrucksLabel),
     (TUNNELS_LABEL, Text::TunnelsLabel),
     (CAR_SHAPES_LABEL, Text::CarShapesLabel),
@@ -555,6 +557,7 @@ fn init_controls(hwnd: HWND, settings: &Settings) {
             (VARY_SPEED, settings.vary_speed),
             (TRAFFIC_BY_TIME, settings.traffic_by_time),
             (SCENERY_ZONES, settings.scenery_zones),
+            (SPAN_MONITORS, settings.span_monitors),
         ] {
             let _ = CheckDlgButton(hwnd, id, if checked { BST_CHECKED } else { BST_UNCHECKED });
         }
@@ -664,7 +667,11 @@ fn read_run_mode(hwnd: HWND) -> Mode {
     let value = unsafe { GetDlgItemInt(hwnd, RUN_MINUTES, Some(&mut valid), false) };
     let minutes = limit_minutes(if valid.as_bool() { value } else { 0 });
     if unsafe { IsDlgButtonChecked(hwnd, RUN_FULLSCREEN) } == BST_CHECKED.0 {
-        Mode::Play { minutes }
+        // The dialog saves the settings first, so the saved choice applies.
+        Mode::Play {
+            minutes,
+            span: None,
+        }
     } else {
         Mode::Window { minutes }
     }
@@ -686,6 +693,7 @@ fn read_controls(hwnd: HWND) -> Settings {
         vary_speed: unsafe { IsDlgButtonChecked(hwnd, VARY_SPEED) } == BST_CHECKED.0,
         traffic_by_time: unsafe { IsDlgButtonChecked(hwnd, TRAFFIC_BY_TIME) } == BST_CHECKED.0,
         scenery_zones: unsafe { IsDlgButtonChecked(hwnd, SCENERY_ZONES) } == BST_CHECKED.0,
+        span_monitors: unsafe { IsDlgButtonChecked(hwnd, SPAN_MONITORS) } == BST_CHECKED.0,
     }
 }
 

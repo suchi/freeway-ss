@@ -9,14 +9,18 @@
 //! screensaver: `/window` (a window) and `/play` (full screen), which input
 //! does not end, and `/minutes:<n>` with either of them, which closes it
 //! after `n` minutes.
+//!
+//! `/span` and `/nospan` with `/s` or `/play` choose, for that run only,
+//! whether the monitors are drawn as one screen, whatever the saved setting is.
 
 use std::fmt;
 
 /// How the screensaver was asked to run.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mode {
-    /// Run full screen on every monitor.
-    Fullscreen,
+    /// Run full screen on every monitor. `span` is `Some` where the command
+    /// line chose whether to draw them as one screen; `None` follows the settings.
+    Fullscreen { span: Option<bool> },
     /// Draw inside the preview area of the Screen Saver Settings dialog.
     Preview { parent: usize },
     /// Show the settings dialog, owned by `parent` when it is given.
@@ -25,8 +29,12 @@ pub enum Mode {
     /// closes after `minutes` minutes, if they are given.
     Window { minutes: Option<u32> },
     /// Run full screen on every monitor, not ended by input. The screen
-    /// closes after `minutes` minutes, if they are given.
-    Play { minutes: Option<u32> },
+    /// closes after `minutes` minutes, if they are given. `span` is as for
+    /// `Fullscreen`.
+    Play {
+        minutes: Option<u32>,
+        span: Option<bool>,
+    },
 }
 
 /// The fewest and the most minutes that `/minutes` accepts: a day.
@@ -42,10 +50,14 @@ impl Mode {
     /// The command line that starts this mode, without the program name;
     /// `parse` reads it back. The modes that Windows starts have none.
     pub fn arguments(self) -> Vec<String> {
-        let (option, minutes) = match self {
-            Mode::Window { minutes } => ("/window", minutes),
-            Mode::Play { minutes } => ("/play", minutes),
-            Mode::Fullscreen => return vec!["/s".to_owned()],
+        let (option, minutes, span) = match self {
+            Mode::Window { minutes } => ("/window", minutes, None),
+            Mode::Play { minutes, span } => ("/play", minutes, span),
+            Mode::Fullscreen { span } => {
+                let mut arguments = vec!["/s".to_owned()];
+                arguments.extend(span_argument(span));
+                return arguments;
+            }
             Mode::Preview { parent } => return vec!["/p".to_owned(), parent.to_string()],
             Mode::Configure { parent } => {
                 return vec![match parent {
@@ -56,8 +68,14 @@ impl Mode {
         };
         let mut arguments = vec![option.to_owned()];
         arguments.extend(minutes.map(|minutes| format!("/minutes:{minutes}")));
+        arguments.extend(span_argument(span));
         arguments
     }
+}
+
+/// The option that makes the run span the monitors or not, if it was chosen.
+fn span_argument(span: Option<bool>) -> Option<String> {
+    span.map(|span| if span { "/span" } else { "/nospan" }.to_owned())
 }
 
 /// Reasons why the command line could not be understood.
@@ -72,6 +90,10 @@ pub enum ArgsError {
     MinutesWithoutRun,
     /// Both `/window` and `/play`.
     ConflictingRuns,
+    /// Both `/span` and `/nospan`.
+    ConflictingSpan,
+    /// `/span` or `/nospan` without `/s` or `/play`.
+    SpanWithoutRun,
 }
 
 impl fmt::Display for ArgsError {
@@ -90,6 +112,10 @@ impl fmt::Display for ArgsError {
                 write!(f, "The /minutes option goes with /window or /play")
             }
             Self::ConflictingRuns => write!(f, "The /window and /play options cannot be combined"),
+            Self::ConflictingSpan => write!(f, "The /span and /nospan options cannot be combined"),
+            Self::SpanWithoutRun => {
+                write!(f, "The /span and /nospan options go with /s or /play")
+            }
         }
     }
 }
@@ -102,8 +128,54 @@ impl std::error::Error for ArgsError {}
 /// window handle either after a colon (`/p:1234`) or as the next argument
 /// (`/p 1234`). Arguments after the option of Windows are ignored. `/window`,
 /// `/play` and `/minutes:<n>` may come in any order, and nothing else may
-/// come with them.
+/// come with them. `/span` and `/nospan` may come anywhere, and only with `/s`
+/// or `/play`.
 pub fn parse<I, S>(args: I) -> Result<Mode, ArgsError>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+{
+    // Why: the options for the monitors are taken out first, so that every
+    // mode reads the rest as it always did, wherever they stood.
+    let (span, rest) = take_span(args)?;
+    let mode = parse_mode(rest)?;
+    match (mode, span) {
+        (mode, None) => Ok(mode),
+        (Mode::Fullscreen { .. }, span) => Ok(Mode::Fullscreen { span }),
+        (Mode::Play { minutes, .. }, span) => Ok(Mode::Play { minutes, span }),
+        _ => Err(ArgsError::SpanWithoutRun),
+    }
+}
+
+/// Takes `/span` and `/nospan` out of `args`: whether the run was told to span
+/// the monitors, and the other arguments.
+fn take_span<I, S>(args: I) -> Result<(Option<bool>, Vec<String>), ArgsError>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+{
+    let (mut span, mut nospan) = (false, false);
+    let mut rest = Vec::new();
+    for arg in args {
+        let arg = arg.as_ref();
+        let name = arg
+            .trim()
+            .strip_prefix(['/', '-'])
+            .map(str::to_ascii_lowercase);
+        match name.as_deref() {
+            Some("span") => span = true,
+            Some("nospan") => nospan = true,
+            _ => rest.push(arg.to_owned()),
+        }
+    }
+    match (span, nospan) {
+        (true, true) => Err(ArgsError::ConflictingSpan),
+        (false, false) => Ok((None, rest)),
+        (span, _) => Ok((Some(span), rest)),
+    }
+}
+
+fn parse_mode<I, S>(args: I) -> Result<Mode, ArgsError>
 where
     I: IntoIterator<Item = S>,
     S: AsRef<str>,
@@ -121,7 +193,7 @@ where
     };
 
     match name.to_ascii_lowercase().as_str() {
-        "s" => Ok(Mode::Fullscreen),
+        "s" => Ok(Mode::Fullscreen { span: None }),
         "window" | "play" | "minutes" => parse_run(first, args),
         "c" => Ok(Mode::Configure {
             parent: inline_value.map(parse_window_handle).transpose()?,
@@ -164,7 +236,10 @@ where
     match (window, play) {
         (true, true) => Err(ArgsError::ConflictingRuns),
         (true, false) => Ok(Mode::Window { minutes }),
-        (false, true) => Ok(Mode::Play { minutes }),
+        (false, true) => Ok(Mode::Play {
+            minutes,
+            span: None,
+        }),
         (false, false) => Err(ArgsError::MinutesWithoutRun),
     }
 }
@@ -207,7 +282,11 @@ mod tests {
     #[test]
     fn fullscreen_option_is_case_insensitive() {
         for arg in ["/s", "/S", "-s", " /s "] {
-            assert_eq!(parse_args(&[arg]), Ok(Mode::Fullscreen), "{arg}");
+            assert_eq!(
+                parse_args(&[arg]),
+                Ok(Mode::Fullscreen { span: None }),
+                "{arg}"
+            );
         }
     }
 
@@ -259,13 +338,21 @@ mod tests {
 
     #[test]
     fn extra_arguments_are_ignored() {
-        assert_eq!(parse_args(&["/s", "extra"]), Ok(Mode::Fullscreen));
+        assert_eq!(
+            parse_args(&["/s", "extra"]),
+            Ok(Mode::Fullscreen { span: None })
+        );
     }
 
     #[test]
     fn the_run_options_are_read_in_any_order_and_case() {
         let window = |minutes| Ok(Mode::Window { minutes });
-        let play = |minutes| Ok(Mode::Play { minutes });
+        let play = |minutes| {
+            Ok(Mode::Play {
+                minutes,
+                span: None,
+            })
+        };
         assert_eq!(parse_args(&["/window"]), window(None));
         assert_eq!(parse_args(&["/play"]), play(None));
         assert_eq!(parse_args(&["/window", "/minutes:30"]), window(Some(30)));
@@ -329,7 +416,10 @@ mod tests {
 
     #[test]
     fn the_modes_of_windows_do_not_change() {
-        assert_eq!(parse_args(&["/s", "/window"]), Ok(Mode::Fullscreen));
+        assert_eq!(
+            parse_args(&["/s", "/window"]),
+            Ok(Mode::Fullscreen { span: None })
+        );
         assert_eq!(
             parse_args(&["/c:7", "/minutes:5"]),
             Ok(Mode::Configure { parent: Some(7) })
@@ -343,15 +433,29 @@ mod tests {
     #[test]
     fn a_mode_is_read_back_from_its_arguments() {
         let modes = [
-            Mode::Fullscreen,
+            Mode::Fullscreen { span: None },
+            Mode::Fullscreen { span: Some(true) },
+            Mode::Fullscreen { span: Some(false) },
             Mode::Preview { parent: 4711 },
             Mode::Configure { parent: None },
             Mode::Configure { parent: Some(12) },
             Mode::Window { minutes: None },
             Mode::Window { minutes: Some(30) },
-            Mode::Play { minutes: None },
+            Mode::Play {
+                minutes: None,
+                span: None,
+            },
             Mode::Play {
                 minutes: Some(1440),
+                span: None,
+            },
+            Mode::Play {
+                minutes: Some(5),
+                span: Some(true),
+            },
+            Mode::Play {
+                minutes: None,
+                span: Some(false),
             },
         ];
         for mode in modes {
@@ -387,5 +491,119 @@ mod tests {
     fn the_messages_of_the_run_options_name_the_range() {
         let message = ArgsError::InvalidMinutes("0".to_owned()).to_string();
         assert!(message.contains("1 to 1440"), "{message}");
+    }
+
+    #[test]
+    fn the_monitors_are_spanned_or_not_for_one_run() {
+        let saver = |span| Ok(Mode::Fullscreen { span });
+        let play = |span| {
+            Ok(Mode::Play {
+                minutes: None,
+                span,
+            })
+        };
+        assert_eq!(parse_args(&["/s", "/span"]), saver(Some(true)));
+        assert_eq!(parse_args(&["/s", "/nospan"]), saver(Some(false)));
+        assert_eq!(parse_args(&["/play", "/span"]), play(Some(true)));
+        assert_eq!(parse_args(&["/play", "/nospan"]), play(Some(false)));
+        // Any order, either prefix, any case.
+        assert_eq!(parse_args(&["/span", "/s"]), saver(Some(true)));
+        assert_eq!(parse_args(&["-NoSpan", "-S"]), saver(Some(false)));
+        assert_eq!(parse_args(&["/SPAN", "/Play"]), play(Some(true)));
+        assert_eq!(parse_args(&[" /nospan ", "/play"]), play(Some(false)));
+        assert_eq!(
+            parse_args(&["/play", "/span", "/minutes:30"]),
+            Ok(Mode::Play {
+                minutes: Some(30),
+                span: Some(true)
+            })
+        );
+        assert_eq!(
+            parse_args(&["/minutes:7", "/nospan", "/play"]),
+            Ok(Mode::Play {
+                minutes: Some(7),
+                span: Some(false)
+            })
+        );
+    }
+
+    #[test]
+    fn without_the_span_options_the_settings_decide() {
+        assert_eq!(parse_args(&["/s"]), Ok(Mode::Fullscreen { span: None }));
+        assert_eq!(
+            parse_args(&["/play"]),
+            Ok(Mode::Play {
+                minutes: None,
+                span: None
+            })
+        );
+    }
+
+    #[test]
+    fn the_span_options_do_not_mix_and_need_a_screen_run() {
+        for args in [
+            &["/s", "/span", "/nospan"][..],
+            &["/nospan", "/play", "/span"],
+            &["/span", "/span", "/nospan"],
+        ] {
+            assert_eq!(
+                parse_args(args),
+                Err(ArgsError::ConflictingSpan),
+                "{args:?}"
+            );
+        }
+        for args in [
+            &["/span"][..],
+            &["/nospan"],
+            &["/window", "/span"],
+            &["/nospan", "/window", "/minutes:5"],
+            &["/p", "9", "/span"],
+            &["/c", "/nospan"],
+            &["/c:7", "/span"],
+        ] {
+            assert_eq!(parse_args(args), Err(ArgsError::SpanWithoutRun), "{args:?}");
+        }
+    }
+
+    #[test]
+    fn the_span_options_take_no_value_and_leave_other_errors_alone() {
+        // Not the option, so it is an unknown option like any other.
+        for arg in ["/span:1", "/nospan:0", "/spans", "span"] {
+            assert!(
+                matches!(
+                    parse_args(&["/play", arg]),
+                    Err(ArgsError::UnknownOption(_))
+                ),
+                "{arg}"
+            );
+        }
+        assert_eq!(
+            parse_args(&["/play", "/span", "/minutes:0"]),
+            Err(ArgsError::InvalidMinutes("0".to_owned()))
+        );
+        assert_eq!(
+            parse_args(&["/span", "/minutes:5"]),
+            Err(ArgsError::MinutesWithoutRun)
+        );
+        assert_eq!(
+            parse_args(&["/window", "/play", "/span"]),
+            Err(ArgsError::ConflictingRuns)
+        );
+    }
+
+    #[test]
+    fn extra_arguments_after_the_options_of_windows_are_still_ignored() {
+        assert_eq!(
+            parse_args(&["/s", "extra", "/span"]),
+            Ok(Mode::Fullscreen { span: Some(true) })
+        );
+    }
+
+    #[test]
+    fn the_messages_of_the_span_options_name_them() {
+        let both = ArgsError::ConflictingSpan.to_string();
+        assert!(both.contains("/span") && both.contains("/nospan"), "{both}");
+        let alone = ArgsError::SpanWithoutRun.to_string();
+        assert!(alone.contains("/s") && alone.contains("/play"), "{alone}");
     }
 }

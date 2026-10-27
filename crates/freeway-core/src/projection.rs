@@ -18,6 +18,11 @@ pub struct Projected {
     pub scale: f32,
 }
 
+/// The focal length, in pixels, of a picture of `width` by `height` pixels.
+pub fn focal_length(width: f32, height: f32) -> f32 {
+    (width * 0.5).max(height * 0.55)
+}
+
 #[derive(Clone, Copy, Debug)]
 pub struct Projector {
     focal: f32,
@@ -44,12 +49,23 @@ impl Projector {
     /// picture while it turns over.
     pub fn with_side(width: f32, height: f32, side: f32) -> Self {
         Self {
-            focal: (width * 0.5).max(height * 0.55),
+            focal: focal_length(width, height),
             center_x: width * 0.5,
             center_y: height * 0.5,
             side,
             camera: CAMERA_LATERAL,
             yaw: 0.0,
+        }
+    }
+
+    /// The same projection with the vanishing point at (`x`, `y`) instead of
+    /// the center of the picture, for a picture that spans several monitors.
+    /// The focal length stays that of the whole picture.
+    pub fn with_center(self, x: f32, y: f32) -> Self {
+        Self {
+            center_x: x,
+            center_y: y,
+            ..self
         }
     }
 
@@ -124,6 +140,27 @@ mod tests {
     fn focal_length_follows_the_larger_of_width_and_height() {
         assert_eq!(Projector::new(1000.0, 500.0, true).focal(), 500.0);
         assert_eq!(Projector::new(400.0, 1000.0, true).focal(), 550.0);
+    }
+
+    #[test]
+    fn the_vanishing_point_can_be_moved_without_changing_the_focal_length() {
+        let whole = Projector::new(3840.0, 1080.0, true);
+        let moved = whole.with_center(2880.0, 540.0);
+        assert_eq!(moved.focal(), whole.focal());
+        assert_eq!(moved.focal(), focal_length(3840.0, 1080.0));
+        // Straight ahead is at the new vanishing point.
+        let p = moved.project(50.0, CAMERA_LATERAL, CAMERA_HEIGHT).unwrap();
+        assert_eq!((p.x, p.y), (2880.0, 540.0));
+        // Everything else moves with it, and by the same amount.
+        let a = whole.project(30.0, 3.0, 0.5).unwrap();
+        let b = moved.project(30.0, 3.0, 0.5).unwrap();
+        assert_eq!((b.x - a.x, b.y - a.y), (2880.0 - 1920.0, 0.0));
+        assert_eq!(a.scale, b.scale);
+        // The center of the picture itself is the default.
+        assert_eq!(
+            whole.with_center(1920.0, 540.0).project(30.0, 3.0, 0.5),
+            Some(a)
+        );
     }
 
     #[test]

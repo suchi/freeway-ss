@@ -67,7 +67,7 @@
   - `/c`または`/c:<HWND>`: 設定画面を表示する(引数なしで起動した場合も設定画面)
   - `/p <HWND>`または`/p:<HWND>`: 指定ウィンドウの子ウィンドウとしてプレビューを描画する
 - 全画面実行中は、キー入力・マウスボタン・一定量以上のマウス移動で終了する(起動直後の微小なマウス移動イベントで終了しないようにしきい値を設ける)
-- マルチモニタ対応: モニタごとに独立した場面を描画する([ADR-0003](../adr/0003-render-independent-scene-per-monitor.md))
+- マルチモニタ対応: 既定では、モニタごとに独立した場面を描画する([ADR-0003](../adr/0003-render-independent-scene-per-monitor.md))。v1.16.0からは、設定またはコマンドラインで、すべてのモニタを1つの画面として1つの場面を描ける([ADR-0008](../adr/0008-span-monitors-as-one-scene.md))
 - 設定画面で設定した値をレジストリ(`HKCU\Software\NightFreewaySS`)に保存し、次回起動時に反映する([ADR-0004](../adr/0004-store-settings-in-registry.md))
 
 ### 3.2 非機能要件
@@ -195,6 +195,7 @@ sequenceDiagram
 | 他車の車体 | なし / シンプルな箱 / ブロック / 詳細な形 | なし | Phase 7.7(透明 / 半透明の黒 / 黒)、v1.11.0(形と色に分けた)、v1.12.0(「それらしい形」をブロックと呼び、詳細な形を加えた) |
 | 車体の色 | 半透明の黒 / 黒 | 半透明の黒 | v1.11.0 |
 | 車線変更 | なし / 自車だけ / 自車と他車 | 自車と他車 | v1.15.0(実装済み。実機確認待ち) |
+| 複数のモニターを1つの画面として描く | オン / オフ | オフ | v1.16.0(実装済み。実機確認待ち) |
 | 巡航速度のゆらぎ | オン / オフ | オン | Phase 7.6(実装済み。実機確認待ち) |
 | 時刻に応じた交通量 | オン / オフ | オン | Phase 7.6(実装済み。実機確認待ち) |
 | 景色の区間(山あいと平野) | オン / オフ | オン | Phase 7.6(実装済み。実機確認待ち) |
@@ -227,6 +228,7 @@ MVPの項目は、本家の実行中の操作と表示(速度・通行方向・H
 | v1.13.0: トンネルの影・街灯の間隔・文書・流し続けるモード | 完了(実機確認済み) | [0020](0020-v1-13-tunnel-shadows-and-run-modes.md) | [#29](https://github.com/suchi/freeway-ss/pull/29) | [v1.13.0](https://github.com/suchi/freeway-ss/releases/tag/v1.13.0) |
 | v1.14.0: 版の情報・流しているあいだの操作・バナーの書体・速度の変化 | 完了(実機確認済み) | [0021](0021-v1-14-version-info-and-run-controls.md) | [#30](https://github.com/suchi/freeway-ss/pull/30) | [v1.14.0](https://github.com/suchi/freeway-ss/releases/tag/v1.14.0) |
 | v1.15.0: 自車の追い越しと他車の車線変更 | 完了(実機確認済み) | [0022](0022-v1-15-overtaking-and-lane-changes.md) | [#31](https://github.com/suchi/freeway-ss/pull/31) | [v1.15.0](https://github.com/suchi/freeway-ss/releases/tag/v1.15.0) |
+| v1.16.0: 複数のモニターを1つの画面として描く | 完了(実機確認済み) | [0023](0023-v1-16-span-monitors.md) | [#32](https://github.com/suchi/freeway-ss/pull/32) | [v1.16.0](https://github.com/suchi/freeway-ss/releases/tag/v1.16.0) |
 
 ```mermaid
 flowchart LR
@@ -348,7 +350,7 @@ flowchart LR
 | D1 | 言語・描画方式 | 案A(Rust + `windows`クレート + Direct2D) | [ADR-0001](../adr/0001-use-rust-windows-crate-and-direct2d.md) |
 | D2 | 本リポジトリのライセンス | MIT | [ADR-0002](../adr/0002-license-under-mit.md) |
 | D3 | スクリーンセーバーの表示名・ファイル名 | 表示名「Night Freeway SS」、ファイル名`NightFreewaySS.scr` | 本書 |
-| D4 | マルチモニタ | モニタごとに独立した場面を描画する | [ADR-0003](../adr/0003-render-independent-scene-per-monitor.md) |
+| D4 | マルチモニタ | モニタごとに独立した場面を描画する(v1.16.0から、設定がオンのときに限り、1つの場面を全モニタにまたがって描く。D26) | [ADR-0003](../adr/0003-render-independent-scene-per-monitor.md)、[ADR-0008](../adr/0008-span-monitors-as-one-scene.md) |
 | D5 | 設定の保存先 | レジストリ`HKCU\Software\NightFreewaySS` | [ADR-0004](../adr/0004-store-settings-in-registry.md) |
 | D6 | MVPの設定項目 | 巡航速度・通行方向・速度計の表示(5.4節) | 本書 |
 | D7 | UFO(イースターエッグ) | 後続フェーズで設定項目として実装する | 本書 |
@@ -370,6 +372,7 @@ flowchart LR
 | D23 | トンネルの影・街灯の間隔・文書・流し続けるモード | トンネルの照明の路面の光にも影を付ける。中央分離帯の街灯の間隔を広げる。UFOは利用者向けの文書から外し、設定画面には残す。READMEにバナーを置く。ウィンドウ・全画面で流し続けるモードと、指定した分数で閉じる機能を加え、設定画面とコマンドラインの両方から始められるようにする。5点をv1.13.0にまとめる。2026-10-27のユーザー報告と判断 | [0020](0020-v1-13-tunnel-shadows-and-run-modes.md) |
 | D24 | 版の情報・流しているあいだの操作・追い越し | `.scr`にVERSIONINFOを埋め込む。`/window`と`/play`で本家の操作(↑↓・Space・D・F・コナミコマンド)を使えるようにし、その回だけ有効にする。終わり方を含む操作の案内を画面に出す。バナーの文字はQuestrialにする。巡航速度のゆらぎを約2倍の頻度にする(以上v1.14.0)。自車の追い越しと他車の車線変更を、設定画面でオン・オフできる形で加える(v1.15.0)。2026-10-27のユーザーの依頼と判断 | [0021](0021-v1-14-version-info-and-run-controls.md) |
 | D25 | 追い越しと車線変更 | 設定「車線変更」(なし・自車だけ・自車と他車。既定は自車と他車)を加える。自車は遅い前の車に追いつくと、追い越し車線が空いていれば追い越して戻り、空いていなければ減速して後ろにつく。車線を変える車はウインカーを点滅させ、トンネルの中では車線を変えない。自車が車線を変えるときは視点をわずかに振る。2026-10-27のユーザーの依頼と判断 | [0022](0022-v1-15-overtaking-and-lane-changes.md) |
+| D26 | 複数のモニターを1つの画面として描く | 設定とコマンドライン(`/span`・`/nospan`)で、`/s`と`/play`のときに、すべてのモニターを1枚の大きな画面とみなして1つの場面を描けるようにする。消失点は主モニターの中央、速度計と操作の案内は主モニターだけ。既定はオフ(モニターごとに独立した場面、ADR-0003)。2026-10-27のユーザーの依頼と判断 | [0023](0023-v1-16-span-monitors.md) |
 
 検討時の選択肢:
 

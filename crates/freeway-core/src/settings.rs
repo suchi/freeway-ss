@@ -120,6 +120,9 @@ pub struct Settings {
     pub scenery_zones: bool,
     /// Who changes lanes.
     pub lane_changes: LaneChanges,
+    /// Whether all the monitors are drawn as one screen, with one scene
+    /// across them (docs/adr/0008-span-monitors-as-one-scene.md).
+    pub span_monitors: bool,
 }
 
 impl Default for Settings {
@@ -139,6 +142,7 @@ impl Default for Settings {
             traffic_by_time: true,
             scenery_zones: true,
             lane_changes: LaneChanges::All,
+            span_monitors: false,
         }
     }
 }
@@ -210,6 +214,19 @@ impl Settings {
             car_shapes,
             car_color,
             lane_changes: LaneChanges::from_raw(lane_changes).unwrap_or(defaults.lane_changes),
+            span_monitors: defaults.span_monitors,
+        }
+    }
+
+    /// These settings with `span_monitors` read from its stored value: valid
+    /// only as 0 or 1, and the default (off) where it is not stored.
+    ///
+    /// Why: a separate step, not another argument of `from_raw`, which has
+    /// more arguments than it can have in a readable call already.
+    pub fn with_span_monitors_raw(self, span_monitors: Option<u32>) -> Self {
+        Self {
+            span_monitors: flag(span_monitors).unwrap_or(Self::default().span_monitors),
+            ..self
         }
     }
 
@@ -344,6 +361,7 @@ mod tests {
                 traffic_by_time: true,
                 scenery_zones: true,
                 lane_changes: LaneChanges::OwnCar,
+                span_monitors: false,
             }
         );
         assert_eq!(
@@ -469,6 +487,7 @@ mod tests {
             traffic_by_time: false,
             scenery_zones: false,
             lane_changes: LaneChanges::None,
+            span_monitors: true,
         };
         let config = settings.scene_config(42);
         assert_eq!(config.lane_changes, LaneChanges::None);
@@ -1078,6 +1097,28 @@ mod tests {
             assert_eq!(settings(CarColor::TranslucentBlack).legacy_car_bodies(), 1);
             assert_eq!(settings(CarColor::Black).legacy_car_bodies(), 2);
         }
+    }
+
+    #[test]
+    fn spanning_the_monitors_is_off_unless_stored_as_one() {
+        assert!(!Settings::default().span_monitors);
+        let read = |raw| {
+            Settings::default()
+                .with_span_monitors_raw(raw)
+                .span_monitors
+        };
+        assert!(read(Some(1)));
+        assert!(!read(Some(0)));
+        // Missing or out of range is the default, not "on".
+        for raw in [None, Some(2), Some(u32::MAX)] {
+            assert!(!read(raw), "{raw:?}");
+        }
+        // Other settings are left as they are.
+        let before = Settings {
+            speed_kmh: 60,
+            ..Settings::default()
+        };
+        assert_eq!(before.with_span_monitors_raw(Some(1)).speed_kmh, 60);
     }
 
     #[test]

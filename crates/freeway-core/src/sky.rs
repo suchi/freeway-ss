@@ -8,7 +8,7 @@
 
 use std::f64::consts::{PI, TAU};
 
-use crate::canvas::{Canvas, GLOW_HALO_RATIO, Rgb};
+use crate::canvas::{Canvas, Clip, GLOW_HALO_RATIO, Rgb};
 use crate::mountains::Mountains;
 use crate::rng::hash01;
 
@@ -79,6 +79,18 @@ pub struct SkyView {
     pub heading: f64,
     /// Seconds since the start.
     pub time: f64,
+    /// Set where the picture is wider than one window's, as when the monitors
+    /// are drawn as one screen; `None` is one picture with its vanishing
+    /// point in the middle of `width` by `height`, all of which is drawn.
+    pub span: Option<SkySpan>,
+}
+
+/// Where the vanishing point is, and which part is drawn, in a `SkyView`
+/// whose picture is larger than the part.
+#[derive(Clone, Copy, Debug)]
+pub struct SkySpan {
+    pub center: (f32, f32),
+    pub clip: Clip,
 }
 
 impl SkyView {
@@ -89,11 +101,23 @@ impl SkyView {
     /// the right of the screen and the backdrop slides left.
     pub fn screen_x(&self, angle: f64) -> f32 {
         let wrapped = (angle - self.heading + PI).rem_euclid(TAU) - PI;
-        self.width * 0.5 + self.side * wrapped as f32 * self.focal
+        self.center().0 + self.side * wrapped as f32 * self.focal
+    }
+
+    /// The vanishing point.
+    fn center(&self) -> (f32, f32) {
+        self.span
+            .map_or((self.width * 0.5, self.height * 0.5), |span| span.center)
+    }
+
+    /// The part of the picture that is drawn.
+    pub(crate) fn clip(&self) -> Clip {
+        self.span
+            .map_or(Clip::whole(self.width, self.height), |span| span.clip)
     }
 
     pub(crate) fn horizon_y(&self) -> f32 {
-        self.height * 0.5
+        self.center().1
     }
 
     pub(crate) fn y(&self, elevation: f32) -> f32 {
@@ -105,12 +129,7 @@ impl SkyView {
     }
 
     pub(crate) fn contains(&self, x: f32, y: f32, margin: f32) -> bool {
-        x.is_finite()
-            && y.is_finite()
-            && x + margin >= 0.0
-            && x - margin <= self.width
-            && y + margin >= 0.0
-            && y - margin <= self.height
+        self.clip().touches(x, y, margin, margin)
     }
 }
 
@@ -519,6 +538,7 @@ mod tests {
             side: 1.0,
             heading: 0.0,
             time: 0.0,
+            span: None,
         }
     }
 

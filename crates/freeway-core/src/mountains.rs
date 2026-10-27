@@ -354,12 +354,13 @@ fn visible_runs(range: &Range, view: &SkyView) -> Vec<Vec<(f32, f32)>> {
                 return None;
             }
             // Keep the points on screen and one off screen on each side.
-            let first = run.iter().rposition(|p| p.0 < 0.0).unwrap_or(0);
+            let clip = view.clip();
+            let first = run.iter().rposition(|p| p.0 < clip.left).unwrap_or(0);
             let last = run
                 .iter()
-                .position(|p| p.0 > view.width)
+                .position(|p| p.0 > clip.right)
                 .unwrap_or(run.len() - 1);
-            if run[last].0 < 0.0 || run[first].0 > view.width {
+            if run[last].0 < clip.left || run[first].0 > clip.right {
                 return None;
             }
             let kept = run[first..=last].to_vec();
@@ -414,6 +415,7 @@ mod tests {
             side,
             heading,
             time,
+            span: None,
         }
     }
 
