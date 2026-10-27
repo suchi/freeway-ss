@@ -192,7 +192,7 @@ sequenceDiagram
 | 表示言語 | 自動 / English / 日本語 | 自動 | Phase 7.2(実装済み。実機確認待ち) |
 | 遠くの山並みを表示 | オン / オフ | オン | Phase 7.3(実装済み。実機確認待ち) |
 | トンネル | なし / 混在 / ナトリウム灯 / LED | 混在 | Phase 7.5(実装済み。実機確認待ち) |
-| 他車の車体 | なし / シンプルな箱 / それらしい形 | なし | Phase 7.7(透明 / 半透明の黒 / 黒)、v1.11.0(形と色に分けた) |
+| 他車の車体 | なし / シンプルな箱 / ブロック / 詳細な形 | なし | Phase 7.7(透明 / 半透明の黒 / 黒)、v1.11.0(形と色に分けた)、v1.12.0(「それらしい形」をブロックと呼び、詳細な形を加えた) |
 | 車体の色 | 半透明の黒 / 黒 | 半透明の黒 | v1.11.0 |
 | 巡航速度のゆらぎ | オン / オフ | オン | Phase 7.6(実装済み。実機確認待ち) |
 | 時刻に応じた交通量 | オン / オフ | オン | Phase 7.6(実装済み。実機確認待ち) |
@@ -222,7 +222,7 @@ MVPの項目は、本家の実行中の操作と表示(速度・通行方向・H
 | v1.9.0: 他車の影とトラックらしい形 | 完了(実機確認済み) | [0016](0016-v1-9-shadows-and-truck-shapes.md) | [#24](https://github.com/suchi/freeway-ss/pull/24) | [v1.9.0](https://github.com/suchi/freeway-ss/releases/tag/v1.9.0) |
 | v1.10.0: ダッシュボード風の速度計 | 完了(実機確認済み) | [0017](0017-v1-10-dashboard-speedometer.md) | [#26](https://github.com/suchi/freeway-ss/pull/26) | [v1.10.0](https://github.com/suchi/freeway-ss/releases/tag/v1.10.0) |
 | v1.11.0: 他車の形と表示の選び方 | 完了(実機確認済み) | [0018](0018-v1-11-car-shapes.md) | [#27](https://github.com/suchi/freeway-ss/pull/27) | [v1.11.0](https://github.com/suchi/freeway-ss/releases/tag/v1.11.0) |
-| v1.12.0: 他車の詳細な形と影 | 実装待ち | [0019](0019-v1-12-detailed-cars-and-shadows.md) | - | `v1.12.0`(未公開) |
+| v1.12.0: 他車の詳細な形と影 | 実装済み(実機確認待ち) | [0019](0019-v1-12-detailed-cars-and-shadows.md) | [#28](https://github.com/suchi/freeway-ss/pull/28) | `v1.12.0`(未公開) |
 
 ```mermaid
 flowchart LR
