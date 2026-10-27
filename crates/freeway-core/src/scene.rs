@@ -391,7 +391,12 @@ impl Scene {
             time: 0.0,
             sky,
             // The cars start out as busy as the road is at the start time.
-            traffic: Traffic::with_level(config.seed, config.trucks, traffic_level(&config, 0.0)),
+            traffic: Traffic::with_spacing(
+                config.seed,
+                config.trucks,
+                traffic_level(&config, 0.0),
+                config.car_bodies.opacity().is_some(),
+            ),
             ufo: Ufo::new(config.seed, config.ufo_mean_interval),
             tunnels: Tunnels::with_zones(config.seed, config.tunnels, config.scenery_zones),
             drift: Drift::new(config.seed, config.speed_kmh, config.vary_speed),
@@ -2467,8 +2472,17 @@ mod tests {
 
     #[test]
     fn bodies_add_nothing_but_the_bodies_and_hide_lights_behind_them() {
-        let transparent = driven(bodies_config(5, CarBodies::Transparent), 20);
-        let black = driven(bodies_config(5, CarBodies::Black), 20);
+        // The same traffic in both: bodies keep the cars apart, which moves them.
+        let loose = |car_bodies| {
+            let config = bodies_config(5, car_bodies);
+            let mut scene = Scene::new(config);
+            scene.traffic = Traffic::with_level(config.seed, config.trucks, TrafficLevel::FULL);
+            for _ in 0..20 * 20 {
+                scene.update(0.05);
+            }
+            scene
+        };
+        let (transparent, black) = (loose(CarBodies::Transparent), loose(CarBodies::Black));
         let mut without: Vec<String> = record(&transparent, VIEWPORT)
             .iter()
             .map(|c| format!("{c:?}"))

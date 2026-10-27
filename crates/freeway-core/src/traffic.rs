@@ -75,6 +75,10 @@ const WHEEL_HEIGHT: f32 = 1.0;
 const WHEEL_WIDTH: f32 = 0.6;
 /// Wheels that are less than this far apart are drawn as one.
 const TANDEM_GAP: f32 = 0.5;
+/// Cars of one lane keep at least this far apart where bodies are drawn.
+const LANE_GAP: f32 = 10.0;
+/// Free places for a car that is placed are searched at this interval.
+const SLOT_STEP: f32 = 5.0;
 /// The far end of a body is cut off this far before the view ends, where the
 /// projection stops.
 const VIEW_MARGIN: f32 = 0.01;
@@ -493,6 +497,14 @@ pub struct CarLight {
     pub glare: bool,
 }
 
+/// Where a car stands on the road, for keeping clear of it.
+#[derive(Clone, Copy)]
+struct Occupant {
+    lateral: f32,
+    rel: f32,
+    length: f32,
+}
+
 struct Car {
     id: u32,
     kind: Kind,
@@ -526,7 +538,19 @@ struct Car {
 }
 
 impl Car {
+    #[cfg(test)]
     fn new(seed: u64, id: u32, style: TruckStyle, level: TrafficLevel) -> Self {
+        Self::among(seed, id, style, level, None)
+    }
+
+    /// A car placed clear of `others`, if they are given.
+    fn among(
+        seed: u64,
+        id: u32,
+        style: TruckStyle,
+        level: TrafficLevel,
+        others: Option<&[Occupant]>,
+    ) -> Self {
         let kind = if id < LEAD_CARS {
             Kind::Lead
         } else if id < LEAD_CARS + PASSING_CARS {
@@ -551,7 +575,7 @@ impl Car {
             until_brake: 0.0,
             braking_left: 0.0,
         };
-        car.place(seed, style, level, true);
+        car.place(seed, style, level, true, others);
         car.until_brake = car.brake_interval(seed);
         car
     }
@@ -568,7 +592,17 @@ impl Car {
     /// Sets position, speed and lane. `initial` spreads the cars over the
     /// whole view; later they enter where they cannot be seen, except that
     /// lead cars keep appearing ahead.
-    fn place(&mut self, seed: u64, style: TruckStyle, level: TrafficLevel, initial: bool) {
+    ///
+    /// With `others`, the places of the other cars, the car is put where it
+    /// keeps clear of the cars in its lane.
+    fn place(
+        &mut self,
+        seed: u64,
+        style: TruckStyle,
+        level: TrafficLevel,
+        initial: bool,
+        others: Option<&[Occupant]>,
+    ) {
         let position = self.roll(seed, STREAM_POSITION);
         let speed = self.roll(seed, STREAM_SPEED);
         // New streams keep the other random values of the car as they were.
@@ -611,6 +645,38 @@ impl Car {
                     600.0 + 400.0 * position
                 };
                 self.speed = 24.0 + 8.0 * speed;
+            }
+        }
+        if let Some(others) = others {
+            self.keep_clear(initial, others);
+        }
+    }
+
+    /// Moves a car that is newly placed along the part of the road it may be
+    /// placed in until it is clear of the cars in its lane.
+    fn keep_clear(&mut self, initial: bool, others: &[Occupant]) {
+        let (first, span) = match (self.kind, initial) {
+            (Kind::Lead, _) => (80.0, 450.0),
+            (Kind::Passing, true) => (20.0, 500.0),
+            (Kind::Passing, false) => (-FAR_BEHIND + 10.0, 220.0),
+            (Kind::Oncoming, true) => (0.0, 600.0),
+            (Kind::Oncoming, false) => (600.0, 400.0),
+        };
+        let length = self.length();
+        let lane = |o: &&Occupant| (o.lateral - self.lateral).abs() < 0.5;
+        let clear = |at: f32| {
+            others
+                .iter()
+                .filter(lane)
+                .all(|o| at >= o.rel + o.length + LANE_GAP || at + length + LANE_GAP <= o.rel)
+        };
+        let start = self.rel;
+        let tries = (span / SLOT_STEP) as usize;
+        for step in 0..tries {
+            let at = first + (start - first + step as f32 * SLOT_STEP).rem_euclid(span);
+            if clear(at) {
+                self.rel = at;
+                return;
             }
         }
     }
@@ -678,6 +744,14 @@ impl Car {
         match self.kind {
             Kind::Oncoming => self.rel < ONCOMING_GONE,
             _ => self.rel > FAR_AHEAD || self.rel < -FAR_BEHIND,
+        }
+    }
+
+    fn occupies(&self) -> Occupant {
+        Occupant {
+            lateral: self.lateral,
+            rel: self.rel,
+            length: self.length(),
         }
     }
 
@@ -977,6 +1051,10 @@ pub struct Traffic {
     seed: u64,
     trucks: TruckStyle,
     level: TrafficLevel,
+    /// Whether the cars keep clear of each other. They do where their bodies
+    /// are drawn, since bodies that pass through each other are seen; with
+    /// only lights, that is not worth the change in the traffic.
+    keep_apart: bool,
     cars: Vec<Car>,
 }
 
@@ -987,14 +1065,39 @@ impl Traffic {
 
     /// Traffic that is as busy as `level` from the start.
     pub fn with_level(seed: u64, trucks: TruckStyle, level: TrafficLevel) -> Self {
+        Self::build(seed, trucks, level, false)
+    }
+
+    /// Like `with_level`, and the cars of a lane keep clear of each other if
+    /// `keep_apart`.
+    pub fn with_spacing(
+        seed: u64,
+        trucks: TruckStyle,
+        level: TrafficLevel,
+        keep_apart: bool,
+    ) -> Self {
+        Self::build(seed, trucks, level, keep_apart)
+    }
+
+    fn build(seed: u64, trucks: TruckStyle, level: TrafficLevel, keep_apart: bool) -> Self {
         let count = LEAD_CARS + PASSING_CARS + ONCOMING_CARS;
+        let mut cars: Vec<Car> = Vec::new();
+        for id in 0..count {
+            let placed: Vec<Occupant> = cars.iter().map(Car::occupies).collect();
+            cars.push(Car::among(
+                seed,
+                id,
+                trucks,
+                level,
+                keep_apart.then_some(&placed[..]),
+            ));
+        }
         Self {
             seed,
             trucks,
             level,
-            cars: (0..count)
-                .map(|id| Car::new(seed, id, trucks, level))
-                .collect(),
+            keep_apart,
+            cars,
         }
     }
 
@@ -1027,10 +1130,59 @@ impl Traffic {
         for car in &mut self.cars {
             car.advance(self.seed, dt, own_speed);
         }
-        for car in &mut self.cars {
-            if car.is_gone() {
-                car.generation = car.generation.wrapping_add(1);
-                car.place(self.seed, self.trucks, self.level, false);
+        if self.keep_apart {
+            self.push_apart();
+        }
+        for index in 0..self.cars.len() {
+            if !self.cars[index].is_gone() {
+                continue;
+            }
+            let others: Vec<Occupant> = self
+                .cars
+                .iter()
+                .enumerate()
+                .filter(|&(other, _)| other != index)
+                .map(|(_, c)| c.occupies())
+                .collect();
+            let car = &mut self.cars[index];
+            car.generation = car.generation.wrapping_add(1);
+            car.place(
+                self.seed,
+                self.trucks,
+                self.level,
+                false,
+                self.keep_apart.then_some(&others[..]),
+            );
+        }
+    }
+
+    /// A car that catches up with the one ahead of it in its lane pushes it on:
+    /// no car passes another or comes closer than `LANE_GAP`.
+    fn push_apart(&mut self) {
+        let mut order: Vec<usize> = (0..self.cars.len()).collect();
+        order.sort_by(|&a, &b| self.cars[a].rel.total_cmp(&self.cars[b].rel));
+        for lane in [OWN_LANE, PASSING_LANE, ONCOMING_LANES[0], ONCOMING_LANES[1]] {
+            let in_lane: Vec<usize> = order
+                .iter()
+                .copied()
+                .filter(|&i| self.cars[i].lateral == lane)
+                .collect();
+            if lane == OWN_LANE || lane == PASSING_LANE {
+                // Same direction as the camera: the farther car is ahead.
+                for pair in in_lane.windows(2) {
+                    let (behind, ahead) = (self.cars[pair[0]].occupies(), pair[1]);
+                    let least = behind.rel + behind.length + LANE_GAP;
+                    let car = &mut self.cars[ahead];
+                    car.rel = car.rel.max(least);
+                }
+            } else {
+                // Oncoming: the nearer car is ahead.
+                for pair in in_lane.windows(2).rev() {
+                    let (behind, ahead) = (self.cars[pair[1]].occupies(), pair[0]);
+                    let car = &mut self.cars[ahead];
+                    let most = behind.rel - LANE_GAP - car.length();
+                    car.rel = car.rel.min(most);
+                }
             }
         }
     }
@@ -2176,6 +2328,86 @@ mod tests {
                 (100.0, PASSING_LANE, shape.spec().height * 0.5)
             );
         }
+    }
+
+    fn lane_of(car: &Car) -> u32 {
+        (car.lateral * 100.0) as i32 as u32
+    }
+
+    /// The smallest space between two cars in a lane, in meters; negative where
+    /// the bodies overlap.
+    fn least_gap(traffic: &Traffic) -> f32 {
+        let mut least = f32::MAX;
+        for (i, a) in traffic.cars.iter().enumerate() {
+            for b in &traffic.cars[i + 1..] {
+                if lane_of(a) != lane_of(b) {
+                    continue;
+                }
+                let (first, second) = if a.rel < b.rel { (a, b) } else { (b, a) };
+                least = least.min(second.rel - (first.rel + first.length()));
+            }
+        }
+        least
+    }
+
+    #[test]
+    fn cars_that_keep_apart_never_overlap_in_a_lane() {
+        for style in [
+            TruckStyle::None,
+            TruckStyle::Japanese,
+            TruckStyle::NorthAmerican,
+        ] {
+            for seed in 0..4 {
+                let mut traffic = Traffic::with_spacing(seed, style, TrafficLevel::FULL, true);
+                assert!(
+                    least_gap(&traffic) >= LANE_GAP - 1e-3,
+                    "{style:?} {seed} start"
+                );
+                let mut worst = f32::MAX;
+                run(&mut traffic, 72_000, |t| {
+                    worst = worst.min(least_gap(t));
+                    for car in &t.cars {
+                        assert!(car.rel.is_finite());
+                        if car.kind == Kind::Lead {
+                            assert!(
+                                (FOLLOW_MIN - 1.0..=FAR_AHEAD).contains(&car.rel),
+                                "{}",
+                                car.rel
+                            );
+                        }
+                    }
+                });
+                assert!(worst >= LANE_GAP - 1e-3, "{style:?} {seed}: {worst}");
+            }
+        }
+    }
+
+    #[test]
+    fn cars_that_do_not_keep_apart_overlap_as_before() {
+        // Without bodies the traffic is not changed: its cars pass through each other.
+        let mut traffic = Traffic::new(3, TruckStyle::Japanese);
+        let mut overlapped = false;
+        run(&mut traffic, 72_000, |t| overlapped |= least_gap(t) < 0.0);
+        assert!(overlapped);
+    }
+
+    #[test]
+    fn keeping_apart_keeps_the_traffic_busy() {
+        // The convoys that form are not a few cars in a row: most of the cars
+        // stay in view as before.
+        let mut visible = 0;
+        let mut samples = 0;
+        let mut traffic = Traffic::with_spacing(3, TruckStyle::Japanese, TrafficLevel::FULL, true);
+        run(&mut traffic, 72_000, |t| {
+            visible += t
+                .cars
+                .iter()
+                .filter(|c| (NEAR_DISTANCE..VIEW_DISTANCE).contains(&c.rel))
+                .count();
+            samples += 1;
+        });
+        let mean = visible as f32 / samples as f32;
+        assert!((8.0..22.0).contains(&mean), "{mean}");
     }
 
     #[test]
