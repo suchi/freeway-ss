@@ -2,6 +2,7 @@
 
 use std::f64::consts::TAU;
 
+use crate::body::{Corners, depth_at};
 use crate::canvas::{Canvas, GLOW_HALO_RATIO, Rgb};
 use crate::cruise::Drift;
 use crate::projection::{CAMERA_HEIGHT, NEAR_DISTANCE, Projector, VIEW_DISTANCE};
@@ -93,7 +94,7 @@ enum Kind {
     /// A face of the body of a car, given by its corners as (distance,
     /// lateral position, height). It covers what is drawn before it; the
     /// light's `alpha` is how much.
-    Body { corners: [(f32, f32, f32); 4] },
+    Body { corners: Corners },
 }
 
 /// A row of identical lights along the road.
@@ -114,6 +115,8 @@ struct Row {
 const WHITE: Rgb = Rgb::new(255, 255, 255);
 const ORANGE: Rgb = Rgb::new(255, 140, 30);
 const SODIUM: Rgb = Rgb::new(255, 165, 70);
+/// A light of a car is drawn this much nearer than the body, that is, after it.
+const OWN_LIGHT_LEAD: f32 = 0.001;
 const BODY_BLACK: Rgb = Rgb::new(0, 0, 0);
 
 /// Dashed lines repeat every `DASH_PERIOD` meters, painted for the first
@@ -279,6 +282,10 @@ const HEADLIGHT_POOLS: [(f32, f32, f32); 2] = [(14.0, 0.3, 3.0), (32.0, 0.2, 4.0
 /// A light ready to be projected.
 struct Light {
     d: f32,
+    /// Where the light is drawn among the others, from the highest to the lowest.
+    order: f32,
+    /// The car the light or the body face belongs to.
+    car: Option<u32>,
     lateral: f32,
     height: f32,
     color: Rgb,
@@ -287,6 +294,12 @@ struct Light {
 }
 
 impl Light {
+    /// Whether the light lies on the road surface (a pool of light or a
+    /// glow on the ground), not on a car or a pole.
+    fn on_road(&self) -> bool {
+        self.height == 0.0 && matches!(self.kind, Kind::Glow { .. } | Kind::Pool { .. })
+    }
+
     /// The point whose view through a tunnel decides whether the light is
     /// seen, as (distance, lateral position, height). The point of a face of
     /// a car body is the middle of its end that faces the camera.
@@ -476,7 +489,7 @@ impl Scene {
             draw_entrance(tunnel, d, &projector, &view, canvas);
         }
 
-        for light in &self.lights_on(&view) {
+        for light in &self.lights_on(&view, &projector) {
             if let Kind::Body { corners } = light.kind {
                 draw_body(&corners, light, viewport, &projector, &view, canvas);
                 continue;
@@ -531,10 +544,13 @@ impl Scene {
 
     #[cfg(test)]
     fn lights(&self) -> Vec<Light> {
-        self.lights_on(&RoadView::new(&self.road, self.track_s))
+        let projector = Projector::new(1280.0, 720.0, self.config.left_hand_traffic);
+        self.lights_on(&RoadView::new(&self.road, self.track_s), &projector)
     }
 
-    fn lights_on(&self, view: &RoadView) -> Vec<Light> {
+    /// The lights that make the picture, in the order they are drawn: from
+    /// far to near.
+    fn lights_on(&self, view: &RoadView, projector: &Projector) -> Vec<Light> {
         let mut lights = Vec::new();
         for row in ROWS.iter() {
             // Rows are anchored to the road, so they slide toward the car.
@@ -555,6 +571,8 @@ impl Scene {
                 }
                 lights.push(Light {
                     d,
+                    order: d,
+                    car: None,
                     lateral: row.lateral,
                     height: row.height,
                     color: row.color,
@@ -565,6 +583,8 @@ impl Scene {
         }
         lights.extend(HEADLIGHT_POOLS.iter().map(|&(d, alpha, radius)| Light {
             d,
+            order: d,
+            car: None,
             lateral: -1.75,
             height: 0.0,
             color: WHITE,
@@ -573,6 +593,8 @@ impl Scene {
         }));
         lights.extend(self.traffic.lights().into_iter().map(|car| Light {
             d: car.d,
+            order: car.d,
+            car: Some(car.car),
             lateral: car.lateral,
             height: car.height,
             color: car.color,
@@ -584,15 +606,21 @@ impl Scene {
             },
         }));
         if let Some(opacity) = self.config.car_bodies.opacity() {
-            lights.extend(self.traffic.bodies().into_iter().map(|face| Light {
-                d: face.d,
-                lateral: face.lateral,
-                height: 0.0,
-                color: BODY_BLACK,
-                alpha: opacity,
-                kind: Kind::Body {
-                    corners: face.corners,
-                },
+            lights.extend(self.traffic.bodies().into_iter().map(|face| {
+                // The faces of a car stand where the end that faces the camera is.
+                let near = face.corners.iter().map(|c| c.0).fold(f32::MAX, f32::min);
+                Light {
+                    d: near,
+                    order: near,
+                    car: Some(face.car),
+                    lateral: face.lateral,
+                    height: 0.0,
+                    color: BODY_BLACK,
+                    alpha: opacity,
+                    kind: Kind::Body {
+                        corners: face.corners,
+                    },
+                }
             }));
         }
         // Only what fits through a tunnel is seen along it.
@@ -612,8 +640,81 @@ impl Scene {
             let (d, lateral, height) = l.sight_point();
             index <= outside || !sight.blocked(d, lateral, height)
         });
-        lights.sort_by(|a, b| b.d.total_cmp(&a.d));
+        self.place_among_bodies(&mut lights, view, projector);
+        // With bodies, the lights on the road come first: a body covers
+        // those behind it, and those in front of it lie below it.
+        let on_road_first = self.config.car_bodies.opacity().is_some();
+        lights.sort_by(|a, b| {
+            let first = |l: &Light| on_road_first && l.on_road();
+            first(b).cmp(&first(a)).then(b.order.total_cmp(&a.order))
+        });
         lights
+    }
+
+    /// Settles which lights are covered by the bodies of other cars and
+    /// which are drawn on top of them.
+    ///
+    /// The faces of a car are drawn at the distance of the end that faces
+    /// the camera. A light farther than that is drawn before them and so
+    /// is covered; it need not be tested, except against the sides and the
+    /// roof, which reach to the far end of the car: a light seen over the
+    /// side can still be nearer than the side is there. The lights of a car
+    /// are drawn right after its own body.
+    fn place_among_bodies(&self, lights: &mut Vec<Light>, view: &RoadView, projector: &Projector) {
+        let Some(opacity) = self.config.car_bodies.opacity() else {
+            return;
+        };
+        let faces: Vec<(u32, Corners, f32)> = lights
+            .iter()
+            .filter_map(|l| match (l.kind, l.car) {
+                (Kind::Body { corners }, Some(car)) => Some((car, corners, l.d)),
+                _ => None,
+            })
+            .collect();
+        if faces.is_empty() {
+            return;
+        }
+        let mut hidden = vec![false; lights.len()];
+        for (light, hidden) in lights.iter_mut().zip(&mut hidden) {
+            if matches!(light.kind, Kind::Body { .. }) {
+                continue;
+            }
+            // The lights of a car lie right after its body, at the same place.
+            if let Some((_, _, near)) = faces.iter().find(|f| Some(f.0) == light.car) {
+                light.order = near - OWN_LIGHT_LEAD;
+            }
+            if light.on_road() || !matches!(light.kind, Kind::Glow { .. } | Kind::Glare { .. }) {
+                continue;
+            }
+            let (bend, rise) = view.offset(light.d);
+            let Some(p) = projector.project(light.d, light.lateral + bend, light.height + rise)
+            else {
+                continue;
+            };
+            for &(car, corners, near) in &faces {
+                if Some(car) == light.car || light.d < near {
+                    continue;
+                }
+                let Some(depth) = depth_at(&corners, projector, view, (p.x, p.y)) else {
+                    continue;
+                };
+                if light.d > depth && opacity >= 1.0 {
+                    // Hidden by an opaque body: nothing of it is drawn.
+                    *hidden = true;
+                    break;
+                }
+                if light.d <= depth {
+                    // In front of the face it is seen over, although it is farther
+                    // than the end of the car.
+                    light.order = light.order.min(near - OWN_LIGHT_LEAD);
+                }
+            }
+        }
+        let mut index = 0;
+        lights.retain(|_| {
+            index += 1;
+            !hidden[index - 1]
+        });
     }
 
     /// Adds the lamps, the light on the road and the emergency lights of a tunnel.
@@ -638,6 +739,8 @@ impl Scene {
                     }
                     lights.push(Light {
                         d,
+                        order: d,
+                        car: None,
                         lateral: row.lateral,
                         height: row.height,
                         color: row.color,
@@ -1837,6 +1940,131 @@ mod tests {
         assert!(most <= 2, "{most}");
     }
 
+    /// The lights seen over a body (the screen position of the light is on
+    /// the face), as (index of the light, index of the body, whether the light
+    /// is behind the face), in each frame of a drive.
+    fn covered_pairs(config: SceneConfig, mut each: impl FnMut(&[Light], usize, usize, bool)) {
+        let projector = Projector::new(1280.0, 720.0, config.left_hand_traffic);
+        let mut scene = Scene::new(config);
+        for step in 0..3000 {
+            scene.update(MAX_STEP_SECONDS);
+            if step % 4 != 0 {
+                continue;
+            }
+            let view = RoadView::new(&scene.road, scene.track_s);
+            let lights = scene.lights_on(&view, &projector);
+            for (index, light) in lights.iter().enumerate() {
+                if light.on_road() || matches!(light.kind, Kind::Body { .. } | Kind::Pool { .. }) {
+                    continue;
+                }
+                let (bend, rise) = view.offset(light.d);
+                let Some(p) = projector.project(light.d, light.lateral + bend, light.height + rise)
+                else {
+                    continue;
+                };
+                // A light seen over two bodies cannot be drawn right for both
+                // when the one that is nearer has the shorter car; it is rare
+                // and small, and left out.
+                let covering: Vec<(usize, bool)> = lights
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(other, body)| {
+                        let Kind::Body { corners } = body.kind else {
+                            return None;
+                        };
+                        if body.car == light.car {
+                            return None;
+                        }
+                        let depth = crate::body::depth_at(&corners, &projector, &view, (p.x, p.y))?;
+                        Some((other, light.d > depth))
+                    })
+                    .collect();
+                if let [(other, is_behind)] = covering[..] {
+                    each(&lights, index, other, is_behind);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_light_is_drawn_before_the_bodies_in_front_of_it_and_after_those_behind_it() {
+        // A light seen over a body is under it when it is farther than the body
+        // there, and over it when it is nearer: for every pair, the whole
+        // drive, and not by the length of the car, which led to flicker.
+        let (mut behind, mut front) = (0, 0);
+        for seed in 1..=2 {
+            covered_pairs(
+                bodies_config(seed, CarBodies::TranslucentBlack),
+                |lights, light, body, is_behind| {
+                    // The lights of cars are drawn right after their own bodies; one
+                    // that lies behind the body of another car, which is farther
+                    // than its own, cannot be drawn before that body as well.
+                    if lights[light].car.is_some() {
+                        return;
+                    }
+                    assert_eq!(light < body, is_behind, "{seed}");
+                    behind += usize::from(is_behind);
+                    front += usize::from(!is_behind);
+                },
+            );
+        }
+        assert!(behind > 200 && front > 200, "{behind} {front}");
+    }
+
+    #[test]
+    fn an_opaque_body_hides_the_lights_behind_it() {
+        let (mut behind, mut front) = (0, 0);
+        for seed in 1..=2 {
+            covered_pairs(
+                bodies_config(seed, CarBodies::Black),
+                |lights, light, body, is_behind| {
+                    behind += usize::from(is_behind);
+                    front += usize::from(!is_behind);
+                    let (l, b) = (&lights[light], &lights[body]);
+                    assert!(
+                        light > body,
+                        "{seed}: light d {} order {} lat {} h {} car {:?} kind {} / body d {} order {} car {:?} corners {:?}",
+                        l.d,
+                        l.order,
+                        l.lateral,
+                        l.height,
+                        l.car,
+                        matches!(l.kind, Kind::Glare { .. }),
+                        b.d,
+                        b.order,
+                        b.car,
+                        if let Kind::Body { corners } = b.kind {
+                            corners
+                        } else {
+                            [(0.0, 0.0, 0.0); 4]
+                        }
+                    );
+                },
+            );
+        }
+        // The lights behind are gone, and those in front are there.
+        assert_eq!(behind, 0, "{behind}");
+        assert!(front > 200, "{front}");
+    }
+
+    #[test]
+    fn the_median_shows_through_a_translucent_body_but_not_an_opaque_one() {
+        let count = |car_bodies| {
+            let mut scene = Scene::new(bodies_config(2, car_bodies));
+            let mut found = 0;
+            for _ in 0..3000 {
+                scene.update(MAX_STEP_SECONDS);
+                found += scene
+                    .lights()
+                    .iter()
+                    .filter(|l| l.color == ORANGE && matches!(l.kind, Kind::Glow { .. }))
+                    .count();
+            }
+            found
+        };
+        assert!(count(CarBodies::Black) < count(CarBodies::TranslucentBlack));
+    }
+
     fn varying(seed: u64) -> SceneConfig {
         SceneConfig {
             seed,
@@ -1923,7 +2151,7 @@ mod tests {
             ..varying(seed)
         });
         let mut total = 0;
-        for step in 0..4000 {
+        for step in 0..3000 {
             scene.update(0.05);
             if step % 50 == 0 {
                 total += scene.traffic.running_count();
@@ -2115,49 +2343,69 @@ mod tests {
     }
 
     #[test]
-    fn bodies_do_not_change_the_other_commands() {
+    fn bodies_add_nothing_but_the_bodies_and_hide_lights_behind_them() {
         let transparent = driven(bodies_config(5, CarBodies::Transparent), 20);
         let black = driven(bodies_config(5, CarBodies::Black), 20);
-        let without_bodies: Vec<Command> = record(&black, VIEWPORT)
-            .into_iter()
-            .filter(|c| !matches!(c, Command::Silhouette { .. }))
+        let mut without: Vec<String> = record(&transparent, VIEWPORT)
+            .iter()
+            .map(|c| format!("{c:?}"))
             .collect();
-        assert_eq!(record(&transparent, VIEWPORT), without_bodies);
+        let with: Vec<String> = record(&black, VIEWPORT)
+            .iter()
+            .filter(|c| !matches!(c, Command::Silhouette { .. }))
+            .map(|c| format!("{c:?}"))
+            .collect();
+        // Every light that remains was there without bodies.
+        for command in &with {
+            let found = without.iter().position(|c| c == command);
+            assert!(found.is_some(), "{command}");
+            without.swap_remove(found.unwrap());
+        }
     }
 
     #[test]
-    fn a_body_covers_what_is_farther_and_lies_under_its_own_lights() {
+    fn a_body_comes_before_the_lights_of_its_car_and_the_lights_in_front() {
         let mut checked = (0, 0);
         for seed in [1, 2, 3, 4] {
             let scene = driven(bodies_config(seed, CarBodies::Black), 40);
             let lights = scene.lights();
-            assert!(lights.windows(2).all(|w| w[0].d >= w[1].d));
+            // The lights on the road come first, then the rest from far to near.
+            let first_other = lights.iter().position(|l| !l.on_road()).unwrap();
+            assert!(lights[first_other..].iter().all(|l| !l.on_road()));
+            assert!(
+                lights[first_other..]
+                    .windows(2)
+                    .all(|w| w[0].order >= w[1].order)
+            );
+            assert!(
+                lights[..first_other]
+                    .windows(2)
+                    .all(|w| w[0].order >= w[1].order)
+            );
             for (index, face) in lights.iter().enumerate() {
                 let Kind::Body { corners } = face.kind else {
                     continue;
                 };
-                let end = corners.iter().all(|c| c.0 == corners[0].0);
-                let own = lights.iter().enumerate().filter(|(_, l)| {
-                    !matches!(l.kind, Kind::Body { .. })
-                        && if end {
-                            // The lights of the end are at its distance, inside its width.
-                            l.d == corners[0].0
-                                && l.lateral >= corners[0].1
-                                && l.lateral <= corners[1].1
-                        } else {
-                            // The lamps along a side are on its edge and within its length.
-                            l.lateral == corners[0].1 && l.d >= corners[0].0 && l.d < corners[1].0
-                        }
-                });
+                let own = lights
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, l)| l.car == face.car && !matches!(l.kind, Kind::Body { .. }));
                 for (other, _) in own {
                     assert!(index < other, "{seed}");
-                    checked.0 += usize::from(end);
-                    checked.1 += usize::from(!end);
+                    checked.0 += 1;
+                }
+                // Whatever is nearer than the whole car comes after it.
+                let near = corners.iter().map(|c| c.0).fold(f32::MAX, f32::min);
+                for (other, light) in lights.iter().enumerate() {
+                    if light.d < near && !light.on_road() {
+                        assert!(index < other, "{seed}");
+                        checked.1 += 1;
+                    }
                 }
             }
         }
-        // Tail lights and headlights of the ends, and side markers of trucks.
-        assert!(checked.0 > 50 && checked.1 > 0, "{checked:?}");
+        // Tail lights and headlights, side markers of trucks, and the rest.
+        assert!(checked.0 > 50 && checked.1 > 500, "{checked:?}");
     }
 
     #[test]

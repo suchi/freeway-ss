@@ -5,6 +5,7 @@
 
 #![forbid(unsafe_code)]
 
+mod body;
 pub mod canvas;
 pub mod cruise;
 pub mod i18n;

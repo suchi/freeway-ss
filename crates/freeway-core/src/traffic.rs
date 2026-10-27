@@ -74,9 +74,6 @@ const TRUCK_BODY: BodySize = BodySize {
     height: 3.6,
     length: TRUCK_LENGTH,
 };
-/// A face at the end of a body lies this far behind the lights of that end,
-/// so that the lights are drawn on top of it.
-const END_FACE_BIAS: f32 = 0.01;
 /// The far end of a body is cut off this far before the view ends, where the
 /// projection stops.
 const VIEW_MARGIN: f32 = 0.01;
@@ -230,10 +227,8 @@ struct BodySize {
 /// lateral position, height above the road).
 #[derive(Clone, Copy, Debug)]
 pub struct BodyFace {
-    /// Where the face belongs among the lights, which are drawn from far to
-    /// near: what lies farther away is covered by the face, what lies nearer
-    /// is drawn on top of it.
-    pub d: f32,
+    /// The car the face belongs to, which is also that of its lights.
+    pub car: u32,
     /// Lateral position of the car, which tells whether a tunnel hides it.
     pub lateral: f32,
     pub corners: [(f32, f32, f32); 4],
@@ -242,6 +237,8 @@ pub struct BodyFace {
 /// A light of a car, positioned like the lights of the road.
 #[derive(Clone, Copy, Debug)]
 pub struct CarLight {
+    /// The car the light belongs to.
+    pub car: u32,
     /// Distance ahead of the camera, in meters.
     pub d: f32,
     pub lateral: f32,
@@ -470,6 +467,7 @@ impl Car {
                 };
                 for side in [-0.7, 0.7] {
                     out.push(CarLight {
+                        car: self.id,
                         d,
                         lateral: self.lateral + side,
                         height: 0.8,
@@ -481,6 +479,7 @@ impl Car {
                 }
                 if self.braking() {
                     out.push(CarLight {
+                        car: self.id,
                         d,
                         lateral: self.lateral,
                         height: 1.15,
@@ -497,6 +496,7 @@ impl Car {
                 let alpha = (1.0 - d / VIEW_DISTANCE) * flicker;
                 for side in [-0.7, 0.7] {
                     out.push(CarLight {
+                        car: self.id,
                         d,
                         lateral: self.lateral + side,
                         height: 0.65,
@@ -508,6 +508,7 @@ impl Car {
                 }
                 if d < GLARE_RANGE {
                     out.push(CarLight {
+                        car: self.id,
                         d,
                         lateral: self.lateral,
                         height: 0.65,
@@ -539,7 +540,7 @@ impl Car {
         if self.rel >= NEAR_DISTANCE {
             let d = self.rel;
             out.push(BodyFace {
-                d: d + END_FACE_BIAS,
+                car: self.id,
                 lateral: self.lateral,
                 corners: [
                     (d, left, 0.0),
@@ -554,7 +555,7 @@ impl Car {
         if self.lateral > OWN_LANE {
             let near = self.rel.max(NEAR_DISTANCE);
             out.push(BodyFace {
-                d: far,
+                car: self.id,
                 lateral: self.lateral,
                 corners: [
                     (near, left, 0.0),
@@ -598,6 +599,7 @@ impl Car {
             } * strength;
             if alpha > 0.0 {
                 out.push(CarLight {
+                    car: self.id,
                     d,
                     lateral: self.lateral + offset,
                     height,
@@ -668,6 +670,7 @@ impl Car {
         }
         if oncoming && self.rel < GLARE_RANGE {
             out.push(CarLight {
+                car: self.id,
                 d: self.rel,
                 lateral: self.lateral,
                 height: 0.9,
@@ -1469,12 +1472,12 @@ mod tests {
             assert!(end.corners.iter().all(|c| c.0 == 50.0), "{id}");
             assert!((span(&faces[..1], |c| c.1) - 1.8).abs() < 1e-4, "{id}");
             assert!((span(&faces[..1], |c| c.2) - 1.45).abs() < 1e-4, "{id}");
-            // The face stands on the road and lies just behind the lights.
+            // The face stands on the road, at the end of the body.
             assert_eq!(
                 end.corners.iter().map(|c| c.2).fold(f32::MAX, f32::min),
                 0.0
             );
-            assert!(end.d > 50.0 && end.d < 50.1, "{id}");
+            assert!(end.corners.iter().all(|c| c.0 == 50.0), "{id}");
         }
     }
 
@@ -1500,7 +1503,6 @@ mod tests {
                 // along the edge of the body that is nearer to the own lane.
                 assert!(side.corners.iter().all(|c| c.1 == lateral - half), "{id}");
                 assert_eq!(span(&faces[1..], |c| c.0), length, "{id}");
-                assert_eq!(side.d, 50.0 + length, "{id}");
                 assert_eq!(side.corners[0].0, 50.0, "{id}");
             }
         }
@@ -1540,7 +1542,7 @@ mod tests {
             .map(|c| c.0)
             .fold(f32::MAX, f32::min);
         assert_eq!(near, NEAR_DISTANCE);
-        assert_eq!(faces[0].d, 2.5);
+        assert_eq!(faces[0].corners[1].0, 2.5);
         // Once the whole car is behind the camera nothing is left.
         assert!(body_of(PASSING_ID, false, -3.6).is_empty());
         assert_eq!(body_of(PASSING_ID, true, -10.0).len(), 1);
@@ -1553,7 +1555,6 @@ mod tests {
             for truck in [false, true] {
                 for id in [LEAD_ID, PASSING_ID, ONCOMING_ID] {
                     for face in body_of(id, truck, rel) {
-                        assert!(face.d < VIEW_DISTANCE, "{rel} {id}");
                         assert!(
                             face.corners
                                 .iter()
@@ -1573,7 +1574,6 @@ mod tests {
         run(&mut traffic, 72_000, |t| {
             for face in t.bodies() {
                 seen += 1;
-                assert!(face.d.is_finite());
                 assert!(
                     face.corners
                         .iter()
