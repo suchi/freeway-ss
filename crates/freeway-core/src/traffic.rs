@@ -63,6 +63,24 @@ pub const TRUCK_RATIO: f32 = 0.2;
 /// Body of a truck in meters. Only the positions of its lights depend on it.
 const TRUCK_LENGTH: f32 = 12.0;
 const TRUCK_HALF_WIDTH: f32 = 1.25;
+/// Width, height and length of the body of a car and of a truck, in meters.
+const CAR_BODY: BodySize = BodySize {
+    width: 1.8,
+    height: 1.45,
+    length: 4.5,
+};
+const TRUCK_BODY: BodySize = BodySize {
+    width: 2.0 * TRUCK_HALF_WIDTH,
+    height: 3.6,
+    length: TRUCK_LENGTH,
+};
+/// A face at the end of a body lies this far behind the lights of that end,
+/// so that the lights are drawn on top of it.
+const END_FACE_BIAS: f32 = 0.01;
+/// The far end of a body is cut off this far before the view ends, where the
+/// projection stops.
+const VIEW_MARGIN: f32 = 0.01;
+
 /// A lead truck drives at this fraction of the camera's speed, where a
 /// lead car drives at 0.85 to 0.95.
 const TRUCK_LEAD_RATIO: (f32, f32) = (0.80, 0.10);
@@ -171,6 +189,16 @@ impl CarBodies {
         Self::ALL.get(usize::try_from(raw?).ok()?).copied()
     }
 
+    /// How much a body hides what is behind it, from 0 to 1; `None` when
+    /// the cars have no bodies.
+    pub fn opacity(self) -> Option<f32> {
+        match self {
+            CarBodies::Transparent => None,
+            CarBodies::TranslucentBlack => Some(0.9),
+            CarBodies::Black => Some(1.0),
+        }
+    }
+
     /// The value to store; `from_raw` reads it back.
     pub fn to_raw(self) -> u32 {
         match self {
@@ -188,6 +216,27 @@ enum Kind {
     /// Same direction, passing lane, faster than the camera.
     Passing,
     Oncoming,
+}
+
+#[derive(Clone, Copy)]
+struct BodySize {
+    width: f32,
+    height: f32,
+    length: f32,
+}
+
+/// A flat face of the body of a car: a quadrilateral whose corners are
+/// positioned like the lights of the road, as (distance ahead of the camera,
+/// lateral position, height above the road).
+#[derive(Clone, Copy, Debug)]
+pub struct BodyFace {
+    /// Where the face belongs among the lights, which are drawn from far to
+    /// near: what lies farther away is covered by the face, what lies nearer
+    /// is drawn on top of it.
+    pub d: f32,
+    /// Lateral position of the car, which tells whether a tunnel hides it.
+    pub lateral: f32,
+    pub corners: [(f32, f32, f32); 4],
 }
 
 /// A light of a car, positioned like the lights of the road.
@@ -474,6 +523,51 @@ impl Car {
 }
 
 impl Car {
+    /// The faces of the body that the camera can see: the end that faces
+    /// it, and for a car in another lane the side that faces it. `rel` is
+    /// the end that faces the camera, and the body reaches the length of the
+    /// car farther away. A body that has partly passed the camera is cut off
+    /// at `NEAR_DISTANCE`, so that it does not vanish all at once.
+    fn push_body(&self, out: &mut Vec<BodyFace>) {
+        let size = if self.truck { TRUCK_BODY } else { CAR_BODY };
+        let far = (self.rel + size.length).min(VIEW_DISTANCE - VIEW_MARGIN);
+        if !self.active || self.rel >= VIEW_DISTANCE - VIEW_MARGIN || far <= NEAR_DISTANCE {
+            return;
+        }
+        let half = size.width * 0.5;
+        let (left, right) = (self.lateral - half, self.lateral + half);
+        if self.rel >= NEAR_DISTANCE {
+            let d = self.rel;
+            out.push(BodyFace {
+                d: d + END_FACE_BIAS,
+                lateral: self.lateral,
+                corners: [
+                    (d, left, 0.0),
+                    (d, right, 0.0),
+                    (d, right, size.height),
+                    (d, left, size.height),
+                ],
+            });
+        }
+        // The camera is in the own lane: a car in that lane shows no side,
+        // and a car in another lane shows the side toward the own lane.
+        if self.lateral > OWN_LANE {
+            let near = self.rel.max(NEAR_DISTANCE);
+            out.push(BodyFace {
+                d: far,
+                lateral: self.lateral,
+                corners: [
+                    (near, left, 0.0),
+                    (far, left, 0.0),
+                    (far, left, size.height),
+                    (near, left, size.height),
+                ],
+            });
+        }
+    }
+}
+
+impl Car {
     /// Lights of a truck. `rel` is the end of the body that faces the
     /// camera (the rear of a car ahead, the front of an oncoming car); the
     /// body reaches `TRUCK_LENGTH` meters farther away.
@@ -649,6 +743,16 @@ impl Traffic {
             car.push_lights(self.trucks, &mut lights);
         }
         lights
+    }
+
+    /// The faces of the bodies of the cars in front of the camera, in no
+    /// particular order.
+    pub fn bodies(&self) -> Vec<BodyFace> {
+        let mut faces = Vec::new();
+        for car in &self.cars {
+            car.push_body(&mut faces);
+        }
+        faces
     }
 }
 
@@ -1340,5 +1444,150 @@ mod tests {
         traffic.update(DT, f32::NAN);
         traffic.update(DT, -5.0);
         assert!(traffic.cars.iter().all(|c| c.rel.is_finite()));
+    }
+
+    fn body_of(id: u32, truck: bool, rel: f32) -> Vec<BodyFace> {
+        let mut car = Car::new(0, id, TruckStyle::Japanese, TrafficLevel::FULL);
+        car.truck = truck;
+        car.active = true;
+        car.rel = rel;
+        let mut faces = Vec::new();
+        car.push_body(&mut faces);
+        faces
+    }
+
+    fn span(faces: &[BodyFace], axis: fn(&(f32, f32, f32)) -> f32) -> f32 {
+        let values = faces.iter().flat_map(|f| f.corners.iter().map(axis));
+        values.clone().fold(f32::MIN, f32::max) - values.fold(f32::MAX, f32::min)
+    }
+
+    #[test]
+    fn the_end_face_of_a_car_is_a_car_wide_and_high() {
+        for id in [LEAD_ID, PASSING_ID, ONCOMING_ID] {
+            let faces = body_of(id, false, 50.0);
+            let end = faces[0];
+            assert!(end.corners.iter().all(|c| c.0 == 50.0), "{id}");
+            assert!((span(&faces[..1], |c| c.1) - 1.8).abs() < 1e-4, "{id}");
+            assert!((span(&faces[..1], |c| c.2) - 1.45).abs() < 1e-4, "{id}");
+            // The face stands on the road and lies just behind the lights.
+            assert_eq!(
+                end.corners.iter().map(|c| c.2).fold(f32::MAX, f32::min),
+                0.0
+            );
+            assert!(end.d > 50.0 && end.d < 50.1, "{id}");
+        }
+    }
+
+    #[test]
+    fn the_end_face_of_a_truck_is_a_truck_wide_and_high() {
+        for id in [LEAD_ID, PASSING_ID, ONCOMING_ID] {
+            let faces = body_of(id, true, 50.0);
+            assert!((span(&faces[..1], |c| c.1) - 2.5).abs() < 1e-4, "{id}");
+            assert!((span(&faces[..1], |c| c.2) - 3.6).abs() < 1e-4, "{id}");
+        }
+    }
+
+    #[test]
+    fn a_car_in_another_lane_shows_the_side_toward_the_own_lane() {
+        for (truck, length, half) in [(false, 4.5, 0.9), (true, 12.0, 1.25)] {
+            for id in [PASSING_ID, ONCOMING_ID] {
+                let faces = body_of(id, truck, 50.0);
+                assert_eq!(faces.len(), 2, "{id}");
+                let (end, side) = (faces[0], faces[1]);
+                let lateral = end.lateral;
+                assert!(lateral > OWN_LANE);
+                // The side reaches the length of the car away from the camera,
+                // along the edge of the body that is nearer to the own lane.
+                assert!(side.corners.iter().all(|c| c.1 == lateral - half), "{id}");
+                assert_eq!(span(&faces[1..], |c| c.0), length, "{id}");
+                assert_eq!(side.d, 50.0 + length, "{id}");
+                assert_eq!(side.corners[0].0, 50.0, "{id}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_car_in_the_own_lane_shows_only_its_end() {
+        for truck in [false, true] {
+            assert_eq!(body_of(LEAD_ID, truck, 50.0).len(), 1);
+        }
+    }
+
+    #[test]
+    fn a_car_that_does_not_run_has_no_body() {
+        let mut traffic = Traffic::with_level(
+            2,
+            TruckStyle::Japanese,
+            TrafficLevel {
+                active: 0.0,
+                trucks: 0.0,
+            },
+        );
+        assert!(traffic.bodies().is_empty());
+        traffic.set_level(TrafficLevel::FULL);
+        traffic.cars.iter_mut().for_each(|c| c.active = true);
+        assert!(!traffic.bodies().is_empty());
+    }
+
+    #[test]
+    fn the_body_of_a_passing_car_is_cut_off_at_the_camera() {
+        // The rear is behind the camera: only the side that is ahead of it is left.
+        let faces = body_of(PASSING_ID, false, -2.0);
+        assert_eq!(faces.len(), 1);
+        let near = faces[0]
+            .corners
+            .iter()
+            .map(|c| c.0)
+            .fold(f32::MAX, f32::min);
+        assert_eq!(near, NEAR_DISTANCE);
+        assert_eq!(faces[0].d, 2.5);
+        // Once the whole car is behind the camera nothing is left.
+        assert!(body_of(PASSING_ID, false, -3.6).is_empty());
+        assert_eq!(body_of(PASSING_ID, true, -10.0).len(), 1);
+        assert!(body_of(PASSING_ID, true, -12.0).is_empty());
+    }
+
+    #[test]
+    fn the_body_stops_before_the_end_of_the_view() {
+        for rel in [VIEW_DISTANCE - 3.0, VIEW_DISTANCE - 0.005, VIEW_DISTANCE] {
+            for truck in [false, true] {
+                for id in [LEAD_ID, PASSING_ID, ONCOMING_ID] {
+                    for face in body_of(id, truck, rel) {
+                        assert!(face.d < VIEW_DISTANCE, "{rel} {id}");
+                        assert!(
+                            face.corners
+                                .iter()
+                                .all(|c| (NEAR_DISTANCE..VIEW_DISTANCE).contains(&c.0)),
+                            "{rel} {id}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn the_bodies_are_finite_for_an_hour_of_driving() {
+        let mut traffic = Traffic::new(4, TruckStyle::NorthAmerican);
+        let mut seen = 0;
+        run(&mut traffic, 72_000, |t| {
+            for face in t.bodies() {
+                seen += 1;
+                assert!(face.d.is_finite());
+                assert!(
+                    face.corners
+                        .iter()
+                        .all(|c| c.0.is_finite() && c.1.is_finite() && c.2.is_finite())
+                );
+            }
+        });
+        assert!(seen > 10_000);
+    }
+
+    #[test]
+    fn car_body_choices_give_their_opacity() {
+        assert_eq!(CarBodies::Transparent.opacity(), None);
+        assert_eq!(CarBodies::TranslucentBlack.opacity(), Some(0.9));
+        assert_eq!(CarBodies::Black.opacity(), Some(1.0));
     }
 }

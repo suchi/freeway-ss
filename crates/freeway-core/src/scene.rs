@@ -90,6 +90,10 @@ enum Kind {
     Glare { size: f32 },
     /// A pool of light on the road with the given radius in meters.
     Pool { radius: f32 },
+    /// A face of the body of a car, given by its corners as (distance,
+    /// lateral position, height). It covers what is drawn before it; the
+    /// light's `alpha` is how much.
+    Body { corners: [(f32, f32, f32); 4] },
 }
 
 /// A row of identical lights along the road.
@@ -110,6 +114,7 @@ struct Row {
 const WHITE: Rgb = Rgb::new(255, 255, 255);
 const ORANGE: Rgb = Rgb::new(255, 140, 30);
 const SODIUM: Rgb = Rgb::new(255, 165, 70);
+const BODY_BLACK: Rgb = Rgb::new(0, 0, 0);
 
 /// Dashed lines repeat every `DASH_PERIOD` meters, painted for the first
 /// `DASH_LENGTH` meters. Lights on them are spaced so that a dash gets a few.
@@ -456,6 +461,10 @@ impl Scene {
         }
 
         for light in &self.lights() {
+            if let Kind::Body { corners } = light.kind {
+                draw_body(&corners, light, viewport, &projector, &view, canvas);
+                continue;
+            }
             let (bend, rise) = view.offset(light.d);
             let Some(p) = projector.project(light.d, light.lateral + bend, light.height + rise)
             else {
@@ -490,6 +499,7 @@ impl Scene {
                         canvas.light_pool(p.x, p.y, radius_x, radius_y, light.color, alpha);
                     }
                 }
+                Kind::Body { .. } => {}
             }
         }
     }
@@ -552,6 +562,18 @@ impl Scene {
                 Kind::Glow { size: car.size }
             },
         }));
+        if let Some(opacity) = self.config.car_bodies.opacity() {
+            lights.extend(self.traffic.bodies().into_iter().map(|face| Light {
+                d: face.d,
+                lateral: face.lateral,
+                height: 0.0,
+                color: BODY_BLACK,
+                alpha: opacity,
+                kind: Kind::Body {
+                    corners: face.corners,
+                },
+            }));
+        }
         // Only what fits through a tunnel is seen along it.
         lights.retain(|l| !self.tunnels.hides(self.track_s, l.d, l.lateral, l.height));
         for tunnel in self.tunnels.ahead() {
@@ -597,6 +619,44 @@ impl Scene {
                 push(row.spacing * 0.5, row.spacing, ENTRANCE_LENGTH.min(length));
             }
         }
+    }
+}
+
+/// Draws a face of a car body as a polygon, if it is in view.
+fn draw_body(
+    corners: &[(f32, f32, f32); 4],
+    light: &Light,
+    viewport: Viewport,
+    projector: &Projector,
+    view: &RoadView,
+    canvas: &mut dyn Canvas,
+) {
+    let mut points = [(0.0, 0.0); 4];
+    for (point, &(d, lateral, height)) in points.iter_mut().zip(corners) {
+        // The corners are laid out like the lights of the road, so a car on
+        // a bend or a hill is bent and lifted with the road.
+        let (bend, rise) = view.offset(d);
+        let Some(p) = projector.project(d, lateral + bend, height + rise) else {
+            return;
+        };
+        *point = (p.x, p.y);
+    }
+    let (left, right) = points.iter().fold((f32::MAX, f32::MIN), |(lo, hi), p| {
+        (lo.min(p.0), hi.max(p.0))
+    });
+    let (top, bottom) = points.iter().fold((f32::MAX, f32::MIN), |(lo, hi), p| {
+        (lo.min(p.1), hi.max(p.1))
+    });
+    if light.alpha >= MIN_ALPHA
+        && touches(
+            viewport,
+            (left + right) * 0.5,
+            (top + bottom) * 0.5,
+            (right - left) * 0.5,
+            (bottom - top) * 0.5,
+        )
+    {
+        canvas.silhouette(&points, light.color, light.alpha);
     }
 }
 
@@ -1757,5 +1817,222 @@ mod tests {
             pixel_scale: 1.0,
         };
         record(&scene, tiny);
+    }
+
+    fn bodies_config(seed: u64, car_bodies: CarBodies) -> SceneConfig {
+        SceneConfig {
+            seed,
+            car_bodies,
+            // The mountains and the tunnels are silhouettes too.
+            mountains: false,
+            tunnels: TunnelLighting::None,
+            ..Default::default()
+        }
+    }
+
+    /// The points, color and opacity of a silhouette.
+    type Shape<'a> = (&'a Vec<(f32, f32)>, Rgb, f32);
+
+    /// The silhouettes; with no mountains and no tunnels, they are car bodies.
+    fn body_shapes(commands: &[Command]) -> Vec<Shape<'_>> {
+        commands
+            .iter()
+            .filter_map(|c| match c {
+                Command::Silhouette {
+                    points,
+                    color,
+                    alpha,
+                } => Some((points, *color, *alpha)),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn driven(config: SceneConfig, seconds: u32) -> Scene {
+        let mut scene = Scene::new(config);
+        for _ in 0..seconds * 20 {
+            scene.update(0.05);
+        }
+        scene
+    }
+
+    #[test]
+    fn transparent_cars_draw_no_body() {
+        for seed in [1, 2, 3] {
+            let scene = driven(bodies_config(seed, CarBodies::Transparent), 30);
+            assert!(body_shapes(&record(&scene, VIEWPORT)).is_empty(), "{seed}");
+            assert!(
+                scene
+                    .lights()
+                    .iter()
+                    .all(|l| !matches!(l.kind, Kind::Body { .. }))
+            );
+        }
+    }
+
+    #[test]
+    fn black_bodies_are_black_and_opaque_and_translucent_ones_let_a_tenth_through() {
+        for (car_bodies, expected) in [(CarBodies::Black, 1.0), (CarBodies::TranslucentBlack, 0.9)]
+        {
+            let mut drawn = 0;
+            for seed in [1, 2, 3] {
+                let scene = driven(bodies_config(seed, car_bodies), 20);
+                for (points, color, alpha) in body_shapes(&record(&scene, VIEWPORT)) {
+                    drawn += 1;
+                    assert_eq!(color, Rgb::new(0, 0, 0));
+                    assert_eq!(alpha, expected);
+                    assert_eq!(points.len(), 4);
+                    assert!(points.iter().all(|(x, y)| x.is_finite() && y.is_finite()));
+                }
+            }
+            assert!(drawn > 10, "{car_bodies:?}");
+        }
+    }
+
+    #[test]
+    fn bodies_do_not_change_the_other_commands() {
+        let transparent = driven(bodies_config(5, CarBodies::Transparent), 20);
+        let black = driven(bodies_config(5, CarBodies::Black), 20);
+        let without_bodies: Vec<Command> = record(&black, VIEWPORT)
+            .into_iter()
+            .filter(|c| !matches!(c, Command::Silhouette { .. }))
+            .collect();
+        assert_eq!(record(&transparent, VIEWPORT), without_bodies);
+    }
+
+    #[test]
+    fn a_body_covers_what_is_farther_and_lies_under_its_own_lights() {
+        let mut checked = (0, 0);
+        for seed in [1, 2, 3, 4] {
+            let scene = driven(bodies_config(seed, CarBodies::Black), 40);
+            let lights = scene.lights();
+            assert!(lights.windows(2).all(|w| w[0].d >= w[1].d));
+            for (index, face) in lights.iter().enumerate() {
+                let Kind::Body { corners } = face.kind else {
+                    continue;
+                };
+                let end = corners.iter().all(|c| c.0 == corners[0].0);
+                let own = lights.iter().enumerate().filter(|(_, l)| {
+                    !matches!(l.kind, Kind::Body { .. })
+                        && if end {
+                            // The lights of the end are at its distance, inside its width.
+                            l.d == corners[0].0
+                                && l.lateral >= corners[0].1
+                                && l.lateral <= corners[1].1
+                        } else {
+                            // The lamps along a side are on its edge and within its length.
+                            l.lateral == corners[0].1 && l.d >= corners[0].0 && l.d < corners[1].0
+                        }
+                });
+                for (other, _) in own {
+                    assert!(index < other, "{seed}");
+                    checked.0 += usize::from(end);
+                    checked.1 += usize::from(!end);
+                }
+            }
+        }
+        // Tail lights and headlights of the ends, and side markers of trucks.
+        assert!(checked.0 > 50 && checked.1 > 0, "{checked:?}");
+    }
+
+    #[test]
+    fn bodies_are_drawn_among_the_lights() {
+        let scene = driven(bodies_config(2, CarBodies::Black), 20);
+        let commands = record(&scene, VIEWPORT);
+        let first = commands
+            .iter()
+            .position(|c| matches!(c, Command::Silhouette { .. }))
+            .unwrap();
+        let last = commands
+            .iter()
+            .rposition(|c| matches!(c, Command::Silhouette { .. }))
+            .unwrap();
+        let is_light = |c: &Command| matches!(c, Command::Glow { .. } | Command::Pool { .. });
+        assert!(commands[..first].iter().any(is_light));
+        assert!(commands[last..].iter().any(is_light));
+    }
+
+    #[test]
+    fn the_body_of_a_car_ahead_is_as_wide_as_a_car_on_the_screen() {
+        // A lead car stands in the middle of the picture; its end face is 1.8
+        // meters wide, which is 1.8 * focal / distance pixels.
+        let scene = driven(
+            SceneConfig {
+                trucks: TruckStyle::None,
+                ..bodies_config(1, CarBodies::Black)
+            },
+            10,
+        );
+        let focal = Projector::new(VIEWPORT.width, VIEWPORT.height, true).focal();
+        let commands = record(&scene, VIEWPORT);
+        let shapes = body_shapes(&commands);
+        let mut found = 0;
+        for face in scene.traffic.bodies() {
+            let d = face.corners[0].0;
+            if face.lateral != -1.75 {
+                continue;
+            }
+            let expected = 1.8 * focal / d;
+            found += shapes
+                .iter()
+                .filter(|(points, _, _)| {
+                    let xs = points.iter().map(|p| p.0);
+                    let width = xs.clone().fold(f32::MIN, f32::max) - xs.fold(f32::MAX, f32::min);
+                    (width - expected).abs() < 0.01
+                })
+                .count();
+        }
+        assert!(found > 0);
+    }
+
+    #[test]
+    fn no_body_of_an_oncoming_car_is_seen_through_a_tunnel() {
+        let (mut scene, _) = near_first_tunnel(TunnelLighting::Led, 300.0);
+        scene.config.car_bodies = CarBodies::Black;
+        let mut same_direction = false;
+        for _ in 0..600 {
+            scene.traffic.update(0.05, 27.0);
+            for light in scene.lights() {
+                if light.d > 300.0 && matches!(light.kind, Kind::Body { .. }) {
+                    assert!(light.lateral < 5.5, "{}", light.lateral);
+                    same_direction = true;
+                }
+            }
+        }
+        assert!(same_direction);
+    }
+
+    #[test]
+    fn cars_that_do_not_run_have_no_body_at_night() {
+        let quiet = SceneConfig {
+            traffic_by_time: true,
+            start_minute: 3 * 60,
+            ..bodies_config(7, CarBodies::Black)
+        };
+        let busy = SceneConfig {
+            start_minute: 12 * 60,
+            ..quiet
+        };
+        let (quiet, busy) = (Scene::new(quiet), Scene::new(busy));
+        let count = |scene: &Scene| scene.traffic.bodies().len();
+        assert!(count(&quiet) < count(&busy));
+        assert!(count(&quiet) > 0 || quiet.traffic.running_count() == 0);
+    }
+
+    #[test]
+    fn bodies_are_valid_through_a_whole_drive_on_both_sides_of_the_road() {
+        for left_hand_traffic in [true, false] {
+            let mut scene = Scene::new(SceneConfig {
+                left_hand_traffic,
+                trucks: TruckStyle::NorthAmerican,
+                ..bodies_config(9, CarBodies::TranslucentBlack)
+            });
+            for _ in 0..1200 {
+                scene.update(0.05);
+                for command in record(&scene, VIEWPORT) {
+                    assert_valid(&command);
+                }
+            }
+        }
     }
 }
