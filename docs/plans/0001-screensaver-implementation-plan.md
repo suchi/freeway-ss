@@ -194,6 +194,7 @@ sequenceDiagram
 | トンネル | なし / 混在 / ナトリウム灯 / LED | 混在 | Phase 7.5(実装済み。実機確認待ち) |
 | 他車の車体 | なし / シンプルな箱 / ブロック / 詳細な形 | なし | Phase 7.7(透明 / 半透明の黒 / 黒)、v1.11.0(形と色に分けた)、v1.12.0(「それらしい形」をブロックと呼び、詳細な形を加えた) |
 | 車体の色 | 半透明の黒 / 黒 | 半透明の黒 | v1.11.0 |
+| 車線変更 | なし / 自車だけ / 自車と他車 | 自車と他車 | v1.15.0(実装済み。実機確認待ち) |
 | 巡航速度のゆらぎ | オン / オフ | オン | Phase 7.6(実装済み。実機確認待ち) |
 | 時刻に応じた交通量 | オン / オフ | オン | Phase 7.6(実装済み。実機確認待ち) |
 | 景色の区間(山あいと平野) | オン / オフ | オン | Phase 7.6(実装済み。実機確認待ち) |
@@ -225,7 +226,7 @@ MVPの項目は、本家の実行中の操作と表示(速度・通行方向・H
 | v1.12.0: 他車の詳細な形と影 | 完了(実機確認済み) | [0019](0019-v1-12-detailed-cars-and-shadows.md) | [#28](https://github.com/suchi/freeway-ss/pull/28) | [v1.12.0](https://github.com/suchi/freeway-ss/releases/tag/v1.12.0) |
 | v1.13.0: トンネルの影・街灯の間隔・文書・流し続けるモード | 完了(実機確認済み) | [0020](0020-v1-13-tunnel-shadows-and-run-modes.md) | [#29](https://github.com/suchi/freeway-ss/pull/29) | [v1.13.0](https://github.com/suchi/freeway-ss/releases/tag/v1.13.0) |
 | v1.14.0: 版の情報・流しているあいだの操作・バナーの書体・速度の変化 | 完了(実機確認済み) | [0021](0021-v1-14-version-info-and-run-controls.md) | [#30](https://github.com/suchi/freeway-ss/pull/30) | [v1.14.0](https://github.com/suchi/freeway-ss/releases/tag/v1.14.0) |
-| v1.15.0: 自車の追い越しと他車の車線変更 | 実装中 | [0022](0022-v1-15-overtaking-and-lane-changes.md) | - | - |
+| v1.15.0: 自車の追い越しと他車の車線変更 | 実装済み(実機確認待ち) | [0022](0022-v1-15-overtaking-and-lane-changes.md) | [#31](https://github.com/suchi/freeway-ss/pull/31) | - |
 
 ```mermaid
 flowchart LR

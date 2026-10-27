@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="420" viewBox="0 0 1000 420" font-family="DejaVu Sans Condensed, sans-serif">
+<title>The turn signal of a car that changes lanes in v1.15.0 (explanatory figure, not a screen capture)</title>
+<rect width="100%" height="100%" fill="#1b1f2a"/>
+<text x="14" y="28" font-size="18" fill="#e8e8e8">The turn signal of a car that moves to the passing lane</text>
+<text x="14" y="48" font-size="12" fill="#aab2c5">Rear view of a car (sedan, 1.8 m wide). The signal is on the corner on the side of the lane it moves to; red dots are the tail lamps.</text>
+<g transform="translate(60,140)">
+<rect x="0" y="40" width="173" height="99" rx="8" fill="#2a3040" stroke="#6b7387"/>
+<rect x="31" y="6" width="111" height="46" rx="8" fill="#3b4257" stroke="#6b7387"/>
+<circle cx="17" cy="63" r="7" fill="#ff2314"/><circle cx="156" cy="63" r="7" fill="#ff2314"/>
+<circle cx="168" cy="63" r="22" fill="#ff9a1e" fill-opacity="0.35"/><circle cx="168" cy="63" r="9" fill="#ffb347"/>
+</g>
+<g transform="translate(330,140)">
+<rect x="0" y="40" width="173" height="99" rx="8" fill="#2a3040" stroke="#6b7387"/>
+<rect x="31" y="6" width="111" height="46" rx="8" fill="#3b4257" stroke="#6b7387"/>
+<circle cx="17" cy="63" r="7" fill="#ff2314"/><circle cx="156" cy="63" r="7" fill="#ff2314"/>
+<circle cx="168" cy="63" r="9" fill="#5a3b10"/>
+</g>
+<text x="60" y="130" font-size="14" fill="#e8e8e8">lit (0.35 s)</text><text x="330" y="130" font-size="14" fill="#e8e8e8">dark (0.35 s)</text>
+<text x="600" y="130" font-size="14" fill="#e8e8e8">Blink of a signal</text>
+<path d="M600.0,240 L600.0,200 L646.2,200 L646.2,240 L692.5,240 L692.5,200 L738.8,200 L738.8,240 L785.0,240 L785.0,200 L831.2,200 L831.2,240 L877.5,240 L877.5,200 L923.8,200 L923.8,240 L970.0,240" fill="none" stroke="#ffb347" stroke-width="2.5"/>
+<line x1="600" y1="270" x2="970" y2="270" stroke="#aab2c5"/>
+<line x1="600.0" y1="266" x2="600.0" y2="274" stroke="#aab2c5"/><text x="600.0" y="290" font-size="11" fill="#aab2c5" text-anchor="middle">0.0 s</text>
+<line x1="692.5" y1="266" x2="692.5" y2="274" stroke="#aab2c5"/><text x="692.5" y="290" font-size="11" fill="#aab2c5" text-anchor="middle">0.7 s</text>
+<line x1="785.0" y1="266" x2="785.0" y2="274" stroke="#aab2c5"/><text x="785.0" y="290" font-size="11" fill="#aab2c5" text-anchor="middle">1.4 s</text>
+<line x1="877.5" y1="266" x2="877.5" y2="274" stroke="#aab2c5"/><text x="877.5" y="290" font-size="11" fill="#aab2c5" text-anchor="middle">2.1 s</text>
+<line x1="970.0" y1="266" x2="970.0" y2="274" stroke="#aab2c5"/><text x="970.0" y="290" font-size="11" fill="#aab2c5" text-anchor="middle">2.8 s</text>
+<line x1="600.0" y1="186" x2="692.5" y2="186" stroke="#e8e8e8"/><text x="646.2" y="180" font-size="12" fill="#e8e8e8" text-anchor="middle">one blink: 0.7 s</text>
+<text x="14" y="330" font-size="14" fill="#e8e8e8">86 blinks per minute, inside the range of 60 to 120 blinks per minute that the Japanese standards for direction indicators set.</text>
+<text x="14" y="352" font-size="12" fill="#aab2c5">Source: the detailed standards under the Road Vehicles Safety Regulations (MLIT notice), direction indicators; see section 7 of plan 0022.</text>
+<text x="14" y="376" font-size="12" fill="#aab2c5">It blinks for the 3 s before the car moves and while it moves (4 s). The front corners face away from the camera and are not drawn.</text>
+</svg>
