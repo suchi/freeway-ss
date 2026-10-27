@@ -3925,7 +3925,6 @@ mod tests {
 
     #[test]
     fn the_shapes_of_car_bodies_draw_what_they_should() {
-        let mut detailed_total = 0;
         for seed in [1, 2, 3] {
             // Trucks are made of several boxes that cast shadows when they are
             // blocks, so there are none: cars cast one shadow in all.
@@ -3943,7 +3942,7 @@ mod tests {
             assert_eq!((none_bodies, none_shadows), (0, 0), "{seed}");
             let (boxes_bodies, boxes_shadows) = drawn(CarShapes::Boxes);
             let (blocks_bodies, blocks_shadows) = drawn(CarShapes::Blocks);
-            let (detailed_bodies, detailed_shadows) = drawn(CarShapes::Detailed);
+            let (detailed_bodies, _) = drawn(CarShapes::Detailed);
             assert!(boxes_bodies > 5, "{seed}");
             // The same cars in the same places: a block car is made of more
             // faces, and casts one shadow, as the box of a simple car does.
@@ -3951,9 +3950,17 @@ mod tests {
             assert_eq!(blocks_shadows, boxes_shadows, "{seed}");
             // A detailed car is made of more faces still, with the same shadows.
             assert!(detailed_bodies > blocks_bodies, "{seed}");
-            detailed_total += detailed_shadows;
         }
-        // The lamps stand far apart, so a frame has no shadow now and then.
-        assert!(detailed_total > 0);
+        // The lamps stand far apart, so a frame has no shadow now and then:
+        // a detailed car casts one within two minutes of driving.
+        let mut scene = Scene::new(detailed_config(1, CarColor::Black));
+        let mut seen = false;
+        for _ in 0..120 {
+            for _ in 0..20 {
+                scene.update(0.05);
+            }
+            seen |= !shaded_pools(&record(&scene, VIEWPORT)).is_empty();
+        }
+        assert!(seen);
     }
 }
