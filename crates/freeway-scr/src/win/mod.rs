@@ -1,5 +1,6 @@
 //! Windows-specific screensaver host: windows, message loop and rendering.
 
+mod dashboard;
 mod renderer;
 mod settings_dialog;
 mod settings_store;
