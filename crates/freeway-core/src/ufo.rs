@@ -143,7 +143,8 @@ struct Pose {
 impl Ufo {
     pub fn new(seed: u64, mean_interval: Option<f32>) -> Self {
         let mean_interval = mean_interval.filter(|mean| mean.is_finite() && *mean > 0.0);
-        let start = mean_interval.map_or(0.0, |mean| wait(seed, 0, mean));
+        // Without a mean interval no visit is planned; `call` can still bring one.
+        let start = mean_interval.map_or(f64::INFINITY, |mean| wait(seed, 0, mean));
         Self {
             seed,
             mean_interval,
@@ -160,12 +161,21 @@ impl Ufo {
         self.visit_time().is_some()
     }
 
+    /// Brings a ship now, also where none is planned. Does nothing while a
+    /// ship is in the sky.
+    pub fn call(&mut self) {
+        if self.is_visible() {
+            return;
+        }
+        // A new index makes the visit another one than the planned visit it
+        // replaces.
+        self.index += 1;
+        self.start = self.time;
+    }
+
     /// Moves to `time` seconds after the start of the scene. `side` is `1.0`
     /// for left-hand traffic and `-1.0` for right-hand traffic (see `SkyView`).
     pub fn update(&mut self, time: f64, heading: f64, side: f32) {
-        let Some(mean) = self.mean_interval else {
-            return;
-        };
         // The ship stays with the backdrop when the car turns, then catches up.
         let elapsed = (time - self.time).max(0.0);
         let turned = (heading - self.heading + std::f64::consts::PI)
@@ -177,13 +187,17 @@ impl Ufo {
         // The wait for the next visit starts when the ship has gone.
         while time >= self.start + f64::from(VISIT_SECONDS) {
             self.index += 1;
-            self.start += f64::from(VISIT_SECONDS) + wait(self.seed, self.index, mean);
+            self.start = match self.mean_interval {
+                Some(mean) => {
+                    self.start + f64::from(VISIT_SECONDS) + wait(self.seed, self.index, mean)
+                }
+                None => f64::INFINITY,
+            };
         }
     }
 
     /// Seconds since the start of the visit, while one is under way.
     fn visit_time(&self) -> Option<f32> {
-        self.mean_interval?;
         let t = self.time - self.start;
         (0.0..f64::from(VISIT_SECONDS))
             .contains(&t)

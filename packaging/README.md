@@ -39,7 +39,7 @@ Windowsの「インストール」はファイルをコピーせず、展開し�
 | 通行方向 | Driving side | 左側通行 / 右側通行 | 左側通行 |
 | 速度計 | Speedometer | なし / 数字だけ / ダッシュボード(シンプル) / ダッシュボード(作り込み)(数字だけは左下に速さの数字を表示する。ダッシュボード(シンプル)は円弧のゲージと数字、ダッシュボード(作り込み)は目盛りと針のある速度計・回転計・時刻・走った距離・シフトの位置を表示する。前の版で速度計を表示する設定にしていた場合は、数字だけになる) | なし |
 | 山並みの表示 | Show distant mountains | オン / オフ(オンのとき、地平線のところどころの方向に山並みが見え、山頂の赤い灯火がゆっくり点滅する) | オン |
-| 巡航速度のゆらぎ | Vary the cruising speed | オン / オフ(オンのとき、設定した速度の±20 km/hの範囲で、数分かけてゆっくり変わる。速度計は実際の速さを表示する) | オン |
+| 巡航速度のゆらぎ | Vary the cruising speed | オン / オフ(オンのとき、設定した速度の±20 km/hの範囲で、1〜2分ほどかけてゆっくり変わる。速度計は実際の速さを表示する) | オン |
 | 時刻に応じた交通量 | Traffic follows the time of day | オン / オフ(オンのとき、起動時のPCの時刻に合わせて、夜中と早朝は他の車が少なくトラックが多く、日中は従来どおりになる) | オン |
 | 景色の区間 | Alternate mountains and plains | オン / オフ(オンのとき、100 km/hで10〜20分ごとに、山並みとトンネルのある山あいと、山並みもトンネルもない平野が入れ替わる) | オン |
 | トラック | Trucks | なし / 日本風 / 北米風(他の車の約5台に1台がトラックになり、日本風は大型の箱車とトラクターとトレーラー(上側の端灯と側面の橙のサイドマーカーが付く)、北米風はボンネット型のセミトレーラーと箱型トラック(識別灯・車幅灯と、前寄りが橙で後ろ寄りが赤の側面のマーカーが付く)になる。他車の車体が「ブロック」のときは、タイヤ・運転台・荷台のある箱の組み合わせで、「詳細な形」のときは、運転台の前面の傾きや屋根の風よけのある形で、「シンプルな箱」のときは全体を囲む1つの箱で描く) | 日本風 |
@@ -54,7 +54,7 @@ Windowsの「インストール」はファイルをコピーせず、展開し�
 
 ### 流しておく
 
-スクリーンセーバーとしてではなく、しばらく流しておく方法が2つあります。入力(マウスやキー)では終わりません。
+スクリーンセーバーとしてではなく、しばらく流しておく方法が2つあります。マウスやキーの入力では、スクリーンセーバーのようには終わりません。
 
 - 設定画面の「流しておく...」のボタンを押すと開くダイアログで、「ウィンドウで」か「全画面で」を選び、閉じるまでの分数(0は閉じない)を入れて「開始」を押します。設定画面の今の値を保存してから、両方のダイアログが閉じ、続けて選んだ形で始まります。この選択は保存されません
 - `NightFreewaySS.scr`に引数を付けて起動します。ショートカットの「リンク先」の末尾に引数を足す方法などがあります
@@ -68,6 +68,18 @@ Windowsの「インストール」はファイルをコピーせず、展開し�
 例: `NightFreewaySS.scr /window /minutes:30`
 
 引数は、大文字と小文字を区別せず、`/`と`-`のどちらでも始められ、順序は問いません。流しているあいだは、ディスプレイとシステムがスリープしません。終わると元に戻ります。
+
+流しているあいだは、次のキーが使えます。
+
+| キー | 動き |
+| --- | --- |
+| Esc | 終わります |
+| ↑ / ↓ | 押しているあいだ、速度を上げ下げします。範囲は設定画面と同じ30〜160 km/hで、巡航速度のゆらぎは、新しい速度のまわりで続きます |
+| Space | 一時停止と再開 |
+| D | 左側通行と右側通行を切り替えます(画面が左右に反転します) |
+| F | ウィンドウと全画面を切り替えます。`/play`でウィンドウにするときは、Fを押した画面のウィンドウだけが残ります |
+
+キーによる変更はその回だけのもので、設定には保存されません。複数のモニターに流しているときは、すべての画面に同じように効きます。画面の下の中央には、終わり方を含む操作の案内が出ます。始めたときと、マウスを動かしたときやキーを押したときに出て、入力がないまま4秒たつと消えます。一時停止しているあいだは出たままになります。
 
 ### アンインストール
 
@@ -130,7 +142,7 @@ Select "Night Freeway SS" in the screensaver settings and click "Settings" to ch
 | Driving side | Left-hand traffic / Right-hand traffic | Left-hand traffic |
 | Speedometer | None / Digits only / Dashboard (simple) / Dashboard (detailed) (digits only shows the speed as a number in the lower left corner; the simple dashboard shows an arc gauge with the speed; the detailed dashboard shows a speedometer with a scale and a needle, a tachometer, the time, the distance driven and the gear; a setting that showed the speedometer in an earlier version becomes digits only) | None |
 | Show distant mountains | On / Off (when on, mountain ranges stand on the horizon in some directions, and red lights on some peaks blink slowly) | On |
-| Vary the cruising speed | On / Off (when on, the speed slowly changes over a few minutes within 20 km/h of the chosen speed; the speedometer shows the actual speed) | On |
+| Vary the cruising speed | On / Off (when on, the speed slowly changes, over a minute or two at a time, within 20 km/h of the chosen speed; the speedometer shows the actual speed) | On |
 | Traffic follows the time of day | On / Off (when on, the traffic follows the PC's time at startup: fewer cars and more trucks late at night and early in the morning, and as usual during the day) | On |
 | Alternate mountains and plains | On / Off (when on, every 10 to 20 minutes at 100 km/h, mountain areas with mountain ranges and tunnels and plains with neither take turns) | On |
 | Trucks | None / Japanese style / North American style (about one in five other vehicles is a truck; Japanese style has large box trucks and tractor-trailers with upper marker lamps and amber side markers, North American style has hooded semi-trailers and box trucks with identification and clearance lamps and side markers that are amber toward the front and red toward the rear; when the car bodies are Blocks, trucks are made of boxes with wheels, a cab and a cargo area; with Detailed shapes, the cab has a leaning front and the roof a deflector; and with Simple boxes each truck is one box that holds its whole shape) | Japanese style |
@@ -145,7 +157,7 @@ The settings are saved in the registry under `HKEY_CURRENT_USER\Software\NightFr
 
 ### Keeping it running
 
-There are two ways to keep the road running as something other than a screensaver. Keyboard and mouse input does not end it.
+There are two ways to keep the road running as something other than a screensaver. Keyboard and mouse input does not end it the way it ends a screensaver.
 
 - Click "Keep running..." in the settings dialog. In the dialog that opens, choose "In a window" or "Full screen", enter the minutes after which it closes (0 means it does not close) and click "Start". The current values of the settings dialog are saved, both dialogs close and the road starts in the chosen form. This choice is not saved
 - Start `NightFreewaySS.scr` with an argument, for example by adding it to the end of the "Target" of a shortcut
@@ -159,6 +171,18 @@ There are two ways to keep the road running as something other than a screensave
 Example: `NightFreewaySS.scr /window /minutes:30`
 
 Arguments are not case-sensitive, may start with `/` or `-`, and may come in any order. While it runs, the display and the system do not go to sleep; that is undone when it ends.
+
+While it runs, these keys work.
+
+| Key | Behavior |
+| --- | --- |
+| Esc | Ends it |
+| Up / Down | Raise or lower the speed while the key is held. The range is 30 to 160 km/h, as in the settings dialog, and the slow variation of the speed goes on around the new speed |
+| Space | Pauses and resumes |
+| D | Switches between left-hand and right-hand traffic (the picture turns over from left to right) |
+| F | Switches between a window and full screen. When going from `/play` to a window, only the window of the screen where F was pressed stays |
+
+The changes made with the keys last only for that run and are not saved in the settings. With several monitors, they act on every screen alike. A line about the keys, including how to end it, appears at the bottom center of the picture. It appears when the run starts and when the mouse moves or a key is pressed, and goes away after 4 seconds without input. While paused, it stays.
 
 ### Uninstallation
 

@@ -1,6 +1,7 @@
 //! Windows-specific screensaver host: windows, message loop and rendering.
 
 mod dashboard;
+mod hint;
 mod renderer;
 mod settings_dialog;
 mod settings_store;
@@ -9,6 +10,8 @@ mod window;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use freeway_core::{DisplayLanguage, Language, Scene, Settings, SpeedometerStyle, Text};
+
+use crate::input::{Command, Hint};
 
 use windows::Win32::Foundation::HWND;
 use windows::Win32::Globalization::GetUserDefaultUILanguage;
@@ -26,6 +29,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 use windows::core::{HSTRING, Result, w};
 
 use crate::args::Mode;
+use hint::Overlay;
 use renderer::{Renderer, Target, is_device_lost};
 use settings_dialog::Outcome;
 
@@ -67,6 +71,8 @@ struct Run {
     duration: Option<Duration>,
     /// Whether the display and the system must not go to sleep meanwhile.
     keep_awake: bool,
+    /// Whether the keys of a run work and the hint about them is shown.
+    controls: bool,
 }
 
 impl Run {
@@ -76,6 +82,7 @@ impl Run {
         Self {
             duration: minutes.map(|minutes| Duration::from_secs(u64::from(minutes) * 60)),
             keep_awake: true,
+            controls: true,
             ..Self::default()
         }
     }
@@ -175,11 +182,18 @@ fn animate(windows: &[HWND], run: Run) -> Result<()> {
     let _keep_awake = run.keep_awake.then(KeepAwake::new);
     let deadline = run.duration.map(|duration| Instant::now() + duration);
     let settings = settings_store::load();
+    let language = display_language(&settings);
+    let mut windows = windows.to_vec();
     let mut renderer = Renderer::new()?;
-    let mut targets = create_targets(&renderer, windows)?;
+    let mut targets = create_targets(&renderer, &windows)?;
     // Why: each window gets its own scene (docs/adr/0003); the scenes live
     // outside the device resources, so losing the device does not restart them.
     let mut scenes = create_scenes(windows.len(), &settings);
+    // The state that the keys of a run change. It is not saved: the next run
+    // begins with the settings again.
+    let mut paused = false;
+    let mut left_hand_traffic = settings.left_hand_traffic;
+    let mut hint = Hint::default();
     let mut last_frame = Instant::now();
     loop {
         if !pump_messages() {
@@ -207,10 +221,51 @@ fn animate(windows: &[HWND], run: Run) -> Result<()> {
 
         let dt = now.duration_since(last_frame).as_secs_f32();
         last_frame = now;
+        let mut fullscreen_request = None;
+        if run.controls {
+            let input = window::take_input();
+            if input.activity || input.speed_direction != 0.0 {
+                hint.touch();
+            }
+            for (command, hwnd) in input.commands {
+                match command {
+                    Command::TogglePause => paused = !paused,
+                    Command::ToggleSide => left_hand_traffic = !left_hand_traffic,
+                    Command::CallUfo => scenes.iter_mut().for_each(Scene::call_ufo),
+                    Command::ToggleFullscreen => fullscreen_request = Some(hwnd),
+                }
+            }
+            for scene in &mut scenes {
+                scene.set_paused(paused);
+                scene.set_left_hand_traffic(left_hand_traffic);
+                scene.change_speed(input.speed_direction, dt);
+            }
+            hint.update(dt);
+        }
         for scene in &mut scenes {
             scene.update(dt);
         }
-        match draw_frame(&mut renderer, &mut targets, &scenes, settings.speedometer) {
+        if let Some(hwnd) = fullscreen_request {
+            switch_fullscreen(hwnd, &mut windows, &mut targets, &mut scenes)?;
+        }
+        let overlay = run.controls.then(|| Overlay {
+            text: if window::is_fullscreen() {
+                Text::HintFullscreen
+            } else {
+                Text::HintInWindow
+            }
+            .get(language),
+            paused: paused.then(|| Text::Paused.get(language)),
+            opacity: hint.opacity(paused),
+            language,
+        });
+        match draw_frame(
+            &mut renderer,
+            &mut targets,
+            &scenes,
+            settings.speedometer,
+            overlay.as_ref(),
+        ) {
             Ok(true) => {}
             // Nothing is visible (for example, the session is locked).
             Ok(false) => std::thread::sleep(Duration::from_millis(100)),
@@ -219,11 +274,41 @@ fn animate(windows: &[HWND], run: Run) -> Result<()> {
                 // the old ones before creating new ones.
                 targets.clear();
                 renderer = Renderer::new()?;
-                targets = create_targets(&renderer, windows)?;
+                targets = create_targets(&renderer, &windows)?;
             }
             Err(error) => return Err(error),
         }
     }
+}
+
+/// Switches between the window and the full screen (the F key) in the window
+/// `hwnd` that got the key, keeping its road. From the full screen of several
+/// monitors only that window is kept, as a window; the others are closed.
+fn switch_fullscreen(
+    hwnd: HWND,
+    windows: &mut Vec<HWND>,
+    targets: &mut Vec<Target>,
+    scenes: &mut Vec<Scene>,
+) -> Result<()> {
+    let Some(index) = windows.iter().position(|&window| window == hwnd) else {
+        return Ok(());
+    };
+    if window::is_fullscreen() && windows.len() > 1 {
+        let target = targets.swap_remove(index);
+        let scene = scenes.swap_remove(index);
+        windows.swap_remove(index);
+        // Why: the swap chain of a window is released before the window is
+        // destroyed.
+        targets.clear();
+        scenes.clear();
+        for other in windows.drain(..) {
+            window::close(other);
+        }
+        windows.push(hwnd);
+        targets.push(target);
+        scenes.push(scene);
+    }
+    window::toggle_fullscreen(hwnd)
 }
 
 /// Draws every window once and returns whether any of them is visible.
@@ -232,6 +317,7 @@ fn draw_frame(
     targets: &mut [Target],
     scenes: &[Scene],
     speedometer: SpeedometerStyle,
+    overlay: Option<&Overlay>,
 ) -> Result<bool> {
     let last = targets.len().saturating_sub(1);
     let mut visible = false;
@@ -240,7 +326,8 @@ fn draw_frame(
         // loop once per frame; waiting on every window would divide the
         // frame rate by the number of monitors.
         // The speed of a scene drifts, so each frame shows its current speed.
-        visible |= renderer.draw_scene(target, scene, speedometer, index == last)?;
+        visible |=
+            renderer.draw_scene_with_hint(target, scene, speedometer, overlay, index == last)?;
     }
     Ok(visible)
 }
@@ -568,6 +655,73 @@ mod tests {
                 renderer.draw_scene(&mut target, &scene, SpeedometerStyle::None, true)?;
             }
         }
+        Ok(())
+    }
+
+    #[test]
+    fn draws_the_hint_in_both_languages_and_every_strength() -> Result<()> {
+        let mut renderer = Renderer::new()?;
+        let scene = create_scenes(1, &Settings::default()).remove(0);
+        // The narrow window makes the text shrink to fit; the tiny one has
+        // no room for text at all.
+        for (width, height) in [(1280, 720), (320, 180), (152, 112)] {
+            let hwnd = window::create_hidden_window(width, height)?;
+            let mut target = renderer.create_target(hwnd)?;
+            for language in [DisplayLanguage::English, DisplayLanguage::Japanese] {
+                for (paused, opacity) in [(false, 1.0), (false, 0.4), (true, 1.0), (false, 0.0)] {
+                    for text in [Text::HintInWindow, Text::HintFullscreen] {
+                        let overlay = Overlay {
+                            text: text.get(language),
+                            paused: paused.then(|| Text::Paused.get(language)),
+                            opacity,
+                            language,
+                        };
+                        for style in SpeedometerStyle::ALL {
+                            renderer.draw_scene_with_hint(
+                                &mut target,
+                                &scene,
+                                style,
+                                Some(&overlay),
+                                false,
+                            )?;
+                        }
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn the_f_key_keeps_the_road_and_draws_in_the_window_and_in_the_full_screen() -> Result<()> {
+        let hwnd = window::create_normal_window()?;
+        let mut renderer = Renderer::new()?;
+        let mut windows = vec![hwnd];
+        let mut targets = vec![renderer.create_target(hwnd)?];
+        let mut scenes = create_scenes(1, &Settings::default());
+        for _ in 0..40 {
+            scenes[0].update(0.05);
+        }
+        let travelled = scenes[0].track_s();
+        for fullscreen in [true, false, true] {
+            switch_fullscreen(hwnd, &mut windows, &mut targets, &mut scenes)?;
+            assert_eq!(window::is_fullscreen(), fullscreen);
+            assert_eq!((windows.len(), targets.len(), scenes.len()), (1, 1, 1));
+            // The same road goes on in the new size.
+            assert_eq!(scenes[0].track_s(), travelled);
+            draw_frame(
+                &mut renderer,
+                &mut targets,
+                &scenes,
+                SpeedometerStyle::None,
+                None,
+            )?;
+        }
+        // A window that is not one of the run is left alone.
+        let other = window::create_hidden_window(320, 180)?;
+        switch_fullscreen(other, &mut windows, &mut targets, &mut scenes)?;
+        assert!(window::is_fullscreen());
+        unsafe { windows::Win32::UI::WindowsAndMessaging::DestroyWindow(other)? };
         Ok(())
     }
 }

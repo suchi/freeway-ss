@@ -9,23 +9,27 @@ use windows::Win32::Foundation::{
 };
 use windows::Win32::Graphics::Gdi::{
     BLACK_BRUSH, EnumDisplayMonitors, GetMonitorInfoW, GetStockObject, HBRUSH, HDC, HMONITOR,
-    MONITORINFO, SC_SCREENSAVE,
+    MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromWindow, SC_SCREENSAVE,
 };
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
-use windows::Win32::UI::HiDpi::{AdjustWindowRectExForDpi, GetDpiForSystem};
-use windows::Win32::UI::Input::KeyboardAndMouse::VK_ESCAPE;
+use windows::Win32::UI::HiDpi::{AdjustWindowRectExForDpi, GetDpiForSystem, GetDpiForWindow};
+use windows::Win32::UI::Input::KeyboardAndMouse::{
+    VK_DOWN, VK_ESCAPE, VK_LEFT, VK_RIGHT, VK_SPACE, VK_UP,
+};
 use windows::Win32::UI::WindowsAndMessaging::{
-    CS_HREDRAW, CS_VREDRAW, CreateWindowExW, DefWindowProcW, GetClientRect, GetCursorPos,
-    IDC_ARROW, IsWindow, LoadCursorW, PostQuitMessage, RegisterClassExW, SPI_GETWORKAREA,
-    SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS, SetCursor, SetForegroundWindow, SetTimer,
-    SystemParametersInfoW, WINDOW_EX_STYLE, WM_ACTIVATEAPP, WM_DESTROY, WM_ERASEBKGND, WM_KEYDOWN,
-    WM_LBUTTONDOWN, WM_MBUTTONDOWN, WM_MOUSEHWHEEL, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_RBUTTONDOWN,
-    WM_SETCURSOR, WM_SYSCOMMAND, WM_SYSKEYDOWN, WM_TIMER, WM_XBUTTONDOWN, WNDCLASSEXW, WS_CHILD,
-    WS_EX_TOPMOST, WS_OVERLAPPEDWINDOW, WS_POPUP, WS_VISIBLE,
+    CS_HREDRAW, CS_VREDRAW, CreateWindowExW, DefWindowProcW, DestroyWindow, GWL_EXSTYLE, GWL_STYLE,
+    GetClientRect, GetCursorPos, HWND_NOTOPMOST, HWND_TOPMOST, IDC_ARROW, IsWindow, KillTimer,
+    LoadCursorW, PostQuitMessage, RegisterClassExW, SPI_GETWORKAREA, SW_RESTORE, SWP_FRAMECHANGED,
+    SWP_SHOWWINDOW, SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS, SetCursor, SetForegroundWindow, SetTimer,
+    SetWindowLongPtrW, SetWindowPos, ShowWindow, SystemParametersInfoW, WINDOW_EX_STYLE,
+    WM_ACTIVATEAPP, WM_DESTROY, WM_ERASEBKGND, WM_KEYDOWN, WM_KEYUP, WM_KILLFOCUS, WM_LBUTTONDOWN,
+    WM_MBUTTONDOWN, WM_MOUSEHWHEEL, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_RBUTTONDOWN, WM_SETCURSOR,
+    WM_SYSCOMMAND, WM_SYSKEYDOWN, WM_TIMER, WM_XBUTTONDOWN, WNDCLASSEXW, WS_CHILD, WS_EX_TOPMOST,
+    WS_OVERLAPPEDWINDOW, WS_POPUP, WS_VISIBLE,
 };
 use windows::core::{BOOL, Error, PCWSTR, Result, w};
 
-use crate::input::MouseExitTracker;
+use crate::input::{Command, Controls, Key, MouseExitTracker};
 use crate::placement::{self, Rect as Placement};
 
 const CLASS_NAME: PCWSTR = w!("NightFreewaySSWindow");
@@ -47,10 +51,11 @@ enum Behavior {
     /// The preview inside the settings dialog, which ignores input.
     Preview,
     /// The `/window` mode: an ordinary window that only Esc and its own close
-    /// button, or Alt+F4, end.
+    /// button, or Alt+F4, end. The keys of a run work (`Controls`).
     Window,
     /// The `/play` mode: full screen, ended by Esc or Alt+F4 only. The cursor
-    /// is seen for a while after the mouse moved.
+    /// is seen for a while after the mouse moved. The keys of a run work. The
+    /// F key switches between this and `Window`.
     Play,
 }
 
@@ -60,6 +65,62 @@ thread_local! {
         const { RefCell::new(MouseExitTracker::new(MOUSE_EXIT_THRESHOLD)) };
     /// When the mouse last moved in the `/play` mode.
     static LAST_MOVE: Cell<Option<Instant>> = const { Cell::new(None) };
+    /// The keys of a run that are held, and the sequence of the last keys.
+    static CONTROLS: RefCell<Controls> = RefCell::new(Controls::default());
+    /// The commands that keys asked for since the loop last took them, with
+    /// the window that had the key.
+    static COMMANDS: RefCell<Vec<(Command, HWND)>> = const { RefCell::new(Vec::new()) };
+    /// Whether a key or the mouse was used since the loop last looked.
+    static ACTIVITY: Cell<bool> = const { Cell::new(false) };
+    /// Whether destroying a window ends the program. It does not while a
+    /// window is closed on purpose, when the run goes on in another one.
+    static QUIT_ON_DESTROY: Cell<bool> = const { Cell::new(true) };
+}
+
+/// What the user did since the last call to `take_input`.
+#[derive(Debug, Default)]
+pub struct Input {
+    /// `1.0` while up is held, `-1.0` while down is held.
+    pub speed_direction: f32,
+    /// A key or the mouse was used.
+    pub activity: bool,
+    /// The commands of the keys pressed, in order, with the window that had
+    /// the keyboard.
+    pub commands: Vec<(Command, HWND)>,
+}
+
+/// Takes the input of the keys of a run. Nothing is there in the other modes.
+pub fn take_input() -> Input {
+    Input {
+        speed_direction: CONTROLS.with_borrow(Controls::speed_direction),
+        activity: ACTIVITY.replace(false),
+        commands: COMMANDS.take(),
+    }
+}
+
+/// Whether the windows are in full screen (the `/play` mode).
+pub fn is_fullscreen() -> bool {
+    BEHAVIOR.get() == Behavior::Play
+}
+
+/// The key that the virtual-key code `code` is.
+fn key_of(code: usize) -> Key {
+    const D: usize = 0x44;
+    const F: usize = 0x46;
+    const A: usize = 0x41;
+    const B: usize = 0x42;
+    match code {
+        c if c == usize::from(VK_UP.0) => Key::Up,
+        c if c == usize::from(VK_DOWN.0) => Key::Down,
+        c if c == usize::from(VK_LEFT.0) => Key::Left,
+        c if c == usize::from(VK_RIGHT.0) => Key::Right,
+        c if c == usize::from(VK_SPACE.0) => Key::Space,
+        D => Key::D,
+        F => Key::F,
+        A => Key::A,
+        B => Key::B,
+        _ => Key::Other,
+    }
 }
 
 /// Converts a window handle received on the command line.
@@ -122,17 +183,33 @@ fn create_monitor_windows(behavior: Behavior) -> Result<Vec<HWND>> {
     Ok(windows)
 }
 
+/// The style of the window of the `/window` mode.
+const NORMAL_STYLE: windows::Win32::UI::WindowsAndMessaging::WINDOW_STYLE = WS_OVERLAPPEDWINDOW;
+
+/// The outer rectangle of the window of the `/window` mode inside `work`, at
+/// `dpi` dots per inch (see `placement::window_rect`).
+fn normal_window_rect(work: RECT, dpi: u32) -> Result<Placement> {
+    // The frame is what the window adds around its picture at that DPI.
+    let mut frame = RECT::default();
+    unsafe { AdjustWindowRectExForDpi(&mut frame, NORMAL_STYLE, false, WINDOW_EX_STYLE(0), dpi)? };
+    Ok(placement::window_rect(
+        Placement {
+            left: work.left,
+            top: work.top,
+            right: work.right,
+            bottom: work.bottom,
+        },
+        dpi,
+        (frame.right - frame.left, frame.bottom - frame.top),
+    ))
+}
+
 /// Creates an ordinary window, with a title bar and borders, for the
 /// `/window` mode: 1280 by 720 pixels at 96 DPI, in the middle of the work
 /// area of the primary monitor (see `placement::window_rect`).
 pub fn create_normal_window() -> Result<HWND> {
     BEHAVIOR.set(Behavior::Window);
     let instance = register_class()?;
-    let style = WS_OVERLAPPEDWINDOW | WS_VISIBLE;
-    let dpi = unsafe { GetDpiForSystem() };
-    // The frame is what the window adds around its picture at that DPI.
-    let mut frame = RECT::default();
-    unsafe { AdjustWindowRectExForDpi(&mut frame, style, false, WINDOW_EX_STYLE(0), dpi)? };
     let mut work = RECT::default();
     unsafe {
         SystemParametersInfoW(
@@ -142,22 +219,13 @@ pub fn create_normal_window() -> Result<HWND> {
             SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS(0),
         )?
     };
-    let rect = placement::window_rect(
-        Placement {
-            left: work.left,
-            top: work.top,
-            right: work.right,
-            bottom: work.bottom,
-        },
-        dpi,
-        (frame.right - frame.left, frame.bottom - frame.top),
-    );
+    let rect = normal_window_rect(work, unsafe { GetDpiForSystem() })?;
     unsafe {
         CreateWindowExW(
             WINDOW_EX_STYLE(0),
             CLASS_NAME,
             TITLE,
-            style,
+            NORMAL_STYLE | WS_VISIBLE,
             rect.left,
             rect.top,
             rect.width(),
@@ -168,6 +236,97 @@ pub fn create_normal_window() -> Result<HWND> {
             None,
         )
     }
+}
+
+/// The rectangles of the monitor that `hwnd` is on: all of it, and its work
+/// area.
+fn monitor_of(hwnd: HWND) -> Result<MONITORINFO> {
+    let monitor = unsafe { MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST) };
+    let mut info = MONITORINFO {
+        cbSize: size_of::<MONITORINFO>() as u32,
+        ..Default::default()
+    };
+    unsafe { GetMonitorInfoW(monitor, &mut info).ok()? };
+    Ok(info)
+}
+
+/// Switches between the window and the full screen (the F key), in the same
+/// window, so that the road goes on: from the `/window` mode to a full-screen
+/// window on the monitor it is on, and back to a window of the default size
+/// on that monitor. The caller closes the windows of the other monitors.
+pub fn toggle_fullscreen(hwnd: HWND) -> Result<()> {
+    let info = monitor_of(hwnd)?;
+    match BEHAVIOR.get() {
+        Behavior::Window => {
+            let rect = info.rcMonitor;
+            // A maximized window cannot take the new size.
+            let _ = unsafe { ShowWindow(hwnd, SW_RESTORE) };
+            set_styles(hwnd, WS_POPUP | WS_VISIBLE, WS_EX_TOPMOST);
+            BEHAVIOR.set(Behavior::Play);
+            LAST_MOVE.set(None);
+            place(
+                hwnd,
+                HWND_TOPMOST,
+                Placement {
+                    left: rect.left,
+                    top: rect.top,
+                    right: rect.right,
+                    bottom: rect.bottom,
+                },
+            )?;
+            if unsafe { SetTimer(Some(hwnd), CURSOR_TIMER, CURSOR_TIMER_MILLISECONDS, None) } == 0 {
+                return Err(Error::from_thread());
+            }
+            // The cursor of the window was visible a moment ago.
+            unsafe { SetCursor(None) };
+        }
+        Behavior::Play => {
+            let rect = normal_window_rect(info.rcWork, unsafe { GetDpiForWindow(hwnd) })?;
+            BEHAVIOR.set(Behavior::Window);
+            let _ = unsafe { KillTimer(Some(hwnd), CURSOR_TIMER) };
+            set_styles(hwnd, NORMAL_STYLE | WS_VISIBLE, WINDOW_EX_STYLE(0));
+            place(hwnd, HWND_NOTOPMOST, rect)?;
+            if let Ok(arrow) = unsafe { LoadCursorW(None, IDC_ARROW) } {
+                unsafe { SetCursor(Some(arrow)) };
+            }
+        }
+        Behavior::Saver | Behavior::Preview => {}
+    }
+    Ok(())
+}
+
+fn set_styles(
+    hwnd: HWND,
+    style: windows::Win32::UI::WindowsAndMessaging::WINDOW_STYLE,
+    ex_style: WINDOW_EX_STYLE,
+) {
+    unsafe {
+        SetWindowLongPtrW(hwnd, GWL_STYLE, style.0 as isize);
+        SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex_style.0 as isize);
+    }
+}
+
+/// Moves and sizes `hwnd` and applies the styles that were just set.
+fn place(hwnd: HWND, after: HWND, rect: Placement) -> Result<()> {
+    unsafe {
+        SetWindowPos(
+            hwnd,
+            Some(after),
+            rect.left,
+            rect.top,
+            rect.width(),
+            rect.height(),
+            SWP_FRAMECHANGED | SWP_SHOWWINDOW,
+        )
+    }
+}
+
+/// Destroys a window without ending the program, when the run goes on in
+/// another window.
+pub fn close(hwnd: HWND) {
+    QUIT_ON_DESTROY.set(false);
+    let _ = unsafe { DestroyWindow(hwnd) };
+    QUIT_ON_DESTROY.set(true);
 }
 
 /// Creates a child window filling the preview area of the settings dialog.
@@ -314,6 +473,25 @@ unsafe extern "system" fn window_proc(
             unsafe { PostQuitMessage(0) };
             return LRESULT(0);
         }
+        WM_KEYDOWN if keeps_running => {
+            // Bit 30 is set where the key was already down: it repeats.
+            let repeat = (lparam.0 >> 30) & 1 == 1;
+            let command =
+                CONTROLS.with_borrow_mut(|controls| controls.key_down(key_of(wparam.0), repeat));
+            if let Some(command) = command {
+                COMMANDS.with_borrow_mut(|commands| commands.push((command, hwnd)));
+            }
+            ACTIVITY.set(true);
+            return LRESULT(0);
+        }
+        WM_KEYUP if keeps_running => {
+            CONTROLS.with_borrow_mut(|controls| controls.key_up(key_of(wparam.0)));
+            return LRESULT(0);
+        }
+        // The release of a held key is not seen after the window lost the keyboard.
+        WM_KILLFOCUS if keeps_running => {
+            CONTROLS.with_borrow_mut(Controls::release_all);
+        }
         WM_MOUSEMOVE if exit_on_input => {
             // Screen coordinates, so that every monitor's window shares one origin.
             let mut point = POINT::default();
@@ -324,7 +502,12 @@ unsafe extern "system" fn window_proc(
             }
             return LRESULT(0);
         }
+        WM_MOUSEMOVE if behavior == Behavior::Window => {
+            ACTIVITY.set(true);
+            return LRESULT(0);
+        }
         WM_MOUSEMOVE if behavior == Behavior::Play => {
+            ACTIVITY.set(true);
             // Show the cursor again; no `WM_SETCURSOR` comes before the next move.
             LAST_MOVE.set(Some(Instant::now()));
             if let Ok(arrow) = unsafe { LoadCursorW(None, IDC_ARROW) } {
@@ -348,7 +531,9 @@ unsafe extern "system" fn window_proc(
         WM_ERASEBKGND => return LRESULT(1),
         // The preview window is destroyed with its parent dialog.
         WM_DESTROY => {
-            unsafe { PostQuitMessage(0) };
+            if QUIT_ON_DESTROY.get() {
+                unsafe { PostQuitMessage(0) };
+            }
             return LRESULT(0);
         }
         _ => {}
@@ -359,7 +544,7 @@ unsafe extern "system" fn window_proc(
 #[cfg(test)]
 mod tests {
     use windows::Win32::UI::WindowsAndMessaging::{
-        DestroyWindow, MSG, PM_REMOVE, PeekMessageW, SendMessageW, WM_QUIT,
+        MSG, PM_REMOVE, PeekMessageW, SendMessageW, WM_QUIT,
     };
 
     use super::*;
@@ -455,5 +640,144 @@ mod tests {
         assert!(outer.bottom - outer.top > client.bottom);
         assert!(outer.left >= work.left && outer.top >= work.top);
         assert!(outer.right <= work.right && outer.bottom <= work.bottom);
+    }
+
+    #[test]
+    fn the_keys_of_a_run_are_told_apart() {
+        assert_eq!(key_of(usize::from(VK_UP.0)), Key::Up);
+        assert_eq!(key_of(usize::from(VK_DOWN.0)), Key::Down);
+        assert_eq!(key_of(usize::from(VK_LEFT.0)), Key::Left);
+        assert_eq!(key_of(usize::from(VK_RIGHT.0)), Key::Right);
+        assert_eq!(key_of(usize::from(VK_SPACE.0)), Key::Space);
+        assert_eq!(key_of(0x44), Key::D);
+        assert_eq!(key_of(0x46), Key::F);
+        assert_eq!(key_of(0x41), Key::A);
+        assert_eq!(key_of(0x42), Key::B);
+        assert_eq!(key_of(0x43), Key::Other);
+        assert_eq!(key_of(usize::from(VK_ESCAPE.0)), Key::Other);
+    }
+
+    /// Sends `message` to `hwnd` and returns the result.
+    fn send(hwnd: HWND, message: u32, wparam: usize, lparam: isize) {
+        unsafe { SendMessageW(hwnd, message, Some(WPARAM(wparam)), Some(LPARAM(lparam))) };
+    }
+
+    #[test]
+    fn the_keys_of_a_run_become_input_in_the_window_and_play_modes() {
+        for behavior in [Behavior::Window, Behavior::Play] {
+            BEHAVIOR.set(behavior);
+            let hwnd = create_hidden_window(320, 180).expect("a hidden window");
+            let _ = take_input();
+            send(hwnd, WM_KEYDOWN, usize::from(VK_SPACE.0), 0);
+            send(hwnd, WM_KEYDOWN, 0x44, 0);
+            send(hwnd, WM_KEYDOWN, 0x46, 0);
+            // Bit 30 of the second word: the system repeats a held key.
+            send(hwnd, WM_KEYDOWN, 0x44, 1 << 30);
+            send(hwnd, WM_KEYDOWN, usize::from(VK_UP.0), 0);
+            let input = take_input();
+            assert_eq!(
+                input.commands,
+                vec![
+                    (Command::TogglePause, hwnd),
+                    (Command::ToggleSide, hwnd),
+                    (Command::ToggleFullscreen, hwnd),
+                ],
+                "{behavior:?}"
+            );
+            assert!(input.activity);
+            assert_eq!(input.speed_direction, 1.0);
+            // The input is taken once; the held key stays held.
+            let again = take_input();
+            assert!(again.commands.is_empty() && !again.activity);
+            assert_eq!(again.speed_direction, 1.0);
+            send(hwnd, WM_KEYUP, usize::from(VK_UP.0), 0);
+            assert_eq!(take_input().speed_direction, 0.0);
+            // A window that loses the keyboard lets go of the keys.
+            send(hwnd, WM_KEYDOWN, usize::from(VK_DOWN.0), 0);
+            assert_eq!(take_input().speed_direction, -1.0);
+            send(hwnd, WM_KILLFOCUS, 0, 0);
+            assert_eq!(take_input().speed_direction, 0.0);
+            unsafe { DestroyWindow(hwnd).expect("the window is destroyed") };
+        }
+    }
+
+    #[test]
+    fn the_mouse_is_activity_in_the_window_and_play_modes() {
+        for behavior in [Behavior::Window, Behavior::Play] {
+            BEHAVIOR.set(behavior);
+            let hwnd = create_hidden_window(320, 180).expect("a hidden window");
+            let _ = take_input();
+            send(hwnd, WM_MOUSEMOVE, 0, 0);
+            assert!(take_input().activity, "{behavior:?}");
+            unsafe { DestroyWindow(hwnd).expect("the window is destroyed") };
+        }
+    }
+
+    #[test]
+    fn the_preview_ignores_the_keys_of_a_run() {
+        BEHAVIOR.set(Behavior::Preview);
+        let hwnd = create_hidden_window(320, 180).expect("a hidden window");
+        let _ = take_input();
+        for key in [usize::from(VK_SPACE.0), usize::from(VK_UP.0), 0x44, 0x46] {
+            send(hwnd, WM_KEYDOWN, key, 0);
+        }
+        send(hwnd, WM_MOUSEMOVE, 0, 0);
+        let input = take_input();
+        assert!(input.commands.is_empty() && !input.activity);
+        assert_eq!(input.speed_direction, 0.0);
+        unsafe { DestroyWindow(hwnd).expect("the window is destroyed") };
+    }
+
+    #[test]
+    fn a_window_closed_on_purpose_does_not_end_the_program() {
+        BEHAVIOR.set(Behavior::Play);
+        let hwnd = create_hidden_window(320, 180).expect("a hidden window");
+        let mut queued = MSG::default();
+        close(hwnd);
+        assert!(!unsafe { IsWindow(Some(hwnd)) }.as_bool());
+        assert!(!unsafe { PeekMessageW(&mut queued, None, WM_QUIT, WM_QUIT, PM_REMOVE) }.as_bool());
+        // The next destruction ends it again.
+        let other = create_hidden_window(320, 180).expect("a hidden window");
+        unsafe { DestroyWindow(other).expect("the window is destroyed") };
+        assert!(unsafe { PeekMessageW(&mut queued, None, WM_QUIT, WM_QUIT, PM_REMOVE) }.as_bool());
+    }
+
+    #[test]
+    fn the_f_key_switches_between_a_window_and_the_full_screen_of_its_monitor() {
+        let hwnd = create_normal_window().expect("the window of the window mode");
+        assert!(!is_fullscreen());
+        let rect_of = |hwnd| {
+            let mut rect = RECT::default();
+            unsafe {
+                windows::Win32::UI::WindowsAndMessaging::GetWindowRect(hwnd, &mut rect)
+                    .expect("the rectangle of the window");
+            }
+            rect
+        };
+        let monitor = monitor_of(hwnd).expect("the monitor");
+        toggle_fullscreen(hwnd).expect("the full screen");
+        assert!(is_fullscreen());
+        let full = rect_of(hwnd);
+        assert_eq!(
+            (full.left, full.top, full.right, full.bottom),
+            (
+                monitor.rcMonitor.left,
+                monitor.rcMonitor.top,
+                monitor.rcMonitor.right,
+                monitor.rcMonitor.bottom
+            )
+        );
+        // Back to a window that is inside the work area.
+        toggle_fullscreen(hwnd).expect("the window");
+        assert!(!is_fullscreen());
+        let back = rect_of(hwnd);
+        // The window has its title bar again: it does not cover the monitor.
+        assert!(back.bottom - back.top < full.bottom - full.top);
+        assert!(back.left >= monitor.rcWork.left && back.top >= monitor.rcWork.top);
+        assert!(back.right <= monitor.rcWork.right && back.bottom <= monitor.rcWork.bottom);
+        // And once more, to see that it can be done again.
+        toggle_fullscreen(hwnd).expect("the full screen again");
+        assert!(is_fullscreen());
+        unsafe { DestroyWindow(hwnd).expect("the window is destroyed") };
     }
 }

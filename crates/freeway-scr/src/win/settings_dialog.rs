@@ -58,6 +58,8 @@ const RUN_FULLSCREEN: i32 = 126;
 const RUN_MINUTES_LABEL: i32 = 127;
 const RUN_MINUTES: i32 = 128;
 const RUN_START: i32 = 129;
+/// The line that says how a run ends.
+const RUN_END_NOTE: i32 = 130;
 
 /// How many characters the minutes may have: `MINUTES_RANGE` ends at 1440.
 const MINUTES_DIGITS: usize = 4;
@@ -127,10 +129,11 @@ const CAR_SHAPE_TEXTS: [Text; 4] = [
 const CAR_COLOR_TEXTS: [Text; 2] = [Text::CarColorTranslucent, Text::CarColorBlack];
 
 /// The texts of the controls of the dialog of the run, by ID.
-const RUN_CONTROL_TEXTS: [(i32, Text); 5] = [
+const RUN_CONTROL_TEXTS: [(i32, Text); 6] = [
     (RUN_WINDOW, Text::RunInWindow),
     (RUN_FULLSCREEN, Text::RunFullscreen),
     (RUN_MINUTES_LABEL, Text::RunMinutesLabel),
+    (RUN_END_NOTE, Text::RunEndNote),
     (RUN_START, Text::RunStart),
     (IDCANCEL.0, Text::Cancel),
 ];
