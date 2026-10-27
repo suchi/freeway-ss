@@ -35,3 +35,4 @@
 | [0005](0005-embed-windows-resources-with-embed-resource.md) | embed-windows-resources-with-embed-resource | 採用 | 2026-10-26 |
 | [0006](0006-build-release-artifacts-with-cargo-xtask.md) | build-release-artifacts-with-cargo-xtask | 採用 | 2026-10-26 |
 | [0007](0007-localize-ui-strings-in-code.md) | localize-ui-strings-in-code | 採用 | 2026-10-26 |
+| [0008](0008-span-monitors-as-one-scene.md) | span-monitors-as-one-scene | 採用 | 2026-10-27 |
