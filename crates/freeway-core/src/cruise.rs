@@ -1,6 +1,6 @@
 //! The cruising speed that drifts slowly around the speed the user chose.
 //!
-//! The speed is the chosen one plus an offset. Every few minutes a new target
+//! The speed is the chosen one plus an offset. Every minute or two a new target
 //! offset is picked from the seed, and the offset follows it like a critically
 //! damped spring, so that the car never accelerates hard and the speed has no
 //! kinks. With the drift off, the offset is always 0.
@@ -11,10 +11,10 @@ use crate::settings::{MAX_SPEED_KMH, MIN_SPEED_KMH};
 /// The speed stays within this many km/h of the chosen one.
 pub const MAX_OFFSET_KMH: f32 = 20.0;
 /// A new target offset is picked after a time in this range, in seconds.
-const RETARGET_SECONDS: (f32, f32) = (120.0, 300.0);
+const RETARGET_SECONDS: (f32, f32) = (60.0, 150.0);
 /// Time constant of the follow, in seconds. A change of 40 km/h takes about
-/// two minutes to settle.
-const FOLLOW_SECONDS: f32 = 30.0;
+/// 80 seconds to settle.
+const FOLLOW_SECONDS: f32 = 20.0;
 /// The most the speed changes per second, in km/h per second: 0.3 m/s².
 pub const MAX_ACCELERATION_KMH_PER_S: f32 = 0.3 * 3.6;
 
@@ -181,13 +181,14 @@ mod tests {
 
     #[test]
     fn the_speed_changes_slowly() {
-        // Over any ten seconds the speed changes by less than 6 km/h, so it
-        // takes minutes to cross the whole range of 40 km/h.
+        // The follow is fastest at 40 km/h / (20 s * e), about 0.74 km/h per
+        // second. So over any ten seconds the speed changes by less than
+        // 8 km/h, and it takes about a minute to cross the range of 40 km/h.
         let mut drift = Drift::new(5, 100.0, true);
         let all = offsets(&mut drift, 60.0);
         let window = (10.0 / DT) as usize;
         for pair in all.windows(window + 1) {
-            assert!((pair[window] - pair[0]).abs() < 6.0);
+            assert!((pair[window] - pair[0]).abs() < 8.0);
         }
     }
 
@@ -232,11 +233,11 @@ mod tests {
     }
 
     #[test]
-    fn targets_are_picked_every_two_to_five_minutes() {
+    fn targets_are_picked_every_one_to_two_and_a_half_minutes() {
         let drift = Drift::new(2, 100.0, true);
         for index in 0..200 {
             let interval = drift.interval(index);
-            assert!((120.0..300.0).contains(&interval), "{interval}");
+            assert!((60.0..150.0).contains(&interval), "{interval}");
         }
     }
 }
