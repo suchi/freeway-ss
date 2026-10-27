@@ -7,6 +7,7 @@ use freeway_core::canvas::GLOW_HALO_RATIO;
 use freeway_core::{Canvas, Rgb, Scene, SpeedometerStyle, Viewport};
 
 use super::dashboard::{Dashboards, Devices};
+use super::hint::{HintPainter, Overlay};
 use crate::speedometer;
 
 use windows::Win32::Foundation::{
@@ -123,6 +124,7 @@ pub struct Renderer {
     dwrite_factory: IDWriteFactory,
     speedometer_brush: ID2D1SolidColorBrush,
     dashboards: Dashboards,
+    hint: HintPainter,
     /// Laid out text per (speed, scale); windows of another size or on another
     /// monitor may have another scale.
     speedometer_text: HashMap<(u32, u32), SpeedometerText>,
@@ -195,6 +197,7 @@ impl Renderer {
             dwrite_factory,
             speedometer_brush,
             dashboards,
+            hint: HintPainter::default(),
             speedometer_text: HashMap::new(),
         })
     }
@@ -240,11 +243,25 @@ impl Renderer {
     /// With `wait_for_vsync` the call blocks until the frame can be shown,
     /// which paces the render loop. Returns `false` when the window is not
     /// visible, so that the caller can stop spinning.
+    #[cfg(test)]
     pub fn draw_scene(
         &mut self,
         target: &mut Target,
         scene: &Scene,
         speedometer: SpeedometerStyle,
+        wait_for_vsync: bool,
+    ) -> Result<bool> {
+        self.draw_scene_with_hint(target, scene, speedometer, None, wait_for_vsync)
+    }
+
+    /// Like `draw_scene`, with the hint about the keys of a run over the
+    /// picture, if `overlay` is given.
+    pub fn draw_scene_with_hint(
+        &mut self,
+        target: &mut Target,
+        scene: &Scene,
+        speedometer: SpeedometerStyle,
+        overlay: Option<&Overlay>,
         wait_for_vsync: bool,
     ) -> Result<bool> {
         self.resize_if_needed(target)?;
@@ -281,6 +298,11 @@ impl Renderer {
             context.SetPrimitiveBlend(D2D1_PRIMITIVE_BLEND_SOURCE_OVER);
         }
         if let Err(error) = self.draw_speedometer(speedometer, scene, viewport) {
+            brush_error.get_or_insert(error);
+        }
+        if let Some(overlay) = overlay
+            && let Err(error) = self.draw_hint(overlay, viewport)
+        {
             brush_error.get_or_insert(error);
         }
         let context = &self.context;
@@ -322,6 +344,22 @@ impl Renderer {
                 self.dashboards.draw(&devices, style, scene, viewport)
             }
         }
+    }
+
+    /// Draws the hint about the keys over the scene with normal blending.
+    fn draw_hint(&mut self, overlay: &Overlay, viewport: Viewport) -> Result<()> {
+        let devices = Devices {
+            context: &self.context,
+            factory: &self.d2d_factory,
+            dwrite: &self.dwrite_factory,
+            stroke_style: &self.streak_style,
+        };
+        self.hint.draw(
+            &devices,
+            &self.speedometer_brush,
+            overlay,
+            (viewport.width, viewport.height, viewport.pixel_scale),
+        )
     }
 
     /// Draws the speed as a number in the lower left corner.

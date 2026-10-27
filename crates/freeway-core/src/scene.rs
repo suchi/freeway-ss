@@ -2858,7 +2858,7 @@ mod tests {
         }
         // The base is at the top of the range, so the drift can only go below.
         assert!(highest <= 160.0 + 1e-3);
-        assert!(lowest < 150.0 && lowest >= 140.0 - 1e-3, "{lowest}");
+        assert!((140.0 - 1e-3..150.0).contains(&lowest), "{lowest}");
     }
 
     #[test]
