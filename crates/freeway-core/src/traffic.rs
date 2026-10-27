@@ -57,23 +57,43 @@ const STREAM_ESCAPE: u32 = 15;
 const STREAM_PHASE: u32 = 16;
 const STREAM_TRUCK: u32 = 17;
 const STREAM_ACTIVE: u32 = 18;
+const STREAM_SHAPE: u32 = 19;
 
 /// The share of cars that are trucks, when trucks are enabled.
 pub const TRUCK_RATIO: f32 = 0.2;
-/// Body of a truck in meters. Only the positions of its lights depend on it.
-const TRUCK_LENGTH: f32 = 12.0;
 const TRUCK_HALF_WIDTH: f32 = 1.25;
-/// Width, height and length of the body of a car and of a truck, in meters.
+/// Width, height and length of the body of a car, in meters.
 const CAR_BODY: BodySize = BodySize {
     width: 1.8,
     height: 1.45,
     length: 4.5,
 };
-const TRUCK_BODY: BodySize = BodySize {
-    width: 2.0 * TRUCK_HALF_WIDTH,
-    height: 3.6,
-    length: TRUCK_LENGTH,
-};
+/// The wheels of a truck are boxes of this length and height along the
+/// sides, reaching this far in from the edge of the body.
+const WHEEL_LENGTH: f32 = 1.0;
+const WHEEL_HEIGHT: f32 = 1.0;
+const WHEEL_WIDTH: f32 = 0.6;
+/// Wheels that are less than this far apart are drawn as one.
+const TANDEM_GAP: f32 = 0.5;
+/// Cars of one lane keep at least this far apart where bodies are drawn.
+const LANE_GAP: f32 = 10.0;
+/// A car that closes in on the one ahead of it in its lane eases off at this
+/// rate, in meters per second squared, so that it has the speed of the other
+/// when the gap is `LANE_GAP`.
+const LANE_DECEL: f32 = 3.0;
+/// Where cars keep clear of each other, no car changes its speed faster than
+/// this, in meters per second squared. A car that is let go (the one ahead of it
+/// has left) speeds up to its own speed as slowly as it slowed down.
+const LANE_SLEW: f32 = 2.0 * LANE_DECEL;
+/// Speeds are matched to settle this far beyond `LANE_GAP`, so that rounding
+/// in the steps never leaves a car closer than `LANE_GAP`.
+const LANE_CUSHION: f32 = 1.0;
+/// A car that is placed keeps this far from the others of its lane: enough to
+/// ease off from the largest difference of speeds, 8 meters per second, to
+/// the speed of the car ahead before the gap is `LANE_GAP`.
+const PLACE_GAP: f32 = LANE_GAP + 8.0 * 8.0 / (2.0 * LANE_DECEL);
+/// Free places for a car that is placed are searched at this interval.
+const SLOT_STEP: f32 = 5.0;
 /// The far end of a body is cut off this far before the view ends, where the
 /// projection stops.
 const VIEW_MARGIN: f32 = 0.01;
@@ -125,6 +145,148 @@ impl TrafficLevel {
 
 /// Minutes in a day.
 pub const MINUTES_PER_DAY: f32 = 24.0 * 60.0;
+
+/// The shapes of trucks.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TruckShape {
+    /// A cab-over truck with a box on its frame.
+    JapaneseBox,
+    /// A cab-over tractor with a container trailer.
+    JapaneseTrailer,
+    /// A tractor with a hood and a sleeper cab, with a trailer.
+    AmericanSemi,
+    /// A short hood, a cab and a box.
+    AmericanBox,
+}
+
+/// A box of a truck: along the road from its front end, across from its
+/// middle line and above the road, in meters.
+struct Block {
+    along: (f32, f32),
+    half_width: f32,
+    up: (f32, f32),
+}
+
+const fn block(along: (f32, f32), half_width: f32, up: (f32, f32)) -> Block {
+    Block {
+        along,
+        half_width,
+        up,
+    }
+}
+
+/// What a truck is made of and where its lamps stand.
+struct ShapeSpec {
+    length: f32,
+    height: f32,
+    blocks: &'static [Block],
+    /// Where the axles are along the truck from its front end; each has a
+    /// wheel at both sides.
+    axles: &'static [f32],
+    /// Where the front face of the cab stands along the truck and how high
+    /// its roof is.
+    cab: (f32, f32),
+    /// Where the box or the trailer stands along the truck, and its lower
+    /// and upper edge.
+    cargo: (f32, f32),
+    cargo_up: (f32, f32),
+    /// Half the distance between the headlights.
+    headlight: f32,
+}
+
+const JAPANESE_BOX: ShapeSpec = ShapeSpec {
+    length: 12.0,
+    height: 3.8,
+    blocks: &[
+        block((0.0, 2.3), TRUCK_HALF_WIDTH, (0.6, 3.2)),
+        block((2.3, 11.8), 0.6, (0.6, 1.2)),
+        block((2.6, 12.0), TRUCK_HALF_WIDTH, (1.2, 3.8)),
+        block((11.8, 12.0), TRUCK_HALF_WIDTH, (0.6, 1.2)),
+    ],
+    axles: &[1.2, 9.4, 10.6],
+    cab: (0.0, 3.2),
+    cargo: (2.6, 12.0),
+    cargo_up: (1.2, 3.8),
+    headlight: 0.9,
+};
+
+const JAPANESE_TRAILER: ShapeSpec = ShapeSpec {
+    length: 16.5,
+    height: 4.1,
+    blocks: &[
+        block((0.0, 2.3), TRUCK_HALF_WIDTH, (0.6, 3.2)),
+        block((2.3, 5.8), 0.6, (0.6, 1.2)),
+        block((3.3, 16.5), TRUCK_HALF_WIDTH, (1.2, 4.1)),
+        block((16.3, 16.5), TRUCK_HALF_WIDTH, (0.6, 1.2)),
+    ],
+    axles: &[1.2, 4.0, 5.2, 13.0, 14.2, 15.4],
+    cab: (0.0, 3.2),
+    cargo: (3.3, 16.5),
+    cargo_up: (1.2, 4.1),
+    headlight: 0.9,
+};
+
+const AMERICAN_SEMI: ShapeSpec = ShapeSpec {
+    length: 22.0,
+    height: 4.1,
+    blocks: &[
+        block((0.0, 1.8), 1.0, (0.6, 1.9)),
+        block((1.8, 5.5), TRUCK_HALF_WIDTH, (0.6, 4.0)),
+        block((5.5, 8.0), 0.6, (0.6, 1.2)),
+        block((5.9, 22.0), TRUCK_HALF_WIDTH, (1.2, 4.1)),
+        block((21.8, 22.0), TRUCK_HALF_WIDTH, (0.6, 1.2)),
+    ],
+    axles: &[1.0, 5.0, 6.2, 19.2, 20.4],
+    cab: (1.8, 4.0),
+    cargo: (5.9, 22.0),
+    cargo_up: (1.2, 4.1),
+    headlight: 0.8,
+};
+
+const AMERICAN_BOX: ShapeSpec = ShapeSpec {
+    length: 9.5,
+    height: 3.9,
+    blocks: &[
+        block((0.0, 1.2), 1.0, (0.6, 1.6)),
+        block((1.2, 2.7), TRUCK_HALF_WIDTH, (0.6, 2.6)),
+        block((2.7, 9.3), 0.6, (0.6, 1.1)),
+        block((2.9, 9.5), TRUCK_HALF_WIDTH, (1.1, 3.9)),
+        block((9.3, 9.5), TRUCK_HALF_WIDTH, (0.6, 1.1)),
+    ],
+    axles: &[0.8, 7.8],
+    cab: (1.2, 2.6),
+    cargo: (2.9, 9.5),
+    cargo_up: (1.1, 3.9),
+    headlight: 0.8,
+};
+
+impl TruckShape {
+    fn spec(self) -> &'static ShapeSpec {
+        match self {
+            TruckShape::JapaneseBox => &JAPANESE_BOX,
+            TruckShape::JapaneseTrailer => &JAPANESE_TRAILER,
+            TruckShape::AmericanSemi => &AMERICAN_SEMI,
+            TruckShape::AmericanBox => &AMERICAN_BOX,
+        }
+    }
+
+    /// The length of the truck in meters.
+    pub fn length(self) -> f32 {
+        self.spec().length
+    }
+
+    /// The shape of a truck of the given style for a random `roll` in
+    /// `0..1`; `None` where the style has no trucks.
+    fn pick(style: TruckStyle, roll: f32) -> Option<Self> {
+        match style {
+            TruckStyle::None => None,
+            TruckStyle::Japanese if roll < 0.6 => Some(TruckShape::JapaneseBox),
+            TruckStyle::Japanese => Some(TruckShape::JapaneseTrailer),
+            TruckStyle::NorthAmerican if roll < 0.7 => Some(TruckShape::AmericanSemi),
+            TruckStyle::NorthAmerican => Some(TruckShape::AmericanBox),
+        }
+    }
+}
 
 /// How the lights of trucks are arranged.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -240,9 +402,97 @@ pub struct BodyFace {
     /// The car the face belongs to, which is also that of its lights.
     pub car: u32,
     pub part: FacePart,
-    /// Lateral position of the car, which tells whether a tunnel hides it.
+    /// Lateral position of the car.
     pub lateral: f32,
+    /// The point of the car whose view through a tunnel tells whether the
+    /// car is seen, as (distance, lateral position, height).
+    pub sight: (f32, f32, f32),
     pub corners: [(f32, f32, f32); 4],
+}
+
+/// A box of the body of a car, cut off at the near and far end of the view.
+/// A car is one box; a truck is several, wheels included.
+#[derive(Clone, Copy, Debug)]
+pub struct BodyBox {
+    /// The car the box belongs to, which is also that of its lights.
+    pub car: u32,
+    pub lateral: f32,
+    /// See `BodyFace::sight`; the same for every box of the car.
+    pub sight: (f32, f32, f32),
+    /// The extent of the box along the road.
+    pub near: f32,
+    pub far: f32,
+    /// The extent across the road, as lateral positions.
+    pub left: f32,
+    pub right: f32,
+    /// The lowest and highest height of the box.
+    pub bottom: f32,
+    pub top: f32,
+    /// Whether the end that faces the camera is in view.
+    pub has_end: bool,
+    /// The middle and half the length of the whole car.
+    pub center: f32,
+    pub half_length: f32,
+}
+
+impl BodyBox {
+    /// The corners of the top, as (distance, lateral position, height).
+    pub fn top_corners(&self) -> [(f32, f32, f32); 4] {
+        [
+            (self.near, self.left, self.top),
+            (self.near, self.right, self.top),
+            (self.far, self.right, self.top),
+            (self.far, self.left, self.top),
+        ]
+    }
+
+    /// The faces that the camera can see: the end that faces it, both
+    /// sides and the roof. Which of them it does depend on the bends and
+    /// hills of the road, so they are all given (the end only where it is in
+    /// view) and the scene keeps those that turn toward it. Each runs the
+    /// way that makes the face turn toward the camera, as seen from the
+    /// outside, with the corners in the same sense.
+    pub fn faces(&self) -> impl Iterator<Item = BodyFace> + '_ {
+        let (near, far, left, right) = (self.near, self.far, self.left, self.right);
+        let (bottom, top) = (self.bottom, self.top);
+        let end = self.has_end.then_some((
+            FacePart::End,
+            [
+                (near, left, bottom),
+                (near, right, bottom),
+                (near, right, top),
+                (near, left, top),
+            ],
+        ));
+        let rest = [
+            (
+                FacePart::Side,
+                [
+                    (near, left, bottom),
+                    (near, left, top),
+                    (far, left, top),
+                    (far, left, bottom),
+                ],
+            ),
+            (
+                FacePart::Side,
+                [
+                    (near, right, bottom),
+                    (far, right, bottom),
+                    (far, right, top),
+                    (near, right, top),
+                ],
+            ),
+            (FacePart::Roof, self.top_corners()),
+        ];
+        end.into_iter().chain(rest).map(|(part, corners)| BodyFace {
+            car: self.car,
+            part,
+            lateral: self.lateral,
+            sight: self.sight,
+            corners,
+        })
+    }
 }
 
 /// A light of a car, positioned like the lights of the road.
@@ -260,6 +510,14 @@ pub struct CarLight {
     pub alpha: f32,
     /// A big soft light that may be drawn larger than a point light.
     pub glare: bool,
+}
+
+/// Where a car stands on the road, for keeping clear of it.
+#[derive(Clone, Copy)]
+struct Occupant {
+    lateral: f32,
+    rel: f32,
+    length: f32,
 }
 
 struct Car {
@@ -285,8 +543,13 @@ struct Car {
     /// car that does not run is simulated but not drawn, so that it takes
     /// nothing from the other cars.
     active: bool,
-    /// Whether the car is a truck; decided each time the car is placed.
-    truck: bool,
+    /// The shape of the car if it is a truck; decided each time the car is
+    /// placed.
+    truck: Option<TruckShape>,
+    /// Where cars keep clear of each other: the velocity the car drives at,
+    /// which follows what it should be at a limited rate. `None` after the car
+    /// has been placed, when it takes up the velocity it should have at once.
+    drive: Option<f32>,
     /// How often the car has braked.
     brakes: u32,
     until_brake: f32,
@@ -294,7 +557,19 @@ struct Car {
 }
 
 impl Car {
+    #[cfg(test)]
     fn new(seed: u64, id: u32, style: TruckStyle, level: TrafficLevel) -> Self {
+        Self::among(seed, id, style, level, None)
+    }
+
+    /// A car placed clear of `others`, if they are given.
+    fn among(
+        seed: u64,
+        id: u32,
+        style: TruckStyle,
+        level: TrafficLevel,
+        others: Option<&[Occupant]>,
+    ) -> Self {
         let kind = if id < LEAD_CARS {
             Kind::Lead
         } else if id < LEAD_CARS + PASSING_CARS {
@@ -314,12 +589,13 @@ impl Car {
             escape_after: 0.0,
             generation: 0,
             active: true,
-            truck: false,
+            truck: None,
+            drive: None,
             brakes: 0,
             until_brake: 0.0,
             braking_left: 0.0,
         };
-        car.place(seed, style, level, true);
+        car.place(seed, style, level, true, others);
         car.until_brake = car.brake_interval(seed);
         car
     }
@@ -336,20 +612,35 @@ impl Car {
     /// Sets position, speed and lane. `initial` spreads the cars over the
     /// whole view; later they enter where they cannot be seen, except that
     /// lead cars keep appearing ahead.
-    fn place(&mut self, seed: u64, style: TruckStyle, level: TrafficLevel, initial: bool) {
+    ///
+    /// With `others`, the places of the other cars, the car is put where it
+    /// keeps clear of the cars in its lane.
+    fn place(
+        &mut self,
+        seed: u64,
+        style: TruckStyle,
+        level: TrafficLevel,
+        initial: bool,
+        others: Option<&[Occupant]>,
+    ) {
         let position = self.roll(seed, STREAM_POSITION);
         let speed = self.roll(seed, STREAM_SPEED);
         // New streams keep the other random values of the car as they were.
         self.active = self.roll(seed, STREAM_ACTIVE) < level.active;
-        self.truck = style != TruckStyle::None && self.roll(seed, STREAM_TRUCK) < level.trucks;
+        self.truck = if self.roll(seed, STREAM_TRUCK) < level.trucks {
+            TruckShape::pick(style, self.roll(seed, STREAM_SHAPE))
+        } else {
+            None
+        };
         self.age = 0.0;
+        self.drive = None;
         self.phase = self.roll(seed, STREAM_PHASE) * std::f32::consts::TAU;
         self.escape_after = 40.0 + 80.0 * self.roll(seed, STREAM_ESCAPE);
         match self.kind {
             Kind::Lead => {
                 self.lateral = OWN_LANE;
                 self.rel = 80.0 + 450.0 * position;
-                self.ratio = if self.truck {
+                self.ratio = if self.truck.is_some() {
                     TRUCK_LEAD_RATIO.0 + TRUCK_LEAD_RATIO.1 * speed
                 } else {
                     0.85 + 0.10 * speed
@@ -363,7 +654,7 @@ impl Car {
                     -(30.0 + 150.0 * position)
                 };
                 self.speed = 2.0 + 8.0 * speed;
-                if self.truck {
+                if self.truck.is_some() {
                     self.speed *= TRUCK_PASSING_FACTOR;
                 }
             }
@@ -375,6 +666,38 @@ impl Car {
                     600.0 + 400.0 * position
                 };
                 self.speed = 24.0 + 8.0 * speed;
+            }
+        }
+        if let Some(others) = others {
+            self.keep_clear(initial, others);
+        }
+    }
+
+    /// Moves a car that is newly placed along the part of the road it may be
+    /// placed in until it is clear of the cars in its lane.
+    fn keep_clear(&mut self, initial: bool, others: &[Occupant]) {
+        let (first, span) = match (self.kind, initial) {
+            (Kind::Lead, _) => (80.0, 450.0),
+            (Kind::Passing, true) => (20.0, 500.0),
+            (Kind::Passing, false) => (-FAR_BEHIND + 10.0, 220.0),
+            (Kind::Oncoming, true) => (0.0, 600.0),
+            (Kind::Oncoming, false) => (600.0, 400.0),
+        };
+        let length = self.length();
+        let lane = |o: &&Occupant| (o.lateral - self.lateral).abs() < 0.5;
+        let clear = |at: f32| {
+            others
+                .iter()
+                .filter(lane)
+                .all(|o| at >= o.rel + o.length + PLACE_GAP || at + length + PLACE_GAP <= o.rel)
+        };
+        let start = self.rel;
+        let tries = (span / SLOT_STEP) as usize;
+        for step in 0..tries {
+            let at = first + (start - first + step as f32 * SLOT_STEP).rem_euclid(span);
+            if clear(at) {
+                self.rel = at;
+                return;
             }
         }
     }
@@ -428,19 +751,28 @@ impl Car {
         }
     }
 
-    fn step(&mut self, seed: u64, style: TruckStyle, level: TrafficLevel, dt: f32, own_speed: f32) {
-        self.age += dt;
-        self.rel += self.rel_velocity(own_speed) * dt;
+    /// Moves the car for `dt` seconds at `velocity`, meters per second ahead
+    /// of the camera.
+    fn advance(&mut self, seed: u64, dt: f32, velocity: f32) {
+        self.rel += velocity * dt;
         if self.kind != Kind::Oncoming {
             self.step_brake(seed, dt);
         }
-        let gone = match self.kind {
+    }
+
+    /// Whether the car has left the part of the road it drives on.
+    fn is_gone(&self) -> bool {
+        match self.kind {
             Kind::Oncoming => self.rel < ONCOMING_GONE,
             _ => self.rel > FAR_AHEAD || self.rel < -FAR_BEHIND,
-        };
-        if gone {
-            self.generation = self.generation.wrapping_add(1);
-            self.place(seed, style, level, false);
+        }
+    }
+
+    fn occupies(&self) -> Occupant {
+        Occupant {
+            lateral: self.lateral,
+            rel: self.rel,
+            length: self.length(),
         }
     }
 
@@ -464,8 +796,8 @@ impl Car {
         if !self.active || !(NEAR_DISTANCE..VIEW_DISTANCE).contains(&d) {
             return;
         }
-        if self.truck {
-            self.push_truck_lights(style, out);
+        if let Some(shape) = self.truck {
+            self.push_truck_lights(shape, style, out);
             return;
         }
         match self.kind {
@@ -535,171 +867,188 @@ impl Car {
 }
 
 impl Car {
-    /// The faces of the box that is the body: the end that faces the camera,
-    /// both sides and the roof. Which of them the camera can see depends on
-    /// the bends and hills of the road, so they are all given (the end only
-    /// where the car is in front of the camera) and the scene keeps those
-    /// that turn toward it. `rel` is the end that faces the camera, and the
-    /// body reaches the length of the car farther away. A body that has
-    /// partly passed the camera is cut off at `NEAR_DISTANCE`, so that it does
-    /// not vanish all at once.
-    fn push_body(&self, out: &mut Vec<BodyFace>) {
-        let size = if self.truck { TRUCK_BODY } else { CAR_BODY };
-        let far = (self.rel + size.length).min(VIEW_DISTANCE - VIEW_MARGIN);
-        if !self.active || self.rel >= VIEW_DISTANCE - VIEW_MARGIN || far <= NEAR_DISTANCE {
+    /// The length of the body of the car in meters.
+    fn length(&self) -> f32 {
+        self.truck
+            .map_or(CAR_BODY.length, |shape| shape.spec().length)
+    }
+
+    /// The boxes of the body, cut off where the view ends. `rel` is the end
+    /// that faces the camera, and the body reaches the length of the car
+    /// farther away. A body that has partly passed the camera is cut off at
+    /// `NEAR_DISTANCE`, so that it does not vanish all at once.
+    fn push_boxes(&self, out: &mut Vec<BodyBox>) {
+        let length = self.length();
+        let end_of_view = VIEW_DISTANCE - VIEW_MARGIN;
+        if !self.active || self.rel >= end_of_view || self.rel + length <= NEAR_DISTANCE {
             return;
         }
-        let half = size.width * 0.5;
-        let (left, right, top) = (self.lateral - half, self.lateral + half, size.height);
-        let near = self.rel.max(NEAR_DISTANCE);
-        let mut face = |part: FacePart, corners: [(f32, f32, f32); 4]| {
-            out.push(BodyFace {
+        let height = self.truck.map_or(CAR_BODY.height, |t| t.spec().height);
+        let sight = (self.rel.max(NEAR_DISTANCE), self.lateral, height * 0.5);
+        let mut push = |along: (f32, f32), across: (f32, f32), up: (f32, f32)| {
+            let (start, stop) = (self.rel + along.0, (self.rel + along.1).min(end_of_view));
+            if start >= end_of_view || stop <= NEAR_DISTANCE {
+                return;
+            }
+            out.push(BodyBox {
                 car: self.id,
-                part,
                 lateral: self.lateral,
-                corners,
+                sight,
+                near: start.max(NEAR_DISTANCE),
+                far: stop,
+                left: self.lateral + across.0,
+                right: self.lateral + across.1,
+                bottom: up.0,
+                top: up.1,
+                has_end: start >= NEAR_DISTANCE,
+                center: self.rel + length * 0.5,
+                half_length: length * 0.5,
             });
         };
-        if self.rel >= NEAR_DISTANCE {
-            let d = self.rel;
-            face(
-                FacePart::End,
-                [
-                    (d, left, 0.0),
-                    (d, right, 0.0),
-                    (d, right, top),
-                    (d, left, top),
-                ],
-            );
+        let Some(shape) = self.truck else {
+            let half = CAR_BODY.width * 0.5;
+            push((0.0, length), (-half, half), (0.0, CAR_BODY.height));
+            return;
+        };
+        let spec = shape.spec();
+        // The shape is given from the front; the end that faces the camera is
+        // the front of an oncoming truck and the rear of the others.
+        let along = |from: f32, to: f32| {
+            if self.kind == Kind::Oncoming {
+                (from, to)
+            } else {
+                (spec.length - to, spec.length - from)
+            }
+        };
+        for block in spec.blocks {
+            let half = block.half_width;
+            push(along(block.along.0, block.along.1), (-half, half), block.up);
         }
-        // Each runs the way that makes the face turn toward the camera, as seen
-        // from the outside, with the corners in the same sense.
-        face(
-            FacePart::Side,
-            [
-                (near, left, 0.0),
-                (near, left, top),
-                (far, left, top),
-                (far, left, 0.0),
-            ],
-        );
-        face(
-            FacePart::Side,
-            [
-                (near, right, 0.0),
-                (far, right, 0.0),
-                (far, right, top),
-                (near, right, top),
-            ],
-        );
-        face(
-            FacePart::Roof,
-            [
-                (near, left, top),
-                (near, right, top),
-                (far, right, top),
-                (far, left, top),
-            ],
-        );
+        // Axles that are closer than `TANDEM_GAP` are one set with one wheel
+        // each side: the gaps between their wheels are too small to be seen.
+        let mut sets: Vec<(f32, f32)> = Vec::new();
+        for &axle in spec.axles {
+            let (from, to) = (axle - WHEEL_LENGTH * 0.5, axle + WHEEL_LENGTH * 0.5);
+            match sets.last_mut() {
+                Some(last) if from - last.1 < TANDEM_GAP => last.1 = to,
+                _ => sets.push((from, to)),
+            }
+        }
+        let edge = TRUCK_HALF_WIDTH;
+        for (from, to) in sets {
+            for across in [(-edge, WHEEL_WIDTH - edge), (edge - WHEEL_WIDTH, edge)] {
+                push(along(from, to), across, (0.0, WHEEL_HEIGHT));
+            }
+        }
     }
 }
 
 impl Car {
     /// Lights of a truck. `rel` is the end of the body that faces the
-    /// camera (the rear of a car ahead, the front of an oncoming car); the
-    /// body reaches `TRUCK_LENGTH` meters farther away.
-    fn push_truck_lights(&self, style: TruckStyle, out: &mut Vec<CarLight>) {
+    /// camera (the rear of a car ahead, the front of an oncoming car).
+    /// Lamps stand on the surface of the shape of the truck.
+    fn push_truck_lights(&self, shape: TruckShape, style: TruckStyle, out: &mut Vec<CarLight>) {
+        let spec = shape.spec();
         let oncoming = self.kind == Kind::Oncoming;
         // The side that faces the camera. The camera is in the own lane, so
         // a truck in that lane has no near side; it gets the right one.
         let side = if self.lateral > OWN_LANE { -1.0 } else { 1.0 };
-        // Position of the amber marker lamp near the front of the body, and
-        // of the red one near the rear, counted from the end facing the camera.
-        let (front_z, rear_z) = if oncoming {
-            (0.5, TRUCK_LENGTH - 0.5)
-        } else {
-            (TRUCK_LENGTH - 0.5, 0.5)
-        };
+        // Distance from the end that faces the camera, for a place counted
+        // from the front of the truck.
+        let from_camera = |front: f32| if oncoming { front } else { spec.length - front };
         let braking = self.braking();
-        let mut lamp = |z: f32, offset: f32, height: f32, size: f32, color: Rgb, strength: f32| {
-            let d = self.rel + z;
-            if !(NEAR_DISTANCE..VIEW_DISTANCE).contains(&d) {
-                return;
-            }
-            let alpha = if oncoming {
-                // The median barrier chops the light as the truck passes it.
-                let flicker = 0.875 + 0.125 * (d * 0.8 + self.phase).sin();
-                (1.0 - d / VIEW_DISTANCE) * flicker
-            } else {
-                (1.0 - d / TAIL_RANGE).max(0.0)
-            } * strength;
-            if alpha > 0.0 {
-                out.push(CarLight {
-                    car: self.id,
-                    d,
-                    lateral: self.lateral + offset,
-                    height,
-                    size,
-                    color,
-                    alpha: alpha.min(1.0),
-                    glare: false,
-                });
-            }
-        };
+        let mut lamp =
+            |front: f32, offset: f32, height: f32, size: f32, color: Rgb, strength: f32| {
+                let d = self.rel + from_camera(front);
+                if !(NEAR_DISTANCE..VIEW_DISTANCE).contains(&d) {
+                    return;
+                }
+                let alpha = if oncoming {
+                    // The median barrier chops the light as the truck passes it.
+                    let flicker = 0.875 + 0.125 * (d * 0.8 + self.phase).sin();
+                    (1.0 - d / VIEW_DISTANCE) * flicker
+                } else {
+                    (1.0 - d / TAIL_RANGE).max(0.0)
+                } * strength;
+                if alpha > 0.0 {
+                    out.push(CarLight {
+                        car: self.id,
+                        d,
+                        lateral: self.lateral + offset,
+                        height,
+                        size,
+                        color,
+                        alpha: alpha.min(1.0),
+                        glare: false,
+                    });
+                }
+            };
         // Small lamps high on the body are dimmer than the main lamps.
         let (small_size, small_strength) = (0.05, 0.5);
-        let marker = |z: f32| (z, side * TRUCK_HALF_WIDTH);
+        let (front, rear) = (0.0, spec.length);
+        // The end that faces the camera, as a place counted from the front.
+        let end = if oncoming { front } else { rear };
         if oncoming {
-            for lateral in [-0.9, 0.9] {
-                lamp(0.0, lateral, 0.9, 0.13, HEADLIGHT_WHITE, 1.0);
+            for lateral in [-spec.headlight, spec.headlight] {
+                lamp(front, lateral, 0.9, 0.13, HEADLIGHT_WHITE, 1.0);
             }
         } else {
             let (size, strength) = if braking { (0.09, 1.0) } else { (0.07, 0.6) };
             for lateral in [-1.05, 1.05] {
-                lamp(0.0, lateral, 1.0, size, TAIL_RED, strength);
+                lamp(rear, lateral, 1.0, size, TAIL_RED, strength);
             }
         }
+        let edge = side * TRUCK_HALF_WIDTH;
+        let (cargo_from, cargo_to) = spec.cargo;
+        let lower = spec.cargo_up.0 + 0.15;
+        let upper = spec.cargo_up.1 - 0.1;
         match style {
             TruckStyle::None => {}
             TruckStyle::Japanese => {
-                let (end_color, end_height) = if oncoming {
-                    (MARKER_AMBER, 3.3)
+                // End lamps on the top edge of the cab or of the box, and
+                // marker lamps along the lower edge of the box.
+                let (color, height) = if oncoming {
+                    (MARKER_AMBER, spec.cab.1 - 0.1)
                 } else {
-                    (TAIL_RED, 3.4)
+                    (TAIL_RED, upper)
                 };
                 for lateral in [-1.15, 1.15] {
-                    lamp(
-                        0.0,
-                        lateral,
-                        end_height,
-                        small_size,
-                        end_color,
-                        small_strength,
-                    );
+                    lamp(end, lateral, height, small_size, color, small_strength);
                 }
-                for index in 0..7 {
-                    let (z, offset) = marker(1.8 * index as f32);
-                    lamp(z, offset, 0.9, small_size, MARKER_AMBER, small_strength);
+                let count = ((cargo_to - cargo_from) / 1.8).round() as usize;
+                for index in 0..=count {
+                    let t = index as f32 / count as f32;
+                    let z = cargo_from + 0.3 + (cargo_to - cargo_from - 0.6) * t;
+                    lamp(z, edge, lower, small_size, MARKER_AMBER, small_strength);
                 }
             }
             TruckStyle::NorthAmerican => {
-                let (z, offset) = marker(front_z);
-                lamp(z, offset, 1.0, small_size, MARKER_AMBER, small_strength);
-                let (z, offset) = marker(rear_z);
-                lamp(z, offset, 1.0, small_size, TAIL_RED, small_strength);
+                // Markers along the lower edge of the trailer or the box:
+                // amber toward the front, red toward the rear.
+                let count = ((cargo_to - cargo_from) / 4.0).round().max(1.0) as usize;
+                for index in 0..=count {
+                    let t = index as f32 / count as f32;
+                    let z = cargo_from + 0.3 + (cargo_to - cargo_from - 0.6) * t;
+                    let color = if t <= 0.5 { MARKER_AMBER } else { TAIL_RED };
+                    lamp(z, edge, lower, small_size, color, small_strength);
+                }
                 if oncoming {
-                    // Five amber lamps on the cab roof.
-                    for index in 0..5 {
-                        let lateral = -0.9 + 0.45 * index as f32;
-                        lamp(0.0, lateral, 3.0, small_size, MARKER_AMBER, small_strength);
+                    // Three amber identification lamps on the roof of the cab.
+                    for lateral in [-0.3, 0.0, 0.3] {
+                        lamp(
+                            spec.cab.0,
+                            lateral,
+                            spec.cab.1 - 0.05,
+                            small_size,
+                            MARKER_AMBER,
+                            small_strength,
+                        );
                     }
                 } else {
-                    // Three identification lamps and two clearance lamps.
-                    for lateral in [-0.3, 0.0, 0.3] {
-                        lamp(0.0, lateral, 3.5, small_size, TAIL_RED, small_strength);
-                    }
-                    for lateral in [-1.2, 1.2] {
-                        lamp(0.0, lateral, 3.5, small_size, TAIL_RED, small_strength);
+                    // Three identification lamps and two clearance lamps on
+                    // the top edge of the rear.
+                    for lateral in [-0.3, 0.0, 0.3, -1.2, 1.2] {
+                        lamp(rear, lateral, upper, small_size, TAIL_RED, small_strength);
                     }
                 }
             }
@@ -723,6 +1072,10 @@ pub struct Traffic {
     seed: u64,
     trucks: TruckStyle,
     level: TrafficLevel,
+    /// Whether the cars keep clear of each other. They do where their bodies
+    /// are drawn, since bodies that pass through each other are seen; with
+    /// only lights, that is not worth the change in the traffic.
+    keep_apart: bool,
     cars: Vec<Car>,
 }
 
@@ -733,14 +1086,39 @@ impl Traffic {
 
     /// Traffic that is as busy as `level` from the start.
     pub fn with_level(seed: u64, trucks: TruckStyle, level: TrafficLevel) -> Self {
+        Self::build(seed, trucks, level, false)
+    }
+
+    /// Like `with_level`, and the cars of a lane keep clear of each other if
+    /// `keep_apart`.
+    pub fn with_spacing(
+        seed: u64,
+        trucks: TruckStyle,
+        level: TrafficLevel,
+        keep_apart: bool,
+    ) -> Self {
+        Self::build(seed, trucks, level, keep_apart)
+    }
+
+    fn build(seed: u64, trucks: TruckStyle, level: TrafficLevel, keep_apart: bool) -> Self {
         let count = LEAD_CARS + PASSING_CARS + ONCOMING_CARS;
+        let mut cars: Vec<Car> = Vec::new();
+        for id in 0..count {
+            let placed: Vec<Occupant> = cars.iter().map(Car::occupies).collect();
+            cars.push(Car::among(
+                seed,
+                id,
+                trucks,
+                level,
+                keep_apart.then_some(&placed[..]),
+            ));
+        }
         Self {
             seed,
             trucks,
             level,
-            cars: (0..count)
-                .map(|id| Car::new(seed, id, trucks, level))
-                .collect(),
+            keep_apart,
+            cars,
         }
     }
 
@@ -770,8 +1148,155 @@ impl Traffic {
         } else {
             0.0
         };
+        // A car's speed depends on how long it has been placed, which counts this step.
         for car in &mut self.cars {
-            car.step(self.seed, self.trucks, self.level, dt, own_speed);
+            car.age += dt;
+        }
+        let mut velocity: Vec<f32> = self
+            .cars
+            .iter()
+            .map(|c| c.rel_velocity(own_speed))
+            .collect();
+        if self.keep_apart {
+            self.match_speeds(&mut velocity, dt);
+        }
+        for (car, &velocity) in self.cars.iter_mut().zip(&velocity) {
+            car.advance(self.seed, dt, velocity);
+        }
+        if self.keep_apart {
+            self.push_apart();
+        }
+        for index in 0..self.cars.len() {
+            if !self.cars[index].is_gone() {
+                continue;
+            }
+            let others: Vec<Occupant> = self
+                .cars
+                .iter()
+                .enumerate()
+                .filter(|&(other, _)| other != index)
+                .map(|(_, c)| c.occupies())
+                .collect();
+            let car = &mut self.cars[index];
+            car.generation = car.generation.wrapping_add(1);
+            car.place(
+                self.seed,
+                self.trucks,
+                self.level,
+                false,
+                self.keep_apart.then_some(&others[..]),
+            );
+        }
+    }
+
+    /// Matches the speeds of the cars of a lane so that they keep `LANE_GAP`
+    /// apart without sudden changes. `velocity` is how fast each car would move
+    /// ahead of the camera; it is changed to how fast it does.
+    ///
+    /// A car may be faster than the one ahead only by as much as it can lose
+    /// at `LANE_DECEL` before the gap is `LANE_GAP`. In the lane of the camera
+    /// this is done the other way round, with the car ahead speeding up and
+    /// not the one behind slowing down: the nearest car must stay ahead of the
+    /// camera, which would otherwise run into the queue. No speed changes
+    /// faster than `LANE_SLEW`.
+    fn match_speeds(&mut self, velocity: &mut [f32], dt: f32) {
+        let allowed =
+            |gap: f32| (2.0 * LANE_DECEL * (gap - LANE_GAP - LANE_CUSHION).max(0.0)).sqrt();
+        let mut order: Vec<usize> = (0..self.cars.len()).collect();
+        order.sort_by(|&a, &b| self.cars[a].rel.total_cmp(&self.cars[b].rel));
+        // The speed a car drives at, going from what it did to the target. It
+        // changes faster to keep clear of another car than on its own.
+        let follow = |cars: &[Car], index: usize, target: f32| match cars[index].drive {
+            Some(drive) => {
+                let rate = if target == velocity[index] {
+                    LANE_DECEL
+                } else {
+                    LANE_SLEW
+                };
+                drive + (target - drive).clamp(-rate * dt, rate * dt)
+            }
+            None => target,
+        };
+        let mut driven = velocity.to_vec();
+        for lane in [OWN_LANE, PASSING_LANE, ONCOMING_LANES[0], ONCOMING_LANES[1]] {
+            let in_lane: Vec<usize> = order
+                .iter()
+                .copied()
+                .filter(|&i| self.cars[i].lateral == lane)
+                .collect();
+            // The space between a car and the one farther from the camera.
+            let gap = |near: usize, far: usize| {
+                self.cars[far].rel - (self.cars[near].rel + self.cars[near].length())
+            };
+            if lane == OWN_LANE {
+                // From the nearest car on, the one ahead keeps up with the one behind.
+                for (index, &car) in in_lane.iter().enumerate() {
+                    let mut target = velocity[car];
+                    if index > 0 {
+                        let behind = in_lane[index - 1];
+                        target = target.max(driven[behind] - allowed(gap(behind, car)));
+                    }
+                    driven[car] = follow(&self.cars, car, target);
+                }
+            } else if lane == PASSING_LANE {
+                // From the farthest car on, the one behind keeps to the one ahead.
+                for (index, &car) in in_lane.iter().enumerate().rev() {
+                    let mut target = velocity[car];
+                    if let Some(&ahead) = in_lane.get(index + 1) {
+                        target = target.min(driven[ahead] + allowed(gap(car, ahead)));
+                    }
+                    driven[car] = follow(&self.cars, car, target);
+                }
+            } else {
+                // Oncoming cars drive toward the camera: the one ahead is the
+                // nearer one, and the one behind it is faster toward the
+                // camera if its velocity is lower.
+                for (index, &car) in in_lane.iter().enumerate() {
+                    let mut target = velocity[car];
+                    if index > 0 {
+                        let ahead = in_lane[index - 1];
+                        target = target.max(driven[ahead] - allowed(gap(ahead, car)));
+                    }
+                    driven[car] = follow(&self.cars, car, target);
+                }
+            }
+        }
+        for (car, &drive) in self.cars.iter_mut().zip(&driven) {
+            car.drive = Some(drive);
+        }
+        velocity.copy_from_slice(&driven);
+    }
+
+    /// Where speeds were not matched in time (a car that is placed close
+    /// behind another, or a step that is long), a car that has caught up with
+    /// the one ahead of it in its lane pushes it on: no car passes another or
+    /// comes closer than `LANE_GAP`.
+    fn push_apart(&mut self) {
+        let mut order: Vec<usize> = (0..self.cars.len()).collect();
+        order.sort_by(|&a, &b| self.cars[a].rel.total_cmp(&self.cars[b].rel));
+        for lane in [OWN_LANE, PASSING_LANE, ONCOMING_LANES[0], ONCOMING_LANES[1]] {
+            let in_lane: Vec<usize> = order
+                .iter()
+                .copied()
+                .filter(|&i| self.cars[i].lateral == lane)
+                .collect();
+            if lane == OWN_LANE || lane == PASSING_LANE {
+                // Same direction as the camera: the farther car is ahead.
+                for pair in in_lane.windows(2) {
+                    let (behind, ahead) = (self.cars[pair[0]].occupies(), pair[1]);
+                    let least = behind.rel + behind.length + LANE_GAP;
+                    let car = &mut self.cars[ahead];
+                    car.rel = car.rel.max(least);
+                }
+            } else {
+                // Oncoming: the nearer car is ahead.
+                for pair in in_lane.windows(2).rev() {
+                    let (behind, ahead) = (self.cars[pair[1]].occupies(), pair[0]);
+                    let car = &mut self.cars[ahead];
+                    let most = behind.rel - LANE_GAP - car.length();
+                    car.rel = car.rel.min(most);
+                }
+            }
         }
     }
 
@@ -784,14 +1309,20 @@ impl Traffic {
         lights
     }
 
+    /// The boxes of the bodies of the cars in front of the camera, in no
+    /// particular order.
+    pub fn boxes(&self) -> Vec<BodyBox> {
+        let mut boxes = Vec::new();
+        for car in &self.cars {
+            car.push_boxes(&mut boxes);
+        }
+        boxes
+    }
+
     /// The faces of the bodies of the cars in front of the camera, in no
     /// particular order.
     pub fn bodies(&self) -> Vec<BodyFace> {
-        let mut faces = Vec::new();
-        for car in &self.cars {
-            car.push_body(&mut faces);
-        }
-        faces
+        self.boxes().iter().flat_map(BodyBox::faces).collect()
     }
 }
 
@@ -1009,8 +1540,24 @@ mod tests {
     }
 
     fn truck_of(kind_id: u32, style: TruckStyle, rel: f32) -> Car {
-        let mut car = Car::new(0, kind_id, style, TrafficLevel::FULL);
-        car.truck = true;
+        let shape = match style {
+            TruckStyle::NorthAmerican => TruckShape::AmericanSemi,
+            _ => TruckShape::JapaneseBox,
+        };
+        shaped(kind_id, shape, rel)
+    }
+
+    fn style_of(shape: TruckShape) -> TruckStyle {
+        match shape {
+            TruckShape::JapaneseBox | TruckShape::JapaneseTrailer => TruckStyle::Japanese,
+            TruckShape::AmericanSemi | TruckShape::AmericanBox => TruckStyle::NorthAmerican,
+        }
+    }
+
+    fn shaped(kind_id: u32, shape: TruckShape, rel: f32) -> Car {
+        let mut car = Car::new(0, kind_id, style_of(shape), TrafficLevel::FULL);
+        car.truck = Some(shape);
+        car.active = true;
         car.rel = rel;
         car.braking_left = 0.0;
         car
@@ -1046,7 +1593,7 @@ mod tests {
                 for (car, last) in traffic.cars.iter().zip(last) {
                     if first || car.generation != *last {
                         let slot = &mut totals[car.kind as usize];
-                        slot.0 += u32::from(car.truck);
+                        slot.0 += u32::from(car.truck.is_some());
                         slot.1 += 1;
                     }
                     *last = car.generation;
@@ -1074,7 +1621,7 @@ mod tests {
                     if first || car.generation != *last {
                         placed += 1;
                         active += u32::from(car.active);
-                        trucks += u32::from(car.active && car.truck);
+                        trucks += u32::from(car.active && car.truck.is_some());
                     }
                     *last = car.generation;
                 }
@@ -1238,7 +1785,7 @@ mod tests {
         for seed in 0..20 {
             let mut traffic = Traffic::new(seed, TruckStyle::None);
             run(&mut traffic, 6000, |t| {
-                assert!(t.cars.iter().all(|c| !c.truck));
+                assert!(t.cars.iter().all(|c| c.truck.is_none()));
             });
         }
     }
@@ -1252,7 +1799,7 @@ mod tests {
             let without = Traffic::new(seed, TruckStyle::None);
             let mut compared = 0;
             for (a, b) in with.cars.iter().zip(&without.cars) {
-                if a.truck {
+                if a.truck.is_some() {
                     continue;
                 }
                 compared += 1;
@@ -1282,7 +1829,7 @@ mod tests {
     fn trucks_are_slower_than_cars() {
         for seed in 0..50 {
             let traffic = Traffic::new(seed, TruckStyle::Japanese);
-            for car in traffic.cars.iter().filter(|c| c.truck) {
+            for car in traffic.cars.iter().filter(|c| c.truck.is_some()) {
                 match car.kind {
                     Kind::Lead => assert!((0.80..0.90).contains(&car.ratio), "{}", car.ratio),
                     Kind::Passing => assert!((1.0..5.0).contains(&car.speed), "{}", car.speed),
@@ -1312,101 +1859,142 @@ mod tests {
                     assert!((NEAR_DISTANCE..VIEW_DISTANCE).contains(&light.d));
                     assert!(light.alpha > 0.0 && light.alpha <= 1.0, "{light:?}");
                 }
-                seen += t.cars.iter().filter(|c| c.truck).count();
+                seen += t.cars.iter().filter(|c| c.truck.is_some()).count();
             });
             assert!(seen > 0);
         }
     }
 
+    /// The height of the marker lamps along a truck of the shape.
+    fn marker_height(shape: TruckShape) -> f32 {
+        shape.spec().cargo_up.0 + 0.15
+    }
+
+    /// The height of the lamps on the top edge of the cargo.
+    fn top_height(shape: TruckShape) -> f32 {
+        shape.spec().cargo_up.1 - 0.1
+    }
+
+    const JAPANESE: [TruckShape; 2] = [TruckShape::JapaneseBox, TruckShape::JapaneseTrailer];
+    const AMERICAN: [TruckShape; 2] = [TruckShape::AmericanSemi, TruckShape::AmericanBox];
+
     #[test]
     fn a_japanese_truck_seen_from_behind_has_tail_end_and_side_lamps() {
         for id in REAR_IDS {
-            let car = truck_of(id, TruckStyle::Japanese, 100.0);
-            let lights = lights_of(&car, TruckStyle::Japanese);
-            assert_eq!(lights.len(), 2 + 2 + 7);
-            assert_eq!(count(&lights, 1.0, TAIL_RED), 2);
-            assert_eq!(count(&lights, 3.4, TAIL_RED), 2);
-            assert_eq!(count(&lights, 0.9, MARKER_AMBER), 7);
-            let tails: Vec<f32> = lights
-                .iter()
-                .filter(|l| l.height == 1.0)
-                .map(|l| l.lateral - car.lateral)
-                .collect();
-            assert!(tails.contains(&-1.05) && tails.contains(&1.05));
+            for shape in JAPANESE {
+                let car = shaped(id, shape, 100.0);
+                let lights = lights_of(&car, TruckStyle::Japanese);
+                assert_eq!(count(&lights, 1.0, TAIL_RED), 2, "{shape:?}");
+                assert_eq!(count(&lights, top_height(shape), TAIL_RED), 2, "{shape:?}");
+                let markers = count(&lights, marker_height(shape), MARKER_AMBER);
+                assert!(markers >= 6, "{shape:?}: {markers}");
+                assert_eq!(lights.len(), 2 + 2 + markers, "{shape:?}");
+                let tails: Vec<f32> = lights
+                    .iter()
+                    .filter(|l| l.height == 1.0)
+                    .map(|l| l.lateral - car.lateral)
+                    .collect();
+                assert!(tails.contains(&-1.05) && tails.contains(&1.05));
+            }
         }
     }
 
     #[test]
     fn a_north_american_truck_seen_from_behind_has_identification_lamps() {
         for id in REAR_IDS {
-            let car = truck_of(id, TruckStyle::NorthAmerican, 100.0);
-            let lights = lights_of(&car, TruckStyle::NorthAmerican);
-            assert_eq!(lights.len(), 2 + 3 + 2 + 2);
-            assert_eq!(count(&lights, 1.0, TAIL_RED), 3);
-            assert_eq!(count(&lights, 1.0, MARKER_AMBER), 1);
-            assert_eq!(count(&lights, 3.5, TAIL_RED), 5);
-            let mut offsets: Vec<f32> = lights
-                .iter()
-                .filter(|l| l.height == 3.5)
-                .map(|l| l.lateral - car.lateral)
-                .collect();
-            offsets.sort_by(f32::total_cmp);
-            for (offset, expected) in offsets.iter().zip([-1.2, -0.3, 0.0, 0.3, 1.2]) {
-                assert!((offset - expected).abs() < 1e-5, "{offsets:?}");
+            for shape in AMERICAN {
+                let car = shaped(id, shape, 100.0);
+                let lights = lights_of(&car, TruckStyle::NorthAmerican);
+                let top = top_height(shape);
+                assert_eq!(count(&lights, 1.0, TAIL_RED), 2, "{shape:?}");
+                assert_eq!(count(&lights, top, TAIL_RED), 5, "{shape:?}");
+                let (amber, red) = (
+                    count(&lights, marker_height(shape), MARKER_AMBER),
+                    count(&lights, marker_height(shape), TAIL_RED),
+                );
+                assert!(amber >= 2 && red >= 1, "{shape:?}: {amber} {red}");
+                assert_eq!(lights.len(), 2 + 5 + amber + red, "{shape:?}");
+                let mut offsets: Vec<f32> = lights
+                    .iter()
+                    .filter(|l| l.height == top)
+                    .map(|l| l.lateral - car.lateral)
+                    .collect();
+                offsets.sort_by(f32::total_cmp);
+                for (offset, expected) in offsets.iter().zip([-1.2, -0.3, 0.0, 0.3, 1.2]) {
+                    assert!((offset - expected).abs() < 1e-5, "{offsets:?}");
+                }
+                // The amber markers are toward the front of the truck, which is
+                // far from the camera, and the red ones toward the rear.
+                let at = |color| {
+                    lights
+                        .iter()
+                        .filter(|l| l.color == color && l.height == marker_height(shape))
+                        .map(|l| l.d)
+                        .fold((f32::MAX, f32::MIN), |(lo, hi), d| (lo.min(d), hi.max(d)))
+                };
+                assert!(at(MARKER_AMBER).0 > at(TAIL_RED).1, "{shape:?}");
             }
         }
     }
 
     #[test]
     fn an_oncoming_truck_shows_headlights_roof_and_side_lamps() {
-        let car = truck_of(ONCOMING_ID, TruckStyle::Japanese, 200.0);
-        let lights = lights_of(&car, TruckStyle::Japanese);
-        assert_eq!(lights.len(), 2 + 2 + 7);
-        assert_eq!(count(&lights, 0.9, HEADLIGHT_WHITE), 2);
-        assert_eq!(count(&lights, 3.3, MARKER_AMBER), 2);
-        assert_eq!(count(&lights, 0.9, MARKER_AMBER), 7);
-
-        let car = truck_of(ONCOMING_ID, TruckStyle::NorthAmerican, 200.0);
-        let lights = lights_of(&car, TruckStyle::NorthAmerican);
-        assert_eq!(lights.len(), 2 + 2 + 5);
-        assert_eq!(count(&lights, 0.9, HEADLIGHT_WHITE), 2);
-        assert_eq!(count(&lights, 3.0, MARKER_AMBER), 5);
-        // One amber lamp near the front (close to the camera) and one red
-        // near the rear (far from it).
-        let amber = lights
-            .iter()
-            .find(|l| l.height == 1.0 && l.color == MARKER_AMBER)
-            .unwrap();
-        let red = lights
-            .iter()
-            .find(|l| l.height == 1.0 && l.color == TAIL_RED)
-            .unwrap();
-        assert!(amber.d < red.d);
-        let mut offsets: Vec<f32> = lights
-            .iter()
-            .filter(|l| l.height == 3.0)
-            .map(|l| l.lateral - car.lateral)
-            .collect();
-        offsets.sort_by(f32::total_cmp);
-        for (offset, expected) in offsets.iter().zip([-0.9, -0.45, 0.0, 0.45, 0.9]) {
-            assert!((offset - expected).abs() < 1e-5, "{offsets:?}");
+        for shape in JAPANESE {
+            let car = shaped(ONCOMING_ID, shape, 200.0);
+            let lights = lights_of(&car, TruckStyle::Japanese);
+            let cab_top = shape.spec().cab.1 - 0.1;
+            assert_eq!(count(&lights, 0.9, HEADLIGHT_WHITE), 2, "{shape:?}");
+            assert_eq!(count(&lights, cab_top, MARKER_AMBER), 2, "{shape:?}");
+            let markers = count(&lights, marker_height(shape), MARKER_AMBER);
+            assert!(markers >= 6, "{shape:?}");
+            assert_eq!(lights.len(), 2 + 2 + markers, "{shape:?}");
+        }
+        for shape in AMERICAN {
+            let car = shaped(ONCOMING_ID, shape, 200.0);
+            let lights = lights_of(&car, TruckStyle::NorthAmerican);
+            let roof = shape.spec().cab.1 - 0.05;
+            assert_eq!(count(&lights, 0.9, HEADLIGHT_WHITE), 2, "{shape:?}");
+            assert_eq!(count(&lights, roof, MARKER_AMBER), 3, "{shape:?}");
+            let marker = marker_height(shape);
+            // Amber near the front, which faces the camera, red toward the rear.
+            let amber = lights
+                .iter()
+                .filter(|l| l.height == marker && l.color == MARKER_AMBER);
+            let red = lights
+                .iter()
+                .filter(|l| l.height == marker && l.color == TAIL_RED);
+            let (amber, red): (Vec<_>, Vec<_>) = (amber.collect(), red.collect());
+            assert!(amber.len() >= 2 && !red.is_empty(), "{shape:?}");
+            assert!(
+                amber.iter().all(|a| red.iter().all(|r| a.d < r.d)),
+                "{shape:?}"
+            );
+            let mut offsets: Vec<f32> = lights
+                .iter()
+                .filter(|l| l.height == roof)
+                .map(|l| l.lateral - car.lateral)
+                .collect();
+            offsets.sort_by(f32::total_cmp);
+            for (offset, expected) in offsets.iter().zip([-0.3, 0.0, 0.3]) {
+                assert!((offset - expected).abs() < 1e-5, "{offsets:?}");
+            }
         }
     }
 
     #[test]
     fn side_lamps_are_on_the_side_facing_the_camera() {
-        for style in [TruckStyle::Japanese, TruckStyle::NorthAmerican] {
+        for shape in JAPANESE.into_iter().chain(AMERICAN) {
             for (id, lateral, expected) in [
                 (PASSING_ID, PASSING_LANE, PASSING_LANE - TRUCK_HALF_WIDTH),
                 (ONCOMING_ID, ONCOMING_LANES[0], ONCOMING_LANES[0] - 1.25),
                 (ONCOMING_ID, ONCOMING_LANES[1], ONCOMING_LANES[1] - 1.25),
             ] {
-                let mut car = truck_of(id, style, 100.0);
+                let mut car = shaped(id, shape, 100.0);
                 car.lateral = lateral;
-                let lights = lights_of(&car, style);
+                let lights = lights_of(&car, style_of(shape));
                 let sides: Vec<&CarLight> = lights
                     .iter()
-                    .filter(|l| l.color == MARKER_AMBER && l.height <= 1.0)
+                    .filter(|l| l.height == marker_height(shape))
                     .collect();
                 assert!(!sides.is_empty());
                 assert!(sides.iter().all(|l| (l.lateral - expected).abs() < 1e-5));
@@ -1415,17 +2003,70 @@ mod tests {
     }
 
     #[test]
-    fn side_lamps_line_up_along_the_body() {
-        let car = truck_of(PASSING_ID, TruckStyle::Japanese, 100.0);
-        let mut distances: Vec<f32> = lights_of(&car, TruckStyle::Japanese)
-            .iter()
-            .filter(|l| l.color == MARKER_AMBER)
-            .map(|l| l.d)
-            .collect();
-        distances.sort_by(f32::total_cmp);
-        assert_eq!(distances.len(), 7);
-        for (index, d) in distances.iter().enumerate() {
-            assert!((d - (100.0 + 1.8 * index as f32)).abs() < 1e-3, "{d}");
+    fn side_lamps_line_up_along_the_cargo() {
+        for shape in JAPANESE {
+            let car = shaped(PASSING_ID, shape, 100.0);
+            let mut distances: Vec<f32> = lights_of(&car, TruckStyle::Japanese)
+                .iter()
+                .filter(|l| l.color == MARKER_AMBER)
+                .map(|l| l.d)
+                .collect();
+            distances.sort_by(f32::total_cmp);
+            let (from, to) = shape.spec().cargo;
+            // The lamps run along the cargo, in even steps of about two meters.
+            let length = shape.length();
+            assert!(distances[0] >= 100.0 + length - to, "{shape:?}");
+            assert!(
+                *distances.last().unwrap() <= 100.0 + length - from,
+                "{shape:?}"
+            );
+            for pair in distances.windows(2) {
+                assert!((1.5..2.1).contains(&(pair[1] - pair[0])), "{shape:?}");
+            }
+        }
+    }
+
+    /// The distance of a point from a box of a truck, and whether the point is
+    /// inside it. The box is given from the front of the truck of `shape`
+    /// placed at `rel`, seen from `kind` of car.
+    fn lamp_clearance(boxes: &[BodyBox], light: &CarLight) -> (f32, bool) {
+        let mut nearest = f32::MAX;
+        let mut inside = false;
+        for b in boxes {
+            let gap = |value: f32, low: f32, high: f32| (low - value).max(value - high).max(0.0);
+            let (dx, dy, dz) = (
+                gap(light.d, b.near, b.far),
+                gap(light.lateral, b.left, b.right),
+                gap(light.height, b.bottom, b.top),
+            );
+            nearest = nearest.min((dx * dx + dy * dy + dz * dz).sqrt());
+            let within =
+                |value: f32, low: f32, high: f32| value > low + 1e-3 && value < high - 1e-3;
+            inside |= within(light.d, b.near, b.far)
+                && within(light.lateral, b.left, b.right)
+                && within(light.height, b.bottom, b.top);
+        }
+        (nearest, inside)
+    }
+
+    #[test]
+    fn lamps_stand_on_the_surface_of_the_shape_and_are_not_inside_it() {
+        for shape in JAPANESE.into_iter().chain(AMERICAN) {
+            for id in [LEAD_ID, PASSING_ID, ONCOMING_ID] {
+                for lateral in [None, Some(ONCOMING_LANES[1])] {
+                    let mut car = shaped(id, shape, 100.0);
+                    if let Some(lateral) = lateral {
+                        car.lateral = lateral;
+                    }
+                    let mut boxes = Vec::new();
+                    car.push_boxes(&mut boxes);
+                    for light in lights_of(&car, style_of(shape)) {
+                        let (distance, inside) = lamp_clearance(&boxes, &light);
+                        assert!(!inside, "{shape:?} {id}: {light:?}");
+                        assert!(distance < 0.12, "{shape:?} {id}: {distance} {light:?}");
+                    }
+                }
+            }
         }
     }
 
@@ -1451,7 +2092,10 @@ mod tests {
         let car = truck_of(LEAD_ID, TruckStyle::Japanese, 100.0);
         let lights = lights_of(&car, TruckStyle::Japanese);
         let tail = lights.iter().find(|l| l.height == 1.0).unwrap();
-        let upper = lights.iter().find(|l| l.height == 3.4).unwrap();
+        let upper = lights
+            .iter()
+            .find(|l| l.height == top_height(TruckShape::JapaneseBox))
+            .unwrap();
         assert!(upper.size < tail.size && upper.alpha < tail.alpha);
     }
 
@@ -1469,7 +2113,11 @@ mod tests {
         let car = truck_of(ONCOMING_ID, TruckStyle::Japanese, VIEW_DISTANCE - 3.0);
         let lights = lights_of(&car, TruckStyle::Japanese);
         assert!(lights.iter().all(|l| l.d < VIEW_DISTANCE));
-        assert!(count(&lights, 0.9, MARKER_AMBER) < 7);
+        let full = lights_of(
+            &truck_of(ONCOMING_ID, TruckStyle::Japanese, 200.0),
+            TruckStyle::Japanese,
+        );
+        assert!(lights.len() < full.len());
     }
 
     #[test]
@@ -1485,14 +2133,26 @@ mod tests {
         assert!(traffic.cars.iter().all(|c| c.rel.is_finite()));
     }
 
-    fn body_of(id: u32, truck: bool, rel: f32) -> Vec<BodyFace> {
+    fn body_of(id: u32, truck: Option<TruckShape>, rel: f32) -> Vec<BodyFace> {
         let mut car = Car::new(0, id, TruckStyle::Japanese, TrafficLevel::FULL);
         car.truck = truck;
         car.active = true;
         car.rel = rel;
-        let mut faces = Vec::new();
-        car.push_body(&mut faces);
-        faces
+        let mut boxes = Vec::new();
+        car.push_boxes(&mut boxes);
+        boxes.iter().flat_map(BodyBox::faces).collect()
+    }
+
+    fn boxes_of(id: u32, shape: TruckShape, rel: f32) -> Vec<BodyBox> {
+        let mut car = shaped(id, shape, rel);
+        car.lateral = match car.kind {
+            Kind::Lead => OWN_LANE,
+            Kind::Passing => PASSING_LANE,
+            Kind::Oncoming => ONCOMING_LANES[0],
+        };
+        let mut boxes = Vec::new();
+        car.push_boxes(&mut boxes);
+        boxes
     }
 
     fn span(faces: &[BodyFace], axis: fn(&(f32, f32, f32)) -> f32) -> f32 {
@@ -1500,10 +2160,17 @@ mod tests {
         values.clone().fold(f32::MIN, f32::max) - values.fold(f32::MAX, f32::min)
     }
 
+    const ALL_SHAPES: [TruckShape; 4] = [
+        TruckShape::JapaneseBox,
+        TruckShape::JapaneseTrailer,
+        TruckShape::AmericanSemi,
+        TruckShape::AmericanBox,
+    ];
+
     #[test]
     fn the_end_face_of_a_car_is_a_car_wide_and_high() {
         for id in [LEAD_ID, PASSING_ID, ONCOMING_ID] {
-            let faces = body_of(id, false, 50.0);
+            let faces = body_of(id, None, 50.0);
             let end = faces[0];
             assert!(end.corners.iter().all(|c| c.0 == 50.0), "{id}");
             assert!((span(&faces[..1], |c| c.1) - 1.8).abs() < 1e-4, "{id}");
@@ -1513,60 +2180,165 @@ mod tests {
                 end.corners.iter().map(|c| c.2).fold(f32::MAX, f32::min),
                 0.0
             );
-            assert!(end.corners.iter().all(|c| c.0 == 50.0), "{id}");
         }
     }
 
     #[test]
-    fn the_end_face_of_a_truck_is_a_truck_wide_and_high() {
+    fn a_car_is_a_box_of_an_end_two_sides_and_a_roof() {
         for id in [LEAD_ID, PASSING_ID, ONCOMING_ID] {
-            let faces = body_of(id, true, 50.0);
-            assert!((span(&faces[..1], |c| c.1) - 2.5).abs() < 1e-4, "{id}");
-            assert!((span(&faces[..1], |c| c.2) - 3.6).abs() < 1e-4, "{id}");
+            let faces = body_of(id, None, 50.0);
+            let parts: Vec<FacePart> = faces.iter().map(|f| f.part).collect();
+            assert_eq!(
+                parts,
+                [
+                    FacePart::End,
+                    FacePart::Side,
+                    FacePart::Side,
+                    FacePart::Roof
+                ],
+                "{id}"
+            );
+            let size = CAR_BODY;
+            let lateral = faces[0].lateral;
+            assert!(faces.iter().all(|f| f.lateral == lateral), "{id}");
+            // The sides stand at the edges of the width and reach the length of the car.
+            let (left, right) = (lateral - size.width * 0.5, lateral + size.width * 0.5);
+            assert!(faces[1].corners.iter().all(|c| c.1 == left), "{id}");
+            assert!(faces[2].corners.iter().all(|c| c.1 == right), "{id}");
+            assert!(
+                (span(&faces[1..2], |c| c.0) - size.length).abs() < 1e-4,
+                "{id}"
+            );
+            assert!(
+                (span(&faces[1..2], |c| c.2) - size.height).abs() < 1e-4,
+                "{id}"
+            );
+            assert_eq!(faces[1].corners[0].0, 50.0, "{id}");
+            // The roof is at the height of the body and covers its whole top.
+            assert!(faces[3].corners.iter().all(|c| c.2 == size.height), "{id}");
+            assert!(
+                (span(&faces[3..], |c| c.0) - size.length).abs() < 1e-4,
+                "{id}"
+            );
+            assert!(
+                (span(&faces[3..], |c| c.1) - size.width).abs() < 1e-4,
+                "{id}"
+            );
         }
     }
 
     #[test]
-    fn a_body_is_a_box_of_an_end_two_sides_and_a_roof() {
-        for (truck, size) in [(false, CAR_BODY), (true, TRUCK_BODY)] {
-            for id in [LEAD_ID, PASSING_ID, ONCOMING_ID] {
-                let faces = body_of(id, truck, 50.0);
-                let parts: Vec<FacePart> = faces.iter().map(|f| f.part).collect();
-                assert_eq!(
-                    parts,
-                    [
-                        FacePart::End,
-                        FacePart::Side,
-                        FacePart::Side,
-                        FacePart::Roof
-                    ],
-                    "{id}"
+    fn the_shapes_of_trucks_have_the_designed_sizes() {
+        let sizes = [
+            (TruckShape::JapaneseBox, 12.0, 3.8),
+            (TruckShape::JapaneseTrailer, 16.5, 4.1),
+            (TruckShape::AmericanSemi, 22.0, 4.1),
+            (TruckShape::AmericanBox, 9.5, 3.9),
+        ];
+        for (shape, length, height) in sizes {
+            let spec = shape.spec();
+            assert_eq!((spec.length, spec.height), (length, height), "{shape:?}");
+            assert_eq!(shape.length(), length);
+            // The blocks fit in the length and the width and the height, touch
+            // the front and the rear, and the tallest one is as high as the truck.
+            for block in spec.blocks {
+                assert!(block.along.0 >= 0.0 && block.along.1 <= length, "{shape:?}");
+                assert!(block.along.0 < block.along.1 && block.up.0 < block.up.1);
+                assert!(block.half_width <= TRUCK_HALF_WIDTH, "{shape:?}");
+                assert!(block.up.1 <= height, "{shape:?}");
+            }
+            assert_eq!(spec.blocks.first().unwrap().along.0, 0.0, "{shape:?}");
+            assert_eq!(spec.blocks.last().unwrap().along.1, length, "{shape:?}");
+            assert!(spec.blocks.iter().any(|b| b.up.1 == height), "{shape:?}");
+            for &axle in spec.axles {
+                let reach = WHEEL_LENGTH * 0.5;
+                assert!(axle - reach >= 0.0 && axle + reach <= length, "{shape:?}");
+            }
+        }
+        // The cabs and the cargo of the designed table.
+        assert_eq!(JAPANESE_BOX.blocks[0].along, (0.0, 2.3));
+        assert_eq!(JAPANESE_BOX.cargo, (2.6, 12.0));
+        assert_eq!(JAPANESE_TRAILER.cargo, (3.3, 16.5));
+        assert_eq!(AMERICAN_SEMI.cab, (1.8, 4.0));
+        assert_eq!(AMERICAN_SEMI.cargo, (5.9, 22.0));
+        assert_eq!(AMERICAN_BOX.cab, (1.2, 2.6));
+        assert_eq!(AMERICAN_BOX.cargo, (2.9, 9.5));
+        // Axles: the wheels of the tractor and of the trailer.
+        let axles = |shape: TruckShape| shape.spec().axles.len();
+        assert_eq!(axles(TruckShape::JapaneseBox), 3);
+        assert_eq!(axles(TruckShape::JapaneseTrailer), 6);
+        assert_eq!(axles(TruckShape::AmericanSemi), 5);
+        assert_eq!(axles(TruckShape::AmericanBox), 2);
+    }
+
+    #[test]
+    fn a_truck_is_made_of_its_blocks_and_a_wheel_each_side_for_each_set_of_axles() {
+        // The axles of a set, that are less than half a meter apart, are drawn as one.
+        let sets = [
+            (TruckShape::JapaneseBox, 2),
+            (TruckShape::JapaneseTrailer, 3),
+            (TruckShape::AmericanSemi, 3),
+            (TruckShape::AmericanBox, 2),
+        ];
+        for (shape, sets) in sets {
+            let spec = shape.spec();
+            // Far from the camera, so that nothing is cut off.
+            let boxes = boxes_of(PASSING_ID, shape, 100.0);
+            assert_eq!(boxes.len(), spec.blocks.len() + 2 * sets, "{shape:?}");
+            let wheels: Vec<&BodyBox> = boxes.iter().filter(|b| b.top == WHEEL_HEIGHT).collect();
+            assert_eq!(wheels.len(), 2 * sets, "{shape:?}");
+            for wheel in wheels {
+                assert!(wheel.far - wheel.near >= WHEEL_LENGTH - 1e-4);
+                assert!(wheel.far - wheel.near < 3.5, "{shape:?}");
+                assert!((wheel.right - wheel.left - WHEEL_WIDTH).abs() < 1e-4);
+                // Each wheel is flush with a side of the body.
+                let edge = (wheel.left - PASSING_LANE)
+                    .abs()
+                    .max((wheel.right - PASSING_LANE).abs());
+                assert!((edge - TRUCK_HALF_WIDTH).abs() < 1e-4, "{shape:?}");
+            }
+            // All of the truck lies within its length and its width.
+            for b in &boxes {
+                assert!(b.near >= 100.0 - 1e-4 && b.far <= 100.0 + spec.length + 1e-4);
+                assert!(b.left >= PASSING_LANE - TRUCK_HALF_WIDTH - 1e-4);
+                assert!(b.right <= PASSING_LANE + TRUCK_HALF_WIDTH + 1e-4);
+                assert!(b.bottom >= 0.0 && b.top <= spec.height);
+            }
+        }
+    }
+
+    #[test]
+    fn the_cab_faces_the_camera_on_an_oncoming_truck_and_the_rear_on_the_others() {
+        for shape in ALL_SHAPES {
+            let spec = shape.spec();
+            let front_top = spec.blocks[0].up.1;
+            for (id, front_first) in [(ONCOMING_ID, true), (LEAD_ID, false), (PASSING_ID, false)] {
+                let boxes = boxes_of(id, shape, 100.0);
+                let tops = |edge: f32, of: fn(&BodyBox) -> f32| {
+                    boxes
+                        .iter()
+                        .filter(|b| (of(b) - edge).abs() < 1e-4)
+                        .map(|b| b.top)
+                        .fold((f32::MAX, f32::MIN), |(lo, hi), t| (lo.min(t), hi.max(t)))
+                };
+                let (nearest, farthest) = (
+                    tops(100.0, |b| b.near),
+                    tops(100.0 + spec.length, |b| b.far),
                 );
-                let lateral = faces[0].lateral;
-                assert!(faces.iter().all(|f| f.lateral == lateral), "{id}");
-                // The sides stand at the edges of the width and reach the length of the car.
-                let (left, right) = (lateral - size.width * 0.5, lateral + size.width * 0.5);
-                assert!(faces[1].corners.iter().all(|c| c.1 == left), "{id}");
-                assert!(faces[2].corners.iter().all(|c| c.1 == right), "{id}");
-                assert!(
-                    (span(&faces[1..2], |c| c.0) - size.length).abs() < 1e-4,
-                    "{id}"
-                );
-                assert!(
-                    (span(&faces[1..2], |c| c.2) - size.height).abs() < 1e-4,
-                    "{id}"
-                );
-                assert_eq!(faces[1].corners[0].0, 50.0, "{id}");
-                // The roof is at the height of the body and covers its whole top.
-                assert!(faces[3].corners.iter().all(|c| c.2 == size.height), "{id}");
-                assert!(
-                    (span(&faces[3..], |c| c.0) - size.length).abs() < 1e-4,
-                    "{id}"
-                );
-                assert!(
-                    (span(&faces[3..], |c| c.1) - size.width).abs() < 1e-4,
-                    "{id}"
-                );
+                if front_first {
+                    // The hood or the cab is nearest, and the rear of the trailer farthest.
+                    assert_eq!(nearest.1, front_top, "{shape:?}");
+                    assert_eq!(farthest.0, spec.blocks.last().unwrap().up.1, "{shape:?}");
+                } else {
+                    // The truck is seen from behind: the rear, low where the
+                    // lamps stand, is nearest and the cab is farthest.
+                    assert!(nearest.0 <= 1.2, "{shape:?} {id}: {}", nearest.0);
+                    assert_eq!(
+                        farthest.1,
+                        front_top.max(spec.blocks[0].up.1),
+                        "{shape:?} {id}"
+                    );
+                }
             }
         }
     }
@@ -1591,7 +2363,7 @@ mod tests {
     fn the_body_of_a_passing_car_is_cut_off_at_the_camera() {
         // The rear is behind the camera: the end is gone, and what is left of
         // the sides and the roof starts at the nearest distance.
-        let faces = body_of(PASSING_ID, false, -2.0);
+        let faces = body_of(PASSING_ID, None, -2.0);
         let parts: Vec<FacePart> = faces.iter().map(|f| f.part).collect();
         assert_eq!(parts, [FacePart::Side, FacePart::Side, FacePart::Roof]);
         for face in &faces {
@@ -1600,15 +2372,31 @@ mod tests {
             assert_eq!((near, far), (NEAR_DISTANCE, 2.5));
         }
         // Once the whole car is behind the camera nothing is left.
-        assert!(body_of(PASSING_ID, false, -3.6).is_empty());
-        assert_eq!(body_of(PASSING_ID, true, -10.0).len(), 3);
-        assert!(body_of(PASSING_ID, true, -12.0).is_empty());
+        assert!(body_of(PASSING_ID, None, -3.6).is_empty());
+        let truck = Some(TruckShape::JapaneseBox);
+        assert!(!body_of(PASSING_ID, truck, -10.0).is_empty());
+        assert!(body_of(PASSING_ID, truck, -12.0).is_empty());
+        // The parts of a truck that are past the camera are gone, the others cut.
+        let boxes_at = |rel: f32| {
+            let mut car = shaped(PASSING_ID, TruckShape::JapaneseBox, rel);
+            let mut boxes = Vec::new();
+            car.lateral = PASSING_LANE;
+            car.push_boxes(&mut boxes);
+            boxes
+        };
+        let (whole, partly) = (boxes_at(100.0), boxes_at(-8.0));
+        assert!(partly.len() < whole.len());
+        assert!(
+            partly
+                .iter()
+                .all(|b| b.near >= NEAR_DISTANCE && (b.has_end || b.near == NEAR_DISTANCE))
+        );
     }
 
     #[test]
     fn the_body_stops_before_the_end_of_the_view() {
         for rel in [VIEW_DISTANCE - 3.0, VIEW_DISTANCE - 0.005, VIEW_DISTANCE] {
-            for truck in [false, true] {
+            for truck in [None, Some(TruckShape::AmericanSemi)] {
                 for id in [LEAD_ID, PASSING_ID, ONCOMING_ID] {
                     for face in body_of(id, truck, rel) {
                         assert!(
@@ -1641,9 +2429,250 @@ mod tests {
     }
 
     #[test]
+    fn every_box_of_a_car_has_the_same_sight_point() {
+        for shape in ALL_SHAPES {
+            let boxes = boxes_of(PASSING_ID, shape, 100.0);
+            assert!(boxes.iter().all(|b| b.sight == boxes[0].sight));
+            let faces = boxes.iter().flat_map(BodyBox::faces).collect::<Vec<_>>();
+            assert!(faces.iter().all(|f| f.sight == boxes[0].sight));
+            // The middle of the end that faces the camera, at half the height.
+            assert_eq!(
+                boxes[0].sight,
+                (100.0, PASSING_LANE, shape.spec().height * 0.5)
+            );
+        }
+    }
+
+    fn lane_of(car: &Car) -> u32 {
+        (car.lateral * 100.0) as i32 as u32
+    }
+
+    /// The smallest space between two cars in a lane, in meters; negative where
+    /// the bodies overlap.
+    fn least_gap(traffic: &Traffic) -> f32 {
+        let mut least = f32::MAX;
+        for (i, a) in traffic.cars.iter().enumerate() {
+            for b in &traffic.cars[i + 1..] {
+                if lane_of(a) != lane_of(b) {
+                    continue;
+                }
+                let (first, second) = if a.rel < b.rel { (a, b) } else { (b, a) };
+                least = least.min(second.rel - (first.rel + first.length()));
+            }
+        }
+        least
+    }
+
+    #[test]
+    fn cars_that_keep_apart_never_overlap_in_a_lane() {
+        for style in [
+            TruckStyle::None,
+            TruckStyle::Japanese,
+            TruckStyle::NorthAmerican,
+        ] {
+            for seed in 0..4 {
+                let mut traffic = Traffic::with_spacing(seed, style, TrafficLevel::FULL, true);
+                assert!(
+                    least_gap(&traffic) >= LANE_GAP - 1e-3,
+                    "{style:?} {seed} start"
+                );
+                let mut worst = f32::MAX;
+                run(&mut traffic, 72_000, |t| {
+                    worst = worst.min(least_gap(t));
+                    for car in &t.cars {
+                        assert!(car.rel.is_finite());
+                        if car.kind == Kind::Lead {
+                            assert!(
+                                (FOLLOW_MIN - 1.0..=FAR_AHEAD).contains(&car.rel),
+                                "{}",
+                                car.rel
+                            );
+                        }
+                    }
+                });
+                assert!(worst >= LANE_GAP - 1e-3, "{style:?} {seed}: {worst}");
+            }
+        }
+    }
+
+    #[test]
+    fn cars_that_keep_apart_neither_jump_nor_change_speed_suddenly_in_view() {
+        // Seen from the camera, a car moves by its speed times the step, and
+        // its speed changes by `LANE_SLEW` per second at most. (A car that is
+        // placed again is not seen to jump: it was not in view, or it is the
+        // lead car that is placed in the distance, as ever.) The limit allows
+        // for the rounding of positions of hundreds of meters.
+        let limit = LANE_SLEW * DT * 1.05 + 0.02;
+        let (mut checked, mut steepest) = (0, 0.0f32);
+        for style in [TruckStyle::None, TruckStyle::Japanese] {
+            for seed in 0..3 {
+                let mut traffic = Traffic::with_spacing(seed, style, TrafficLevel::FULL, true);
+                // The position, the speed (0 if not known) and the generation of each car.
+                let mut last: Vec<(f32, f32, u32)> = traffic
+                    .cars
+                    .iter()
+                    .map(|c| (c.rel, 0.0, c.generation))
+                    .collect();
+                run(&mut traffic, 72_000, |t| {
+                    for (car, last) in t.cars.iter().zip(&mut last) {
+                        let velocity = (car.rel - last.0) / DT;
+                        let in_view =
+                            car.rel + car.length() > NEAR_DISTANCE && car.rel < VIEW_DISTANCE;
+                        let same = car.generation == last.2;
+                        if same && in_view && last.1 != 0.0 {
+                            let change = (velocity - last.1).abs();
+                            steepest = steepest.max(change);
+                            assert!(
+                                change <= limit,
+                                "{style:?} {seed}: car {} {change} at {}",
+                                car.id,
+                                car.rel
+                            );
+                            checked += 1;
+                        }
+                        // A car that has been placed again has no speed to compare with.
+                        *last = (car.rel, if same { velocity } else { 0.0 }, car.generation);
+                    }
+                });
+            }
+        }
+        assert!(checked > 100_000, "{checked}");
+        assert!(steepest > 0.0);
+    }
+
+    #[test]
+    fn cars_keep_apart_even_when_every_car_is_a_long_truck() {
+        let level = TrafficLevel {
+            active: 1.0,
+            trucks: 1.0,
+        };
+        for style in [TruckStyle::Japanese, TruckStyle::NorthAmerican] {
+            for seed in 0..2 {
+                let mut traffic = Traffic::with_spacing(seed, style, level, true);
+                assert!(traffic.cars.iter().all(|c| c.truck.is_some()));
+                let mut worst = f32::MAX;
+                run(&mut traffic, 72_000, |t| worst = worst.min(least_gap(t)));
+                assert!(worst >= LANE_GAP - 1e-3, "{style:?} {seed}: {worst}");
+            }
+        }
+    }
+
+    #[test]
+    fn cars_that_do_not_keep_apart_overlap_as_before() {
+        // Without bodies the traffic is not changed: its cars pass through each other.
+        let mut traffic = Traffic::new(3, TruckStyle::Japanese);
+        let mut overlapped = false;
+        run(&mut traffic, 72_000, |t| overlapped |= least_gap(t) < 0.0);
+        assert!(overlapped);
+    }
+
+    #[test]
+    fn keeping_apart_keeps_the_traffic_busy() {
+        // The convoys that form are not a few cars in a row: most of the cars
+        // stay in view as before.
+        let mut visible = 0;
+        let mut samples = 0;
+        let mut traffic = Traffic::with_spacing(3, TruckStyle::Japanese, TrafficLevel::FULL, true);
+        run(&mut traffic, 72_000, |t| {
+            visible += t
+                .cars
+                .iter()
+                .filter(|c| (NEAR_DISTANCE..VIEW_DISTANCE).contains(&c.rel))
+                .count();
+            samples += 1;
+        });
+        let mean = visible as f32 / samples as f32;
+        assert!((8.0..22.0).contains(&mean), "{mean}");
+    }
+
+    #[test]
+    fn shapes_follow_the_style_and_the_designed_shares() {
+        for (style, shapes, share) in [
+            (TruckStyle::Japanese, JAPANESE, 0.6),
+            (TruckStyle::NorthAmerican, AMERICAN, 0.7),
+        ] {
+            let mut counts = [0u32; 4];
+            for seed in 0..200 {
+                let traffic = Traffic::with_level(
+                    seed,
+                    style,
+                    TrafficLevel {
+                        active: 1.0,
+                        trucks: 1.0,
+                    },
+                );
+                for shape in traffic.cars.iter().filter_map(|c| c.truck) {
+                    assert!(shapes.contains(&shape), "{style:?} {shape:?}");
+                    counts[ALL_SHAPES.iter().position(|&s| s == shape).unwrap()] += 1;
+                }
+            }
+            let total: u32 = counts.iter().sum();
+            let first = shapes[0];
+            let ratio =
+                counts[ALL_SHAPES.iter().position(|&s| s == first).unwrap()] as f32 / total as f32;
+            assert!(
+                total == 200 * 25 && (ratio - share).abs() < 0.03,
+                "{style:?} {ratio}"
+            );
+        }
+        assert_eq!(TruckShape::pick(TruckStyle::None, 0.0), None);
+    }
+
+    #[test]
     fn car_body_choices_give_their_opacity() {
         assert_eq!(CarBodies::Transparent.opacity(), None);
         assert_eq!(CarBodies::TranslucentBlack.opacity(), Some(0.9));
         assert_eq!(CarBodies::Black.opacity(), Some(1.0));
     }
+}
+
+#[cfg(test)]
+mod golden {
+    use super::*;
+
+    /// A hash of where the cars of the traffic are, over a drive. The traffic
+    /// of cars that do not keep apart is that of v1.8.0, which the hash below was
+    /// taken from; if this fails, a transparent picture is no longer the old one.
+    fn positions_hash(style: TruckStyle, seed: u64) -> u64 {
+        let mut traffic = Traffic::new(seed, style);
+        let mut hash = 0xcbf2_9ce4_8422_2325u64;
+        for step in 0..6000 {
+            traffic.update(0.05, 100.0 / 3.6);
+            if step % 100 == 99 {
+                for car in &traffic.cars {
+                    hash = (hash ^ u64::from(car.rel.to_bits())).wrapping_mul(0x100_0000_01b3);
+                    hash = (hash ^ u64::from(car.lateral.to_bits())).wrapping_mul(0x100_0000_01b3);
+                    hash = (hash ^ u64::from(car.braking())).wrapping_mul(0x100_0000_01b3);
+                }
+            }
+        }
+        hash
+    }
+
+    #[test]
+    fn the_traffic_of_cars_that_do_not_keep_apart_is_that_of_v1_8_0() {
+        for (style, golden) in [
+            (TruckStyle::None, GOLDEN_NONE),
+            (TruckStyle::Japanese, GOLDEN_JAPANESE),
+            (TruckStyle::NorthAmerican, GOLDEN_NORTH_AMERICAN),
+        ] {
+            let hashes: Vec<u64> = (0..4).map(|seed| positions_hash(style, seed)).collect();
+            assert_eq!(hashes, golden, "{style:?}");
+        }
+    }
+
+    const GOLDEN_NONE: [u64; 4] = [
+        6_172_463_116_687_344_504,
+        12_380_605_061_641_358_935,
+        3_654_283_632_733_167_293,
+        8_442_962_960_027_808_954,
+    ];
+    // The shape of a truck does not change where it is: the two styles agree.
+    const GOLDEN_JAPANESE: [u64; 4] = [
+        5_058_894_947_907_202_109,
+        1_888_216_671_477_799_124,
+        11_186_385_611_266_846_748,
+        2_237_644_391_015_639_066,
+    ];
+    const GOLDEN_NORTH_AMERICAN: [u64; 4] = GOLDEN_JAPANESE;
 }

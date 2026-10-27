@@ -212,25 +212,28 @@ mod tests {
     use crate::traffic::{FacePart, Traffic, TruckStyle};
 
     /// The faces of the bodies of the traffic that the camera sees, over a drive,
-    /// as (face, whether it is seen), with the road `view` and the traffic on
-    /// the side of `left_hand_traffic`.
+    /// as (face, whether it is seen, whether it is the right side of its box),
+    /// with the road `view` and the traffic on the side of `left_hand_traffic`.
     fn faces_seen(
         view: &RoadView,
         left_hand_traffic: bool,
-        mut each: impl FnMut(&crate::traffic::BodyFace, bool),
+        mut each: impl FnMut(&crate::traffic::BodyFace, bool, bool),
     ) {
         let projector = Projector::new(1280.0, 720.0, left_hand_traffic);
         let mut traffic = Traffic::new(3, TruckStyle::Japanese);
         for _ in 0..2400 {
             traffic.update(0.05, 27.0);
-            for face in traffic.bodies() {
-                // A face cut off at the end of the view is a sliver of no area.
-                let (near, far) = face
-                    .corners
-                    .iter()
-                    .fold((f32::MAX, f32::MIN), |(n, f), c| (n.min(c.0), f.max(c.0)));
-                if far - near > 0.1 || face.part == FacePart::End {
-                    each(&face, faces_camera(&face.corners, &projector, view));
+            for body in traffic.boxes() {
+                for face in body.faces() {
+                    // A face cut off at the end of the view is a sliver of no area.
+                    let (near, far) = face
+                        .corners
+                        .iter()
+                        .fold((f32::MAX, f32::MIN), |(n, f), c| (n.min(c.0), f.max(c.0)));
+                    if far - near > 0.1 || face.part == FacePart::End {
+                        let right = face.part == FacePart::Side && face.corners[0].1 == body.right;
+                        each(&face, faces_camera(&face.corners, &projector, view), right);
+                    }
                 }
             }
         }
@@ -241,25 +244,30 @@ mod tests {
         let view = RoadView::flat();
         for left_hand_traffic in [true, false] {
             let (mut sides, mut hidden_sides, mut ends) = (0, 0, 0);
-            faces_seen(&view, left_hand_traffic, |face, seen| match face.part {
-                FacePart::End => {
-                    assert!(seen);
-                    ends += 1;
+            faces_seen(&view, left_hand_traffic, |face, seen, right| {
+                match face.part {
+                    FacePart::End => {
+                        assert!(seen);
+                        ends += 1;
+                    }
+                    FacePart::Side => {
+                        // The left side is seen from the left of it, the right side from the right.
+                        let lateral = face.corners[0].1;
+                        let expected = if right {
+                            CAMERA_LATERAL > lateral
+                        } else {
+                            CAMERA_LATERAL < lateral
+                        };
+                        assert_eq!(seen, expected, "{face:?}");
+                        sides += usize::from(seen);
+                        hidden_sides += usize::from(!seen);
+                    }
+                    // The roofs of cars and trucks are above the eye of the camera;
+                    // only the tops of the wheels and the frames are below it.
+                    FacePart::Roof => {
+                        assert_eq!(seen, face.corners[0].2 < CAMERA_HEIGHT, "{face:?}")
+                    }
                 }
-                FacePart::Side => {
-                    // The left side is seen from the left of it, the right side from the right.
-                    let lateral = face.corners[0].1;
-                    let expected = if lateral < face.lateral {
-                        CAMERA_LATERAL < lateral
-                    } else {
-                        CAMERA_LATERAL > lateral
-                    };
-                    assert_eq!(seen, expected, "{face:?}");
-                    sides += usize::from(seen);
-                    hidden_sides += usize::from(!seen);
-                }
-                // The roofs of cars and trucks are above the eye of the camera.
-                FacePart::Roof => assert!(!seen, "{:?}", face),
             });
             assert!(ends > 500 && sides > 500 && hidden_sides > 500);
         }
@@ -272,9 +280,9 @@ mod tests {
         let own_lane_side = |bend: f32, left_hand_traffic: bool| {
             let view = RoadView::curved(bend, 0.0);
             let mut seen = [0usize; 2];
-            faces_seen(&view, left_hand_traffic, |face, seen_now| {
+            faces_seen(&view, left_hand_traffic, |face, seen_now, right| {
                 if face.part == FacePart::Side && face.lateral == -1.75 && seen_now {
-                    seen[usize::from(face.corners[0].1 > face.lateral)] += 1;
+                    seen[usize::from(right)] += 1;
                 }
             });
             seen
@@ -298,7 +306,7 @@ mod tests {
         let view = RoadView::curved(0.0, 30.0);
         for left_hand_traffic in [true, false] {
             let (mut roofs, mut truck_roofs, mut all) = (0, 0, 0);
-            faces_seen(&view, left_hand_traffic, |face, seen| {
+            faces_seen(&view, left_hand_traffic, |face, seen, _| {
                 all += usize::from(face.part == FacePart::Roof);
                 if face.part == FacePart::Roof && seen {
                     let height = face.corners[0].2;
