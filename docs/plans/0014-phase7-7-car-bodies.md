@@ -1,6 +1,6 @@
 # Phase 7.7 詳細設計: 他車の車体
 
-- ステータス: 実装済み(実機確認待ち。[#22](https://github.com/suchi/freeway-ss/pull/22))
+- ステータス: 完了(実機確認済み。[#22](https://github.com/suchi/freeway-ss/pull/22))
 - 日付: 2026-10-26
 - 親計画: [Phase 7 計画](0007-phase7-optional-features.md)
 
