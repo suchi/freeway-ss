@@ -220,7 +220,7 @@ MVPの項目は、本家の実行中の操作と表示(速度・通行方向・H
 | v1.8.0: 見え方の不具合の修正と立体の車体 | 完了(実機確認済み) | [0015](0015-v1-8-occlusion-and-car-boxes.md) | [#23](https://github.com/suchi/freeway-ss/pull/23) | [v1.8.0](https://github.com/suchi/freeway-ss/releases/tag/v1.8.0) |
 | v1.9.0: 他車の影とトラックらしい形 | 完了(実機確認済み) | [0016](0016-v1-9-shadows-and-truck-shapes.md) | [#24](https://github.com/suchi/freeway-ss/pull/24) | [v1.9.0](https://github.com/suchi/freeway-ss/releases/tag/v1.9.0) |
 | v1.10.0: ダッシュボード風の速度計 | 完了(実機確認済み) | [0017](0017-v1-10-dashboard-speedometer.md) | [#26](https://github.com/suchi/freeway-ss/pull/26) | [v1.10.0](https://github.com/suchi/freeway-ss/releases/tag/v1.10.0) |
-| v1.11.0: 他車の形と表示の選び方 | 計画中 | - | - | - |
+| v1.11.0: 他車の形と表示の選び方 | 実装待ち | [0018](0018-v1-11-car-shapes.md) | - | `v1.11.0`(未公開) |
 
 ```mermaid
 flowchart LR
