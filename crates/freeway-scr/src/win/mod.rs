@@ -398,6 +398,14 @@ fn span_parts(
     windows: &[HWND],
     primary_scale: impl FnOnce(usize) -> f32,
 ) -> Option<(Vec<Part>, usize)> {
+    // Why: Windows puts a minimized window far off the screen, which would
+    // stretch the picture to it.
+    if windows
+        .iter()
+        .any(|&hwnd| unsafe { IsIconic(hwnd) }.as_bool())
+    {
+        return None;
+    }
     // Why: laid out from where the windows are now, not from where they were
     // made, so that a change of the monitors (the display settings) does not
     // leave the picture where it was.
