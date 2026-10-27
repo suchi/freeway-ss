@@ -2758,9 +2758,18 @@ impl Traffic {
                     });
                 (held_up, Seconds::OUT, AHEAD_CLEAR, BEHIND_CLEAR)
             } else {
-                // Has passed a car, which is behind in the lane to return to.
-                let passed = self.neighbors(at, &[there], Some(index)).behind.is_some();
-                (passed, Seconds::RETURN, RETURN_AHEAD_CLEAR, RETURN_GAP)
+                // Has passed a car, which is behind in the lane to return to,
+                // and has no slower car ahead there that it would pass again.
+                let own = self.neighbors(at, &[there], Some(index));
+                let held_again = own.ahead.is_some_and(|a| {
+                    -a.velocity > MIN_CLOSING && a.gap < (CATCH_SECONDS * speed).max(AHEAD_CLEAR)
+                });
+                (
+                    own.behind.is_some() && !held_again,
+                    Seconds::RETURN,
+                    RETURN_AHEAD_CLEAR,
+                    RETURN_GAP,
+                )
             };
             if !wants {
                 continue;

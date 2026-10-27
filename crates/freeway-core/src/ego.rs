@@ -5,14 +5,18 @@
 //! `PASSING_LANE`); the projection mirrors them for right-hand traffic.
 
 use crate::traffic::{
-    AHEAD_CLEAR, BEHIND_CLEAR, EGO_LENGTH, LANE_GAP, MIN_CLOSING, MOVE_SECONDS, OWN_LANE,
-    PASSING_LANE, RETURN_AHEAD_CLEAR, RETURN_GAP, SIGNAL_SECONDS, Seconds, Traffic, smooth,
-    smooth_slope, tunnel_in_the_way,
+    AHEAD_CLEAR, BEHIND_CLEAR, EGO_LENGTH, LANE_GAP, MOVE_SECONDS, OWN_LANE, PASSING_LANE,
+    RETURN_AHEAD_CLEAR, RETURN_GAP, SIGNAL_SECONDS, Seconds, Traffic, smooth, smooth_slope,
+    tunnel_in_the_way,
 };
 
 /// The car looks for a way past a slower car when it is this many seconds of
 /// driving away from it.
 const CATCH_SECONDS: f32 = 4.0;
+/// A car ahead has to be at least this much slower, in meters per second,
+/// for the car to pass it; with less, passing takes minutes and the car
+/// only keeps behind it.
+const MIN_PASS_CLOSING: f32 = 2.0;
 /// ... and never from nearer than this, in meters, however slow it drives.
 /// It lets go of the car ahead at this many seconds of driving.
 const CATCH_MIN: f32 = 40.0;
@@ -30,6 +34,10 @@ const FOLLOW_GAIN: f32 = 0.2;
 const BRAKE: f32 = 3.0;
 const SAFE_DECEL: f32 = 2.5;
 const ACCELERATION: f32 = 1.5;
+/// ... and it passes cars together that are this many seconds of driving apart.
+const PLATOON_SECONDS: f32 = 3.0;
+/// A car this near behind in the passing lane is held up by the car.
+const TAILGATE_DISTANCE: f32 = 60.0;
 /// A lane change given up is not tried again before this many seconds.
 const GIVE_UP_SECONDS: f32 = 5.0;
 /// The car does not return before it has been in the other lane this long, in seconds.
@@ -163,7 +171,7 @@ impl Ego {
             Phase::Cruise | Phase::Follow => {
                 let lead = traffic.scan(&[OWN_LANE]).ahead;
                 let lead_speed = lead.map(|a| self.speed + a.velocity);
-                let slower = lead_speed.is_some_and(|v| target - v > MIN_CLOSING);
+                let slower = lead_speed.is_some_and(|v| target - v > MIN_PASS_CLOSING);
                 let caught = lead.is_some_and(|a| slower && a.gap < self.catch_distance());
                 let held = lead.is_some_and(|a| slower && a.gap < self.speed * RELEASE_SECONDS);
                 if self.phase == Phase::Follow && !held {
@@ -209,7 +217,19 @@ impl Ego {
             }
             Phase::Pass => {
                 // Return to the own lane when the cars that were passed are
-                // far enough behind, and there is room ahead of them.
+                // far enough behind, and there is room ahead of them. Not
+                // while there is a slower car in the own lane that it would
+                // have to pass again, unless a car is held up behind it.
+                let own = traffic.scan(&[OWN_LANE]);
+                // A car right behind in the passing lane, held up, wants it back.
+                let tailgated = traffic
+                    .scan(&[PASSING_LANE])
+                    .behind
+                    .is_some_and(|b| b.gap < TAILGATE_DISTANCE);
+                let held_again = !tailgated
+                    && own.ahead.is_some_and(|a| {
+                        -a.velocity > MIN_PASS_CLOSING && a.gap < self.platoon_distance()
+                    });
                 let behind_clear = if tunnel_ahead_soon(tunnels, self.speed) {
                     LANE_GAP * 2.0
                 } else {
@@ -217,12 +237,9 @@ impl Ego {
                 };
                 if self.time >= MIN_PASS_SECONDS
                     && self.pause <= 0.0
+                    && !held_again
                     && !tunnel_ahead()
-                    && traffic.scan(&[OWN_LANE]).is_open(
-                        Seconds::RETURN,
-                        RETURN_AHEAD_CLEAR,
-                        behind_clear,
-                    )
+                    && own.is_open(Seconds::RETURN, RETURN_AHEAD_CLEAR, behind_clear)
                 {
                     self.enter(Phase::SignalIn);
                     self.blink = 0.0;
@@ -252,6 +269,12 @@ impl Ego {
                 }
             }
         }
+    }
+
+    /// A slower car in the own lane this near, in meters, is passed too before
+    /// the car returns: it would be caught up with at once.
+    fn platoon_distance(&self) -> f32 {
+        (PLATOON_SECONDS * self.speed).max(CATCH_MIN)
     }
 
     /// How near a slower car ahead must be before the car thinks of passing it.
@@ -382,11 +405,13 @@ mod tests {
     #[test]
     fn it_catches_up_with_a_slower_car_passes_it_and_returns() {
         let mut world = World::new();
-        world.traffic.plant(0, OWN_LANE, 100.0, 0.8, false);
+        // Only a little slower: the pass takes long, and the car stays out
+        // until it is done.
+        world.traffic.plant(0, OWN_LANE, 100.0, 0.9, false);
         let mut phases = vec![world.ego.phase()];
         let mut passed_at = None;
         let mut least_speed = f32::MAX;
-        world.run(240.0, |w| {
+        world.run(400.0, |w| {
             if phases.last() != Some(&w.ego.phase()) {
                 phases.push(w.ego.phase());
                 if w.ego.phase() == Phase::SignalIn {
