@@ -229,7 +229,7 @@ MVPの項目は、本家の実行中の操作と表示(速度・通行方向・H
 | v1.14.0: 版の情報・流しているあいだの操作・バナーの書体・速度の変化 | 完了(実機確認済み) | [0021](0021-v1-14-version-info-and-run-controls.md) | [#30](https://github.com/suchi/freeway-ss/pull/30) | [v1.14.0](https://github.com/suchi/freeway-ss/releases/tag/v1.14.0) |
 | v1.15.0: 自車の追い越しと他車の車線変更 | 完了(実機確認済み) | [0022](0022-v1-15-overtaking-and-lane-changes.md) | [#31](https://github.com/suchi/freeway-ss/pull/31) | [v1.15.0](https://github.com/suchi/freeway-ss/releases/tag/v1.15.0) |
 | v1.16.0: 複数のモニターを1つの画面として描く | 完了(実機確認済み) | [0023](0023-v1-16-span-monitors.md) | [#32](https://github.com/suchi/freeway-ss/pull/32) | [v1.16.0](https://github.com/suchi/freeway-ss/releases/tag/v1.16.0) |
-| v1.17.0: 複数のモニターを1つの画面として描くのを既定にする | 実装中 | -(D27) | - | - |
+| v1.17.0: 複数のモニターを1つの画面として描くのを既定にする | 完了(実機確認済み) | -(D27) | [#33](https://github.com/suchi/freeway-ss/pull/33) | [v1.17.0](https://github.com/suchi/freeway-ss/releases/tag/v1.17.0) |
 
 ```mermaid
 flowchart LR
