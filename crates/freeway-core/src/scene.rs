@@ -6,7 +6,7 @@ use std::f64::consts::TAU;
 use crate::body::{Corners, depth_at, faces_camera};
 use crate::canvas::{Canvas, GLOW_HALO_RATIO, Rgb};
 use crate::cruise::Drift;
-use crate::projection::{CAMERA_HEIGHT, NEAR_DISTANCE, Projector, VIEW_DISTANCE};
+use crate::projection::{CAMERA_HEIGHT, CAMERA_LATERAL, NEAR_DISTANCE, Projector, VIEW_DISTANCE};
 use crate::road::{RoadShape, RoadView};
 use crate::scenery::Zones;
 use crate::settings::{MAX_SPEED_KMH, MIN_SPEED_KMH};
@@ -399,6 +399,8 @@ pub struct Scene {
     heading: f64,
     /// Seconds of (capped) steps since the start.
     time: f64,
+    /// Lateral position of the car, which is that of the camera.
+    lateral: f32,
     sky: Sky,
     traffic: Traffic,
     ufo: Ufo,
@@ -454,6 +456,7 @@ impl Scene {
             track_s: 0.0,
             heading: 0.0,
             time: 0.0,
+            lateral: CAMERA_LATERAL,
             sky,
             // The cars start out as busy as the road is at the start time.
             traffic: Traffic::with_shapes(
@@ -604,7 +607,7 @@ impl Scene {
             pixel_scale,
             ..viewport
         };
-        let projector = Projector::with_side(viewport.width, viewport.height, self.side);
+        let projector = self.projector(viewport.width, viewport.height);
         let view = RoadView::new(&self.road, self.track_s);
 
         let sky_view = SkyView {
@@ -692,6 +695,11 @@ impl Scene {
         }
     }
 
+    /// The projection of the view from the car.
+    fn projector(&self, width: f32, height: f32) -> Projector {
+        Projector::with_side(width, height, self.side).with_camera(self.lateral, 0.0)
+    }
+
     /// `1.0` for left-hand traffic, `-1.0` for right-hand traffic, and in
     /// between while the picture turns over.
     fn side(&self) -> f32 {
@@ -708,7 +716,7 @@ impl Scene {
 
     #[cfg(test)]
     fn lights(&self) -> Vec<Light> {
-        let projector = Projector::with_side(1280.0, 720.0, self.side);
+        let projector = self.projector(1280.0, 720.0);
         self.lights_on(&RoadView::new(&self.road, self.track_s), &projector)
     }
 
@@ -753,7 +761,7 @@ impl Scene {
             d,
             order: d,
             car: None,
-            lateral: -1.75,
+            lateral: self.lateral,
             height: 0.0,
             color: WHITE,
             alpha,
@@ -792,7 +800,7 @@ impl Scene {
             _ => true,
         });
         // Only what fits through a tunnel is seen along it.
-        let sight = self.tunnels.sight(self.track_s, view);
+        let sight = self.tunnels.sight(self.track_s, view, self.lateral);
         lights.retain(|l| {
             let (d, lateral, height) = l.sight_point();
             !sight.hides(d, lateral, height)

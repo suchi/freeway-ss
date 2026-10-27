@@ -26,6 +26,11 @@ pub struct Projector {
     /// `1.0` for left-hand traffic, `-1.0` for right-hand traffic, and in
     /// between while the picture turns over from one to the other.
     side: f32,
+    /// Lateral position of the camera.
+    camera: f32,
+    /// How far the camera is turned toward larger lateral positions, in
+    /// radians; points then move the other way on the screen.
+    yaw: f32,
 }
 
 impl Projector {
@@ -43,7 +48,25 @@ impl Projector {
             center_x: width * 0.5,
             center_y: height * 0.5,
             side,
+            camera: CAMERA_LATERAL,
+            yaw: 0.0,
         }
+    }
+
+    /// The same projection seen from `lateral` instead of the middle of the
+    /// left lane, with the camera turned by `yaw` radians toward larger
+    /// lateral positions.
+    pub fn with_camera(self, lateral: f32, yaw: f32) -> Self {
+        Self {
+            camera: lateral,
+            yaw,
+            ..self
+        }
+    }
+
+    /// Lateral position of the camera.
+    pub fn camera_lateral(&self) -> f32 {
+        self.camera
     }
 
     /// `1.0` where the screen's x grows with the lateral position (left-hand
@@ -65,9 +88,18 @@ impl Projector {
             return None;
         }
         let scale = self.focal / d;
+        let across = lateral - self.camera;
+        // The camera turned by `yaw` sees a point at `across` to the side and
+        // `d` ahead at the angle between them.
+        let across = if self.yaw == 0.0 {
+            across
+        } else {
+            let (sin, cos) = self.yaw.sin_cos();
+            d * (across * cos - d * sin) / (d * cos + across * sin)
+        };
         // Right-hand traffic mirrors the whole layout around the camera.
         Some(Projected {
-            x: self.center_x + self.side() * (lateral - CAMERA_LATERAL) * scale,
+            x: self.center_x + self.side() * across * scale,
             y: self.center_y - (height - CAMERA_HEIGHT) * scale,
             scale,
         })
@@ -122,6 +154,32 @@ mod tests {
         assert!(((a.x - 400.0) * 2.0 - (b.x - 400.0)).abs() < 1e-3);
         assert_eq!(a.y, b.y);
         assert_eq!(half.side(), 0.5);
+    }
+
+    #[test]
+    fn the_camera_follows_its_lateral_position() {
+        let moved = Projector::new(800.0, 600.0, true).with_camera(1.75, 0.0);
+        let p = moved.project(50.0, 1.75, CAMERA_HEIGHT).unwrap();
+        assert_eq!((p.x, p.y), (400.0, 300.0));
+        assert_eq!(moved.camera_lateral(), 1.75);
+    }
+
+    #[test]
+    fn a_turned_camera_moves_points_the_other_way() {
+        let straight = Projector::new(800.0, 600.0, true);
+        let turned = straight.with_camera(CAMERA_LATERAL, 0.02);
+        let a = straight.project(30.0, 3.0, 0.0).unwrap();
+        let b = turned.project(30.0, 3.0, 0.0).unwrap();
+        // About `focal * yaw` pixels to the left, for small angles.
+        let shift = a.x - b.x;
+        assert!((shift - straight.focal() * 0.02).abs() < 2.0, "{shift}");
+        assert_eq!(a.y, b.y);
+        // The straight-ahead point of the turned camera is the center.
+        let ahead = turned
+            .with_camera(CAMERA_LATERAL, 0.02)
+            .project(40.0, CAMERA_LATERAL + 40.0 * 0.02_f32.tan(), CAMERA_HEIGHT)
+            .unwrap();
+        assert!((ahead.x - 400.0).abs() < 0.5, "{}", ahead.x);
     }
 
     #[test]
