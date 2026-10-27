@@ -64,6 +64,18 @@ pub fn depth_at(
     let (near, far) = range(|c| c.0);
     let (left, right) = range(|c| c.1);
     let (bottom, top) = range(|c| c.2);
+    // How many different values the corners have along an axis.
+    let kinds = |axis: fn(&(f32, f32, f32)) -> f32| {
+        let values = [
+            axis(&corners[0]),
+            axis(&corners[1]),
+            axis(&corners[2]),
+            axis(&corners[3]),
+        ];
+        (0..4)
+            .filter(|&i| !values[..i].contains(&values[i]))
+            .count()
+    };
     if constant(|c| c.0) {
         let mut points = [(0.0, 0.0); 4];
         for (point, &(d, lateral, height)) in points.iter_mut().zip(corners) {
@@ -72,17 +84,58 @@ pub fn depth_at(
         }
         return contains(&points, (x, y)).then_some(near);
     }
-    if constant(|c| c.1) {
+    // A side or a roof that is a rectangle in its plane has the distance
+    // found by halving; other faces, slanted or cut, are found by their
+    // corners on the screen.
+    // Four different corners: a triangle, with two corners the same, is not one.
+    let four = (0..4).all(|i| (0..i).all(|j| corners[i] != corners[j]));
+    if four && constant(|c| c.1) && kinds(|c| c.0) <= 2 && kinds(|c| c.2) <= 2 {
         // The side stands at one lateral position: the screen x tells the distance.
         let d = solve(near, far, |d| Some(project(d, left, 0.0)?.x - x))?;
         let (low, high) = (project(d, left, bottom)?.y, project(d, left, top)?.y);
         return (low.min(high)..=low.max(high)).contains(&y).then_some(d);
     }
-    if constant(|c| c.2) {
+    if four && constant(|c| c.2) && kinds(|c| c.0) <= 2 && kinds(|c| c.1) <= 2 {
         // The roof lies at one height: the screen y tells the distance.
         let d = solve(near, far, |d| Some(project(d, left, bottom)?.y - y))?;
         let (a, b) = (project(d, left, bottom)?.x, project(d, right, bottom)?.x);
         return (a.min(b)..=a.max(b)).contains(&x).then_some(d);
+    }
+    slanted_depth_at(corners, &project, (x, y))
+}
+
+/// The distance of a flat face of any position at the point of the screen:
+/// the face is split into two triangles, and in each the inverse of the
+/// distance changes evenly across the screen.
+fn slanted_depth_at(
+    corners: &Corners,
+    project: &impl Fn(f32, f32, f32) -> Option<crate::projection::Projected>,
+    (x, y): (f32, f32),
+) -> Option<f32> {
+    let mut points = [(0.0, 0.0); 4];
+    let mut inverse = [0.0; 4];
+    for index in 0..4 {
+        let (d, lateral, height) = corners[index];
+        let p = project(d, lateral, height)?;
+        points[index] = (p.x, p.y);
+        inverse[index] = 1.0 / d;
+    }
+    for [a, b, c] in [[0, 1, 2], [0, 2, 3]] {
+        let (pa, pb, pc) = (points[a], points[b], points[c]);
+        let area = (pb.0 - pa.0) * (pc.1 - pa.1) - (pc.0 - pa.0) * (pb.1 - pa.1);
+        if area.abs() < 1e-9 {
+            continue;
+        }
+        let u = ((x - pa.0) * (pc.1 - pa.1) - (pc.0 - pa.0) * (y - pa.1)) / area;
+        let v = ((pb.0 - pa.0) * (y - pa.1) - (x - pa.0) * (pb.1 - pa.1)) / area;
+        let w = 1.0 - u - v;
+        // A pixel of tolerance would hide the seam between the triangles.
+        if u >= -1e-4 && v >= -1e-4 && w >= -1e-4 {
+            let inverse = w * inverse[a] + u * inverse[b] + v * inverse[c];
+            if inverse > 0.0 {
+                return Some(1.0 / inverse);
+            }
+        }
     }
     None
 }
@@ -186,6 +239,68 @@ mod tests {
     }
 
     #[test]
+    fn a_slanted_face_has_the_distance_of_the_point_it_shows() {
+        // The windshield of a car: it rises 0.5 m over 2 m, across 1.6 m.
+        let slant = [
+            (20.0, 0.95, 0.9),
+            (20.0, 2.55, 0.9),
+            (22.0, 2.45, 1.4),
+            (22.0, 1.05, 1.4),
+        ];
+        // A point of the face at `t` of the way up and `u` across.
+        let on = |t: f32, u: f32| {
+            let low = (20.0, 0.95 + 1.6 * u, 0.9);
+            let high = (22.0, 1.05 + 1.4 * u, 1.4);
+            (
+                low.0 + (high.0 - low.0) * t,
+                low.1 + (high.1 - low.1) * t,
+                low.2 + (high.2 - low.2) * t,
+            )
+        };
+        for (t, u) in [(0.2, 0.3), (0.5, 0.5), (0.8, 0.7), (0.5, 0.1)] {
+            let (d, lateral, height) = on(t, u);
+            let found = at(&slant, d, lateral, height, (0.0, 0.0)).unwrap();
+            assert!((found - d).abs() < 2e-2, "{t} {u}: {found} {d}");
+        }
+        // Beside it, or above it, there is nothing of it.
+        let (d, _, height) = on(0.5, 0.5);
+        assert_eq!(at(&slant, d, 4.0, height, (0.0, 0.0)), None);
+        assert_eq!(at(&slant, d, 1.75, height + 3.0, (0.0, 0.0)), None);
+    }
+
+    #[test]
+    fn a_side_that_is_not_a_rectangle_covers_only_what_it_covers() {
+        // The side of a car under a hood that slopes: the top edge rises toward the rear.
+        let side = [
+            (20.0, 0.85, 0.2),
+            (24.0, 0.85, 0.2),
+            (24.0, 0.85, 1.0),
+            (20.0, 0.85, 0.6),
+        ];
+        // Over the low end, a point above the slope is not covered; under it, it is.
+        assert_eq!(at(&side, 20.4, 0.85, 0.9, (0.0, 0.0)), None);
+        let found = at(&side, 20.4, 0.85, 0.4, (0.0, 0.0)).unwrap();
+        assert!((found - 20.4).abs() < 2e-2, "{found}");
+        // Over the high end, the same height is covered.
+        assert!(at(&side, 23.8, 0.85, 0.9, (0.0, 0.0)).is_some());
+    }
+
+    #[test]
+    fn a_triangle_of_a_side_covers_only_the_triangle() {
+        // The upper part of the side of a cab at the front window: a triangle
+        // with two of its corners the same.
+        let triangle = [
+            (20.0, 0.85, 0.9),
+            (20.0, 0.85, 0.9),
+            (21.0, 0.85, 1.5),
+            (21.0, 0.85, 0.9),
+        ];
+        // The corner of the rectangle that it is not part of, above its slope.
+        assert_eq!(at(&triangle, 20.2, 0.85, 1.4, (0.0, 0.0)), None);
+        assert!(at(&triangle, 20.8, 0.85, 1.0, (0.0, 0.0)).is_some());
+    }
+
+    #[test]
     fn a_light_behind_a_car_that_drives_by_is_covered_once() {
         // A delineator of the median, 60 meters ahead. The car in the passing
         // lane comes from afar, passes the light's direction and goes on.
@@ -267,6 +382,8 @@ mod tests {
                     FacePart::Roof => {
                         assert_eq!(seen, face.corners[0].2 < CAMERA_HEIGHT, "{face:?}")
                     }
+                    // Blocks have no windows.
+                    FacePart::Glass => unreachable!(),
                 }
             });
             assert!(ends > 500 && sides > 500 && hidden_sides > 500);

@@ -14,19 +14,19 @@ use windows::Win32::Foundation::{
 };
 use windows::Win32::Graphics::Direct2D::Common::{
     D2D_RECT_F, D2D1_ALPHA_MODE_IGNORE, D2D1_COLOR_F, D2D1_FIGURE_BEGIN_FILLED,
-    D2D1_FIGURE_END_CLOSED, D2D1_GRADIENT_STOP, D2D1_PIXEL_FORMAT,
+    D2D1_FIGURE_END_CLOSED, D2D1_FILL_MODE_WINDING, D2D1_GRADIENT_STOP, D2D1_PIXEL_FORMAT,
 };
 use windows::Win32::Graphics::Direct2D::{
     D2D1_BITMAP_OPTIONS_CANNOT_DRAW, D2D1_BITMAP_OPTIONS_TARGET, D2D1_BITMAP_PROPERTIES1,
     D2D1_BUFFER_PRECISION_8BPC_UNORM, D2D1_CAP_STYLE_ROUND, D2D1_COLOR_INTERPOLATION_MODE_STRAIGHT,
-    D2D1_COLOR_SPACE_SRGB, D2D1_DASH_STYLE_SOLID, D2D1_DEVICE_CONTEXT_OPTIONS_NONE,
-    D2D1_DRAW_TEXT_OPTIONS_NONE, D2D1_ELLIPSE, D2D1_EXTEND_MODE_CLAMP,
-    D2D1_FACTORY_TYPE_SINGLE_THREADED, D2D1_LINE_JOIN_ROUND, D2D1_LINEAR_GRADIENT_BRUSH_PROPERTIES,
-    D2D1_PRIMITIVE_BLEND_ADD, D2D1_PRIMITIVE_BLEND_SOURCE_OVER,
-    D2D1_RADIAL_GRADIENT_BRUSH_PROPERTIES, D2D1_STROKE_STYLE_PROPERTIES1, D2D1_UNIT_MODE_PIXELS,
-    D2D1CreateFactory, ID2D1Bitmap1, ID2D1DeviceContext, ID2D1Factory1,
-    ID2D1GradientStopCollection1, ID2D1Image, ID2D1RadialGradientBrush, ID2D1SolidColorBrush,
-    ID2D1StrokeStyle,
+    D2D1_COLOR_SPACE_SRGB, D2D1_COMBINE_MODE_EXCLUDE, D2D1_DASH_STYLE_SOLID,
+    D2D1_DEVICE_CONTEXT_OPTIONS_NONE, D2D1_DRAW_TEXT_OPTIONS_NONE, D2D1_ELLIPSE,
+    D2D1_EXTEND_MODE_CLAMP, D2D1_FACTORY_TYPE_SINGLE_THREADED, D2D1_LINE_JOIN_ROUND,
+    D2D1_LINEAR_GRADIENT_BRUSH_PROPERTIES, D2D1_PRIMITIVE_BLEND_ADD,
+    D2D1_PRIMITIVE_BLEND_SOURCE_OVER, D2D1_RADIAL_GRADIENT_BRUSH_PROPERTIES,
+    D2D1_STROKE_STYLE_PROPERTIES1, D2D1_UNIT_MODE_PIXELS, D2D1CreateFactory, ID2D1Bitmap1,
+    ID2D1DeviceContext, ID2D1Factory1, ID2D1Geometry, ID2D1GradientStopCollection1, ID2D1Image,
+    ID2D1PathGeometry1, ID2D1RadialGradientBrush, ID2D1SolidColorBrush, ID2D1StrokeStyle,
 };
 use windows::Win32::Graphics::Direct3D::{
     D3D_DRIVER_TYPE, D3D_DRIVER_TYPE_HARDWARE, D3D_DRIVER_TYPE_WARP,
@@ -547,6 +547,76 @@ impl D2dCanvas<'_> {
         }
     }
 
+    /// The closed polygon through `points` as a geometry.
+    fn polygon_geometry(&self, points: &[(f32, f32)]) -> Result<ID2D1PathGeometry1> {
+        let vertex = |&(x, y): &(f32, f32)| Vector2 { X: x, Y: y };
+        let corners: Vec<Vector2> = points.iter().skip(1).map(vertex).collect();
+        unsafe {
+            let geometry = self.factory.CreatePathGeometry()?;
+            let sink = geometry.Open()?;
+            sink.BeginFigure(vertex(&points[0]), D2D1_FIGURE_BEGIN_FILLED);
+            sink.AddLines(&corners);
+            sink.EndFigure(D2D1_FIGURE_END_CLOSED);
+            sink.Close()?;
+            Ok(geometry)
+        }
+    }
+
+    /// Fills the ellipse with the brush of the pool, but not where the
+    /// `shadows` are.
+    fn fill_shaded_ellipse(
+        &self,
+        brush: &ID2D1RadialGradientBrush,
+        (x, y, rx, ry): (f32, f32, f32, f32),
+        alpha: f32,
+        shadows: &[Vec<(f32, f32)>],
+    ) -> Result<()> {
+        let shapes: Vec<Option<ID2D1Geometry>> = shadows
+            .iter()
+            .filter(|points| points.len() >= 3)
+            .map(|points| {
+                self.polygon_geometry(points)?
+                    .cast::<ID2D1Geometry>()
+                    .map(Some)
+            })
+            .collect::<Result<_>>()?;
+        unsafe {
+            // Why: the pool is the gradient of the brush, which fades to nothing
+            // at the edge of its ellipse, so filling the rectangle around the
+            // ellipse draws the same; the rectangle has four corners where the
+            // ellipse has many segments, which makes the cut cheaper.
+            let around = self.factory.CreateRectangleGeometry(&D2D_RECT_F {
+                left: x - rx,
+                top: y - ry,
+                right: x + rx,
+                bottom: y + ry,
+            })?;
+            // Why: the brush is a unit circle that the transform of the
+            // context scales into place; the cut shape is in pixels, so the
+            // brush carries the transform instead.
+            let cut = self.factory.CreatePathGeometry()?;
+            let sink = cut.Open()?;
+            let group = self
+                .factory
+                .CreateGeometryGroup(D2D1_FILL_MODE_WINDING, &shapes)?;
+            around.CombineWithGeometry(&group, D2D1_COMBINE_MODE_EXCLUDE, None, 0.25, &sink)?;
+            sink.Close()?;
+            brush.SetOpacity(alpha);
+            brush.SetTransform(&Matrix3x2 {
+                M11: rx,
+                M12: 0.0,
+                M21: 0.0,
+                M22: ry,
+                M31: x,
+                M32: y,
+            });
+            self.context.SetTransform(&Matrix3x2::identity());
+            self.context.FillGeometry(&cut, brush, None);
+            brush.SetTransform(&Matrix3x2::identity());
+        }
+        Ok(())
+    }
+
     fn fill_unit_circle(
         &self,
         brush: &ID2D1RadialGradientBrush,
@@ -639,6 +709,39 @@ impl Canvas for D2dCanvas<'_> {
         }
     }
 
+    fn shaded_light_pool(
+        &mut self,
+        x: f32,
+        y: f32,
+        radius_x: f32,
+        radius_y: f32,
+        color: Rgb,
+        alpha: f32,
+        shadows: &[Vec<(f32, f32)>],
+    ) {
+        if !alpha.is_finite() || shadows.iter().all(|points| points.len() < 3) {
+            self.light_pool(x, y, radius_x, radius_y, color, alpha);
+            return;
+        }
+        let Some(brush) = cached_brush(
+            self.context,
+            self.pool_brushes,
+            color,
+            &POOL_STOPS,
+            &mut self.error,
+        ) else {
+            return;
+        };
+        let result = self.fill_shaded_ellipse(&brush, (x, y, radius_x, radius_y), alpha, shadows);
+        if let Err(e) = result {
+            // Leave the brush as the other pools expect it, and draw the pool
+            // whole rather than none.
+            unsafe { brush.SetTransform(&Matrix3x2::identity()) };
+            self.error.get_or_insert(e);
+            self.light_pool(x, y, radius_x, radius_y, color, alpha);
+        }
+    }
+
     fn dot(&mut self, x: f32, y: f32, size: f32, color: Rgb, alpha: f32) {
         let Some(brush) = self.solid_brush(color) else {
             return;
@@ -667,22 +770,12 @@ impl Canvas for D2dCanvas<'_> {
         let Some(brush) = self.solid_brush(color) else {
             return;
         };
-        let [first, rest @ ..] = points else {
-            return;
-        };
-        if rest.len() < 2 {
+        if points.len() < 3 {
             return;
         }
-        let vertex = |&(x, y): &(f32, f32)| Vector2 { X: x, Y: y };
-        let corners: Vec<Vector2> = rest.iter().map(vertex).collect();
         let result = unsafe {
             (|| {
-                let geometry = self.factory.CreatePathGeometry()?;
-                let sink = geometry.Open()?;
-                sink.BeginFigure(vertex(first), D2D1_FIGURE_BEGIN_FILLED);
-                sink.AddLines(&corners);
-                sink.EndFigure(D2D1_FIGURE_END_CLOSED);
-                sink.Close()?;
+                let geometry = self.polygon_geometry(points)?;
                 brush.SetOpacity(alpha.clamp(0.0, 1.0));
                 self.context.SetTransform(&Matrix3x2::identity());
                 // Why: the lights are added to the picture, but a mountain

@@ -1,5 +1,6 @@
 //! The scene: advances the journey and draws the sky, the lights of the road and other cars.
 
+use std::collections::BTreeMap;
 use std::f64::consts::TAU;
 
 use crate::body::{Corners, depth_at, faces_camera};
@@ -105,12 +106,6 @@ enum Kind {
         corners: Corners,
         sight: (f32, f32, f32),
     },
-    /// The shadow of a car on the road. It darkens what is drawn before it;
-    /// `sight` is as for a body.
-    Shadow {
-        shadow: Shadow,
-        sight: (f32, f32, f32),
-    },
 }
 
 /// A row of identical lights along the road.
@@ -137,6 +132,8 @@ const OWN_LIGHT_LEAD: f32 = 0.001;
 const BODY_END: Rgb = Rgb::new(0, 0, 0);
 const BODY_SIDE: Rgb = Rgb::new(14, 15, 18);
 const BODY_ROOF: Rgb = Rgb::new(22, 23, 27);
+/// Windows are darker and bluer than the paint.
+const BODY_GLASS: Rgb = Rgb::new(12, 14, 20);
 
 /// The street lamps on the median: where they stand across the road, how
 /// high, how far apart along it, and how far their pools of light on the
@@ -145,13 +142,17 @@ const LAMP_LATERAL: f32 = 4.5;
 const LAMP_HEIGHT: f32 = 10.0;
 const LAMP_SPACING: f64 = 45.0;
 const LAMP_POOL_RANGE: f32 = 350.0;
-/// A car casts a shadow of a street lamp when the lamp is within this
-/// distance along the road of the middle of the car, plus half its length.
-const SHADOW_REACH: f32 = 9.0;
-/// A shadow is the color of the road, which is the background, laid over
-/// the pools of light with this opacity.
-const SHADOW_COLOR: Rgb = Rgb::new(2, 3, 10);
-const SHADOW_ALPHA: f32 = 0.8;
+/// The radius of the pools of light under the street lamps, in meters, and
+/// where across the road the two pools of a lamp are.
+const LAMP_POOL_RADIUS: f32 = 9.0;
+const LAMP_POOL_LATERALS: [f32; 2] = [2.0, 7.0];
+/// The lamp is not a point but this wide, in meters. The edge of a shadow is
+/// soft by this much times the height of the edge over the road, divided by
+/// how far the lamp is above that edge (see `Shadow::of`).
+const LAMP_HEAD_RADIUS: f32 = 1.5;
+/// A shadow is cut out of the pool of light in this many layers of the
+/// pool, each cut by a shadow that is a little larger than the one before.
+const SHADOW_LAYERS: usize = 5;
 /// A convex shadow of a box has at most eight corners, and clipping it at the
 /// near and far end of the view adds two.
 const MAX_SHADOW_POINTS: usize = 10;
@@ -234,22 +235,26 @@ const ROWS: [Row; 11] = [
         Kind::Glow { size: 0.3 },
     ),
     row(
-        2.0,
+        LAMP_POOL_LATERALS[0],
         0.0,
         LAMP_SPACING,
         LAMP_POOL_RANGE,
         SODIUM,
         0.3,
-        Kind::Pool { radius: 9.0 },
+        Kind::Pool {
+            radius: LAMP_POOL_RADIUS,
+        },
     ),
     row(
-        7.0,
+        LAMP_POOL_LATERALS[1],
         0.0,
         LAMP_SPACING,
         LAMP_POOL_RANGE,
         SODIUM,
         0.3,
-        Kind::Pool { radius: 9.0 },
+        Kind::Pool {
+            radius: LAMP_POOL_RADIUS,
+        },
     ),
 ];
 
@@ -328,8 +333,11 @@ struct Light {
     color: Rgb,
     alpha: f32,
     kind: Kind,
-    /// Whether the light is the pool of light under a street lamp.
-    lamp_pool: bool,
+    /// The street lamp, as its number along the road, if the light is the pool
+    /// of light under it.
+    lamp: Option<i64>,
+    /// The shadows that cars cast on the pool of light, if it is one.
+    shadows: Vec<Shadow>,
 }
 
 impl Light {
@@ -340,15 +348,13 @@ impl Light {
     }
 
     /// Where the light is drawn when cars have bodies, from the first to the
-    /// last: the pools of light under the street lamps, the shadows that
-    /// darken them and nothing else, the other lights on the road, and then
-    /// the bodies and the lights above the road.
+    /// last: the pools of light under the street lamps, the other lights on
+    /// the road, and then the bodies and the lights above the road.
     fn layer(&self) -> u8 {
         match self.kind {
-            _ if self.lamp_pool => 0,
-            Kind::Shadow { .. } => 1,
-            _ if self.on_road() => 2,
-            _ => 3,
+            _ if self.lamp.is_some() => 0,
+            _ if self.on_road() => 1,
+            _ => 2,
         }
     }
 
@@ -357,7 +363,7 @@ impl Light {
     /// a car body is the middle of its end that faces the camera.
     fn sight_point(&self) -> (f32, f32, f32) {
         match self.kind {
-            Kind::Body { sight, .. } | Kind::Shadow { sight, .. } => sight,
+            Kind::Body { sight, .. } => sight,
             _ => (self.d, self.lateral, self.height),
         }
     }
@@ -547,10 +553,6 @@ impl Scene {
                 draw_body(&corners, light, viewport, &projector, &view, canvas);
                 continue;
             }
-            if let Kind::Shadow { shadow, .. } = light.kind {
-                draw_shadow(&shadow, light, &projector, &view, canvas);
-                continue;
-            }
             let (bend, rise) = view.offset(light.d);
             let Some(p) = projector.project(light.d, light.lateral + bend, light.height + rise)
             else {
@@ -582,10 +584,31 @@ impl Scene {
                         && radius_y >= 0.5 * viewport.pixel_scale
                         && touches(viewport, p.x, p.y, radius_x, radius_y)
                     {
-                        canvas.light_pool(p.x, p.y, radius_x, radius_y, light.color, alpha);
+                        let cut = shadow_layers(
+                            &light.shadows,
+                            (p.x, p.y, radius_x, radius_y),
+                            &projector,
+                            &view,
+                        );
+                        if cut.is_empty() {
+                            canvas.light_pool(p.x, p.y, radius_x, radius_y, light.color, alpha);
+                        }
+                        // The layers add up to the whole pool where no shadow is.
+                        let part = alpha / SHADOW_LAYERS as f32;
+                        for shadows in &cut {
+                            canvas.shaded_light_pool(
+                                p.x,
+                                p.y,
+                                radius_x,
+                                radius_y,
+                                light.color,
+                                part,
+                                shadows,
+                            );
+                        }
                     }
                 }
-                Kind::Body { .. } | Kind::Shadow { .. } => {}
+                Kind::Body { .. } => {}
             }
         }
     }
@@ -643,7 +666,9 @@ impl Scene {
                     color: row.color,
                     alpha: row.alpha * (1.0 - d / row.range),
                     kind: row.kind,
-                    lamp_pool: matches!(row.kind, Kind::Pool { .. }),
+                    lamp: matches!(row.kind, Kind::Pool { .. })
+                        .then(|| (s / row.spacing).round() as i64),
+                    shadows: Vec::new(),
                 });
             }
         }
@@ -656,7 +681,8 @@ impl Scene {
             color: WHITE,
             alpha,
             kind: Kind::Pool { radius },
-            lamp_pool: false,
+            lamp: None,
+            shadows: Vec::new(),
         }));
         lights.extend(self.traffic.lights().into_iter().map(|car| Light {
             d: car.d,
@@ -671,11 +697,14 @@ impl Scene {
             } else {
                 Kind::Glow { size: car.size }
             },
-            lamp_pool: false,
+            lamp: None,
+            shadows: Vec::new(),
         }));
+        let mut boxes = Vec::new();
         if let Some(opacity) = self.body_opacity() {
-            for body in self.traffic.boxes() {
-                self.push_body(&body, opacity, &mut lights);
+            boxes = self.traffic.boxes();
+            for body in &boxes {
+                self.push_body(body, opacity, &mut lights);
             }
         }
         // Of the box of a body only the faces that turn toward the camera are seen.
@@ -700,10 +729,19 @@ impl Scene {
             let (d, lateral, height) = l.sight_point();
             index <= outside || !sight.blocked(d, lateral, height)
         });
+        // The cars shade the pools of light of the street lamps they pass.
+        let mut shadows = self.shadows_by_lamp(&boxes, |(d, lateral, height)| {
+            sight.hides(d, lateral, height)
+        });
+        for light in &mut lights {
+            if let Some(found) = light.lamp.and_then(|lamp| shadows.get_mut(&lamp)) {
+                light.shadows.clone_from(found);
+            }
+        }
         self.place_among_bodies(&mut lights, view, projector);
-        // With bodies, the lights on the road come first, and the shadows
-        // among them (see `Light::layer`): a body covers the lights behind it,
-        // and those in front of it lie below it.
+        // With bodies, the lights on the road come first (see `Light::layer`):
+        // a body covers the lights behind it, and those in front of it lie
+        // below it.
         let with_bodies = self.config.car_shapes.has_bodies();
         let layer = |l: &Light| if with_bodies { l.layer() } else { 0 };
         lights.sort_by(|a, b| layer(a).cmp(&layer(b)).then(b.order.total_cmp(&a.order)));
@@ -725,51 +763,60 @@ impl Scene {
                     FacePart::End => BODY_END,
                     FacePart::Side => BODY_SIDE,
                     FacePart::Roof => BODY_ROOF,
+                    FacePart::Glass => BODY_GLASS,
                 },
                 alpha: opacity,
                 kind: Kind::Body {
                     corners: face.corners,
                     sight: face.sight,
                 },
-                lamp_pool: false,
+                lamp: None,
+                shadows: Vec::new(),
             });
         }
-        // The low parts, wheels and frames, cast no shadow of their own.
-        let Some(shadow_heights) = body.shadow else {
-            return;
-        };
-        // The street lamps near the car, that have a pool of light on the road.
-        let reach = SHADOW_REACH + body.half_length;
-        let (low, high) = (body.center - reach, body.center + reach);
-        let mut index = ((self.track_s + f64::from(low)) / LAMP_SPACING).ceil();
-        loop {
-            let s = index * LAMP_SPACING;
-            let lamp = (s - self.track_s) as f32;
-            if lamp > high {
-                break;
-            }
-            index += 1.0;
-            if lamp < NEAR_DISTANCE || lamp >= LAMP_POOL_RANGE || self.tunnels.contains(s) {
-                continue;
-            }
-            let Some(shadow) = Shadow::of(body, shadow_heights, lamp) else {
+    }
+
+    /// The shadows that the cars cast on the pools of light of the street
+    /// lamps, by the lamp. A car shades a pool wherever its shadow reaches it,
+    /// so a shadow grows from the edge of the pool, where there is no light
+    /// to take away, and never appears or vanishes in the middle of one.
+    fn shadows_by_lamp(
+        &self,
+        boxes: &[BodyBox],
+        hidden: impl Fn((f32, f32, f32)) -> bool,
+    ) -> BTreeMap<i64, Vec<Shadow>> {
+        let mut found: BTreeMap<i64, Vec<Shadow>> = BTreeMap::new();
+        for body in boxes {
+            // The low parts, wheels and frames, cast no shadow of their own.
+            let Some(heights) = body.shadow else {
                 continue;
             };
-            lights.push(Light {
-                d: body.near,
-                order: body.near,
-                car: Some(body.car),
-                lateral: body.lateral,
-                height: 0.0,
-                color: SHADOW_COLOR,
-                alpha: SHADOW_ALPHA,
-                kind: Kind::Shadow {
-                    shadow,
-                    sight: body.sight,
-                },
-                lamp_pool: false,
-            });
+            if hidden(body.sight) {
+                continue;
+            }
+            // A lamp farther along the road than a pool is wide from the car
+            // has no pool where the shadow falls.
+            let (low, high) = (body.near - LAMP_POOL_RADIUS, body.far + LAMP_POOL_RADIUS);
+            let mut index = ((self.track_s + f64::from(low)) / LAMP_SPACING).ceil();
+            loop {
+                let s = index * LAMP_SPACING;
+                let lamp = (s - self.track_s) as f32;
+                if lamp > high {
+                    break;
+                }
+                let key = index as i64;
+                index += 1.0;
+                if lamp < NEAR_DISTANCE || lamp >= LAMP_POOL_RANGE {
+                    continue;
+                }
+                if let Some(shadow) = Shadow::of(body, heights, lamp)
+                    && shadow.reaches_pools(lamp)
+                {
+                    found.entry(key).or_default().push(shadow);
+                }
+            }
         }
+        found
     }
 
     /// Settles which lights are covered by the bodies of other cars and
@@ -815,7 +862,7 @@ impl Scene {
             .collect();
         let mut hidden = vec![false; lights.len()];
         for (light, hidden) in lights.iter_mut().zip(&mut hidden) {
-            if matches!(light.kind, Kind::Body { .. } | Kind::Shadow { .. }) {
+            if matches!(light.kind, Kind::Body { .. }) {
                 continue;
             }
             // The lights of a car lie right after its body, at the same place.
@@ -894,7 +941,8 @@ impl Scene {
                         color: row.color,
                         alpha: row.alpha * (1.0 - d / row.range),
                         kind: row.kind,
-                        lamp_pool: false,
+                        lamp: None,
+                        shadows: Vec::new(),
                     });
                 }
             };
@@ -913,6 +961,8 @@ impl Scene {
 struct Shadow {
     points: [(f32, f32); MAX_SHADOW_POINTS],
     count: usize,
+    /// How far the edge of the shadow is soft to each side of it, in meters.
+    soft: f32,
 }
 
 impl Shadow {
@@ -922,26 +972,40 @@ impl Shadow {
     /// Each corner of the box is projected from the lamp onto the road, and
     /// the shadow is the convex hull of the projections.
     fn of(body: &BodyBox, heights: (f32, f32), lamp: f32) -> Option<Self> {
-        let mut cast = Vec::with_capacity(8);
-        for height in [heights.0, heights.1] {
+        // The corners of a box at its lowest and highest height, or the points
+        // of the outline of a car.
+        let corners: Vec<(f32, f32, f32)> = match &body.solid {
+            Some(solid) => solid.casts(),
+            None => [heights.0, heights.1]
+                .into_iter()
+                .flat_map(|height| {
+                    [
+                        (body.near, body.left),
+                        (body.near, body.right),
+                        (body.far, body.right),
+                        (body.far, body.left),
+                    ]
+                    .map(|(d, lateral)| (d, lateral, height))
+                })
+                .collect(),
+        };
+        let mut cast = Vec::with_capacity(corners.len());
+        for (d, lateral, height) in corners {
             if height >= LAMP_HEIGHT {
                 return None;
             }
             // The line from the lamp through the corner meets the road
             // this many times as far from the lamp as the corner is.
             let stretch = LAMP_HEIGHT / (LAMP_HEIGHT - height);
-            for (d, lateral) in [
-                (body.near, body.left),
-                (body.near, body.right),
-                (body.far, body.right),
-                (body.far, body.left),
-            ] {
-                cast.push((
-                    lamp + (d - lamp) * stretch,
-                    LAMP_LATERAL + (lateral - LAMP_LATERAL) * stretch,
-                ));
-            }
+            cast.push((
+                lamp + (d - lamp) * stretch,
+                LAMP_LATERAL + (lateral - LAMP_LATERAL) * stretch,
+            ));
         }
+        let heights = (
+            heights.0,
+            body.solid.as_ref().map_or(heights.1, |s| s.top()),
+        );
         let hull = convex_hull(cast);
         let hull = clip_distance(hull, |d| d - NEAR_DISTANCE);
         let hull = clip_distance(hull, |d| VIEW_DISTANCE - 0.01 - d);
@@ -950,15 +1014,129 @@ impl Shadow {
         }
         let mut points = [(0.0, 0.0); MAX_SHADOW_POINTS];
         points[..hull.len()].copy_from_slice(&hull);
+        // The lamp is wide: an edge higher over the road is softer.
+        let top = heights.1;
         Some(Self {
             points,
             count: hull.len(),
+            soft: LAMP_HEAD_RADIUS * top / (LAMP_HEIGHT - top),
         })
     }
 
     fn points(&self) -> &[(f32, f32)] {
         &self.points[..self.count]
     }
+
+    /// Whether the shadow, with its soft edge, touches a pool of light of the
+    /// street lamp `lamp` meters ahead.
+    fn reaches_pools(&self, lamp: f32) -> bool {
+        LAMP_POOL_LATERALS.iter().any(|&lateral| {
+            distance_to_polygon((lamp, lateral), self.points()) < LAMP_POOL_RADIUS + self.soft
+        })
+    }
+
+    /// The polygon of one of the `SHADOW_LAYERS` layers of the shadow, from
+    /// the smallest, which is all dark, to the largest, which holds all that
+    /// is a little dark. Each is cut off at the ends of the view.
+    fn layer(&self, index: usize) -> Vec<(f32, f32)> {
+        let spread = 2.0 * (index as f32 + 0.5) / SHADOW_LAYERS as f32 - 1.0;
+        let polygon = offset_polygon(self.points(), self.soft * spread);
+        let polygon = clip_distance(polygon, |d| d - NEAR_DISTANCE);
+        let polygon = clip_distance(polygon, |d| VIEW_DISTANCE - 0.01 - d);
+        // Rounding in the cut may leave a point a hair outside what can be
+        // projected, which would lose the whole shadow.
+        polygon
+            .into_iter()
+            .map(|(d, lateral)| (d.clamp(NEAR_DISTANCE, VIEW_DISTANCE - 0.01), lateral))
+            .collect()
+    }
+}
+
+/// The convex polygon, counterclockwise, with its edges moved out by `delta`
+/// meters (in by `-delta` where that is negative, but never more than the
+/// shape allows).
+fn offset_polygon(points: &[(f32, f32)], delta: f32) -> Vec<(f32, f32)> {
+    let count = points.len();
+    if count < 3 || delta == 0.0 {
+        return points.to_vec();
+    }
+    // Each edge as (start, direction, outward normal).
+    let mut edges = Vec::with_capacity(count);
+    let mut width = f32::MAX;
+    for (index, &a) in points.iter().enumerate() {
+        let b = points[(index + 1) % count];
+        let length = (b.0 - a.0).hypot(b.1 - a.1);
+        if length < 1e-6 {
+            return points.to_vec();
+        }
+        let direction = ((b.0 - a.0) / length, (b.1 - a.1) / length);
+        let normal = (direction.1, -direction.0);
+        let depth = points
+            .iter()
+            .map(|p| -((p.0 - a.0) * normal.0 + (p.1 - a.1) * normal.1))
+            .fold(0.0, f32::max);
+        width = width.min(depth);
+        edges.push((a, direction, normal));
+    }
+    let delta = if delta < 0.0 {
+        delta.max(-0.45 * width)
+    } else {
+        delta
+    };
+    (0..count)
+        .map(|index| {
+            // The corner after edge `index` is where it meets the next edge.
+            let (a, u, normal) = edges[index];
+            let (b, v, _) = edges[(index + 1) % count];
+            let start = (a.0 + normal.0 * delta, a.1 + normal.1 * delta);
+            let next = (
+                b.0 + edges[(index + 1) % count].2.0 * delta,
+                b.1 + edges[(index + 1) % count].2.1 * delta,
+            );
+            let cross = u.0 * v.1 - u.1 * v.0;
+            let corner = points[(index + 1) % count];
+            let moved = if cross.abs() < 1e-4 {
+                (corner.0 + normal.0 * delta, corner.1 + normal.1 * delta)
+            } else {
+                let t = ((next.0 - start.0) * v.1 - (next.1 - start.1) * v.0) / cross;
+                (start.0 + u.0 * t, start.1 + u.1 * t)
+            };
+            // A sharp corner would reach far out: keep it near.
+            let shift = (moved.0 - corner.0, moved.1 - corner.1);
+            let reach = shift.0.hypot(shift.1);
+            let most = 2.5 * delta.abs();
+            if reach > most {
+                (
+                    corner.0 + shift.0 * most / reach,
+                    corner.1 + shift.1 * most / reach,
+                )
+            } else {
+                moved
+            }
+        })
+        .collect()
+}
+
+/// The distance of the point from the convex polygon, `0.0` inside it.
+fn distance_to_polygon(point: (f32, f32), points: &[(f32, f32)]) -> f32 {
+    let count = points.len();
+    let mut inside = true;
+    let mut nearest = f32::MAX;
+    for index in 0..count {
+        let (a, b) = (points[index], points[(index + 1) % count]);
+        let (dx, dy) = (b.0 - a.0, b.1 - a.1);
+        if dx * (point.1 - a.1) - dy * (point.0 - a.0) < 0.0 {
+            inside = false;
+        }
+        let length_squared = dx * dx + dy * dy;
+        let t = if length_squared > 0.0 {
+            (((point.0 - a.0) * dx + (point.1 - a.1) * dy) / length_squared).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        nearest = nearest.min((point.0 - a.0 - dx * t).hypot(point.1 - a.1 - dy * t));
+    }
+    if inside { 0.0 } else { nearest }
 }
 
 /// The convex hull of the points, counterclockwise (Andrew's monotone chain).
@@ -1007,24 +1185,61 @@ fn clip_distance(polygon: Vec<(f32, f32)>, inside: impl Fn(f32) -> f32) -> Vec<(
     clipped
 }
 
-/// Draws the shadow of a car on the road.
-fn draw_shadow(
-    shadow: &Shadow,
-    light: &Light,
+/// The shadows on a pool of light, as polygons of the screen for each layer
+/// of the pool; empty where no shadow touches the pool, which is the ellipse
+/// `(x, y, radius_x, radius_y)`.
+fn shadow_layers(
+    shadows: &[Shadow],
+    (x, y, radius_x, radius_y): (f32, f32, f32, f32),
     projector: &Projector,
     view: &RoadView,
-    canvas: &mut dyn Canvas,
-) {
-    let mut points = [(0.0, 0.0); MAX_SHADOW_POINTS];
-    for (point, &(d, lateral)) in points.iter_mut().zip(shadow.points()) {
-        // The shadow lies on the road, which bends and rises with its distance.
-        let (bend, rise) = view.offset(d);
-        let Some(p) = projector.project(d, lateral + bend, rise) else {
-            return;
+) -> Vec<Vec<Vec<(f32, f32)>>> {
+    // The shadow lies on the road, which bends and rises with its distance.
+    let project = |polygon: &[(f32, f32)]| -> Option<Vec<(f32, f32)>> {
+        polygon
+            .iter()
+            .map(|&(d, lateral)| {
+                let (bend, rise) = view.offset(d);
+                let p = projector.project(d, lateral + bend, rise)?;
+                Some((p.x, p.y))
+            })
+            .collect()
+    };
+    let mut layers: Vec<Vec<Vec<(f32, f32)>>> = vec![Vec::new(); SHADOW_LAYERS];
+    for shadow in shadows {
+        // The largest layer holds all of the others.
+        let outer = shadow.layer(SHADOW_LAYERS - 1);
+        let Some(outline) = project(&outer).filter(|_| outer.len() >= 3) else {
+            continue;
         };
-        *point = (p.x, p.y);
+        let (left, right) = outline.iter().fold((f32::MAX, f32::MIN), |(lo, hi), p| {
+            (lo.min(p.0), hi.max(p.0))
+        });
+        let (top, bottom) = outline.iter().fold((f32::MAX, f32::MIN), |(lo, hi), p| {
+            (lo.min(p.1), hi.max(p.1))
+        });
+        let touches_pool = right >= x - radius_x
+            && left <= x + radius_x
+            && bottom >= y - radius_y
+            && top <= y + radius_y;
+        if !touches_pool {
+            continue;
+        }
+        for (index, layer) in layers.iter_mut().enumerate() {
+            let polygon = shadow.layer(index);
+            if polygon.len() < 3 {
+                continue;
+            }
+            if let Some(points) = project(&polygon) {
+                layer.push(points);
+            }
+        }
     }
-    canvas.silhouette(&points[..shadow.count], light.color, light.alpha);
+    if layers.iter().all(Vec::is_empty) {
+        Vec::new()
+    } else {
+        layers
+    }
 }
 
 /// Draws a face of a car body as a polygon, if it is in view.
@@ -1094,6 +1309,14 @@ mod tests {
             ry: f32,
             alpha: f32,
         },
+        ShadedPool {
+            x: f32,
+            y: f32,
+            rx: f32,
+            ry: f32,
+            alpha: f32,
+            shadows: Vec<Vec<(f32, f32)>>,
+        },
         Dot {
             x: f32,
             y: f32,
@@ -1131,6 +1354,7 @@ mod tests {
             match *self {
                 Command::Glow { x, y, .. }
                 | Command::Pool { x, y, .. }
+                | Command::ShadedPool { x, y, .. }
                 | Command::Dot { x, y, .. } => Some((x, y)),
                 Command::Streak { head, .. } => Some(head),
                 Command::Band { .. } | Command::Silhouette { .. } | Command::Beam { .. } => None,
@@ -1138,7 +1362,7 @@ mod tests {
         }
 
         fn is_sky(&self) -> bool {
-            !matches!(self, Command::Pool { .. })
+            !matches!(self, Command::Pool { .. } | Command::ShadedPool { .. })
         }
     }
 
@@ -1161,6 +1385,25 @@ mod tests {
                 rx,
                 ry,
                 alpha,
+            });
+        }
+        fn shaded_light_pool(
+            &mut self,
+            x: f32,
+            y: f32,
+            rx: f32,
+            ry: f32,
+            _: Rgb,
+            alpha: f32,
+            shadows: &[Vec<(f32, f32)>],
+        ) {
+            self.0.push(Command::ShadedPool {
+                x,
+                y,
+                rx,
+                ry,
+                alpha,
+                shadows: shadows.to_vec(),
             });
         }
         fn dot(&mut self, x: f32, y: f32, size: f32, _: Rgb, alpha: f32) {
@@ -1374,6 +1617,20 @@ mod tests {
                 ry,
                 alpha,
             } => ([x, y], alpha, [rx, ry]),
+            Command::ShadedPool {
+                x,
+                y,
+                rx,
+                ry,
+                alpha,
+                ref shadows,
+            } => {
+                for points in shadows {
+                    assert!(points.len() >= 3);
+                    assert!(points.iter().all(|(x, y)| x.is_finite() && y.is_finite()));
+                }
+                ([x, y], alpha, [rx, ry])
+            }
             Command::Dot { x, y, size, alpha } => ([x, y], alpha, [size; 2]),
             Command::Silhouette {
                 ref points, alpha, ..
@@ -2211,10 +2468,14 @@ mod tests {
     /// The lights seen over a body (the screen position of the light is on
     /// the face), as (index of the light, index of the body, whether the light
     /// is behind the face), in each frame of a drive.
-    fn covered_pairs(config: SceneConfig, mut each: impl FnMut(&[Light], usize, usize, bool)) {
+    fn covered_pairs(
+        config: SceneConfig,
+        steps: usize,
+        mut each: impl FnMut(&[Light], usize, usize, bool),
+    ) {
         let projector = Projector::new(1280.0, 720.0, config.left_hand_traffic);
         let mut scene = Scene::new(config);
-        for step in 0..3000 {
+        for step in 0..steps {
             scene.update(MAX_STEP_SECONDS);
             if step % 4 != 0 {
                 continue;
@@ -2222,12 +2483,7 @@ mod tests {
             let view = RoadView::new(&scene.road, scene.track_s);
             let lights = scene.lights_on(&view, &projector);
             for (index, light) in lights.iter().enumerate() {
-                if light.on_road()
-                    || matches!(
-                        light.kind,
-                        Kind::Body { .. } | Kind::Pool { .. } | Kind::Shadow { .. }
-                    )
-                {
+                if light.on_road() || matches!(light.kind, Kind::Body { .. } | Kind::Pool { .. }) {
                     continue;
                 }
                 let (bend, rise) = view.offset(light.d);
@@ -2268,6 +2524,7 @@ mod tests {
         for seed in 1..=2 {
             covered_pairs(
                 bodies_config(seed, CarColor::TranslucentBlack),
+                3000,
                 |lights, light, body, is_behind| {
                     // The lights of cars are drawn right after their own bodies; one
                     // that lies behind the body of another car, which is farther
@@ -2290,6 +2547,7 @@ mod tests {
         for seed in 1..=2 {
             covered_pairs(
                 bodies_config(seed, CarColor::Black),
+                3000,
                 |lights, light, body, is_behind| {
                     behind += usize::from(is_behind);
                     front += usize::from(!is_behind);
@@ -2548,9 +2806,17 @@ mod tests {
     /// A scene whose cars have bodies of realistic shapes.
     fn bodies_config(seed: u64, car_color: CarColor) -> SceneConfig {
         SceneConfig {
-            car_shapes: CarShapes::Detailed,
+            car_shapes: CarShapes::Blocks,
             car_color,
             ..plain_config(seed)
+        }
+    }
+
+    /// A scene whose cars have bodies with the outlines of cars.
+    fn detailed_config(seed: u64, car_color: CarColor) -> SceneConfig {
+        SceneConfig {
+            car_shapes: CarShapes::Detailed,
+            ..bodies_config(seed, car_color)
         }
     }
 
@@ -2565,11 +2831,13 @@ mod tests {
         }
     }
 
+    /// Polygons of points of the screen.
+    type Polygons = Vec<Vec<(f32, f32)>>;
+
     /// The points, color and opacity of a silhouette.
     type Shape<'a> = (&'a Vec<(f32, f32)>, Rgb, f32);
 
-    /// The silhouettes that are not shadows; with no mountains and no tunnels,
-    /// they are car bodies.
+    /// The silhouettes; with no mountains and no tunnels, they are car bodies.
     fn body_shapes(commands: &[Command]) -> Vec<Shape<'_>> {
         commands
             .iter()
@@ -2578,22 +2846,19 @@ mod tests {
                     points,
                     color,
                     alpha,
-                } if *color != SHADOW_COLOR => Some((points, *color, *alpha)),
+                } => Some((points, *color, *alpha)),
                 _ => None,
             })
             .collect()
     }
 
-    /// The shadows among the silhouettes.
-    fn shadow_shapes(commands: &[Command]) -> Vec<Shape<'_>> {
+    /// The pools of light that are drawn with shadows cut out, as the shadows
+    /// of each of the layers of the pool and the part of the pool it draws.
+    fn shaded_pools(commands: &[Command]) -> Vec<(f32, &Polygons)> {
         commands
             .iter()
             .filter_map(|c| match c {
-                Command::Silhouette {
-                    points,
-                    color,
-                    alpha,
-                } if *color == SHADOW_COLOR => Some((points, *color, *alpha)),
+                Command::ShadedPool { alpha, shadows, .. } => Some((*alpha, shadows)),
                 _ => None,
             })
             .collect()
@@ -2709,10 +2974,11 @@ mod tests {
             .collect();
         let with: Vec<String> = record(&black, VIEWPORT)
             .iter()
-            .filter(|c| !matches!(c, Command::Silhouette { .. }))
+            .filter(|c| !matches!(c, Command::Silhouette { .. } | Command::ShadedPool { .. }))
             .map(|c| format!("{c:?}"))
             .collect();
-        // Every light that remains was there without bodies.
+        // Every light that remains was there without bodies (the pools that
+        // are cut by shadows are drawn another way).
         for command in &with {
             let found = without.iter().position(|c| c == command);
             assert!(found.is_some(), "{command}");
@@ -2738,7 +3004,7 @@ mod tests {
                     continue;
                 };
                 let own = lights.iter().enumerate().filter(|(_, l)| {
-                    l.car == face.car && l.layer() == 3 && !matches!(l.kind, Kind::Body { .. })
+                    l.car == face.car && l.layer() == 2 && !matches!(l.kind, Kind::Body { .. })
                 });
                 for (other, _) in own {
                     assert!(index < other, "{seed}");
@@ -2747,7 +3013,7 @@ mod tests {
                 // Whatever is nearer than the whole car comes after it.
                 let near = corners.iter().map(|c| c.0).fold(f32::MAX, f32::min);
                 for (other, light) in lights.iter().enumerate() {
-                    if light.d < near && light.layer() == 3 {
+                    if light.d < near && light.layer() == 2 {
                         assert!(index < other, "{seed}");
                         checked.1 += 1;
                     }
@@ -2765,10 +3031,15 @@ mod tests {
         for seed in 1..=4 {
             let scene = driven(bodies_config(seed, CarColor::Black), 20);
             let commands = record(&scene, VIEWPORT);
-            let is_body = |c: &Command| matches!(c, Command::Silhouette { color, .. } if *color != SHADOW_COLOR);
+            let is_body = |c: &Command| matches!(c, Command::Silhouette { .. });
             let first = commands.iter().position(is_body).unwrap();
             let last = commands.iter().rposition(is_body).unwrap();
-            let is_light = |c: &Command| matches!(c, Command::Glow { .. } | Command::Pool { .. });
+            let is_light = |c: &Command| {
+                matches!(
+                    c,
+                    Command::Glow { .. } | Command::Pool { .. } | Command::ShadedPool { .. }
+                )
+            };
             before += commands[..first].iter().filter(|c| is_light(c)).count();
             after += commands[last..].iter().filter(|c| is_light(c)).count();
         }
@@ -2811,7 +3082,7 @@ mod tests {
     #[test]
     fn no_body_of_an_oncoming_car_is_seen_through_a_tunnel() {
         let (mut scene, _) = near_first_tunnel(TunnelLighting::Led, 300.0);
-        scene.config.car_shapes = CarShapes::Detailed;
+        scene.config.car_shapes = CarShapes::Blocks;
         scene.config.car_color = CarColor::Black;
         let mut same_direction = false;
         for _ in 0..600 {
@@ -2861,6 +3132,7 @@ mod tests {
             half_length: 2.25,
             shadow: Some((0.0, 1.45)),
             covered: None,
+            solid: None,
         }
     }
 
@@ -2950,6 +3222,24 @@ mod tests {
                 }
             }
         }
+        // Every point of every layer can be projected, however the box is cut.
+        for lamp in [1.0, 2.5, 50.0, 349.0] {
+            for step in 0..200 {
+                let ahead = -40.0 + step as f32 * 0.37;
+                let body = box_beside_a_lamp(ahead, lamp);
+                let Some(shadow) = cast(&body, lamp) else {
+                    continue;
+                };
+                for index in 0..SHADOW_LAYERS {
+                    for (d, lateral) in shadow.layer(index) {
+                        assert!(
+                            (NEAR_DISTANCE..VIEW_DISTANCE).contains(&d) && lateral.is_finite(),
+                            "{lamp} {ahead} {index}: {d}"
+                        );
+                    }
+                }
+            }
+        }
         // A box higher than the lamp casts no shadow.
         let body = BodyBox {
             top: LAMP_HEIGHT,
@@ -2959,7 +3249,7 @@ mod tests {
     }
 
     #[test]
-    fn cars_cast_shadows_on_the_pools_of_the_street_lamps_when_they_have_bodies() {
+    fn cars_shade_the_pools_of_the_street_lamps_when_they_have_bodies() {
         let (mut frames, mut shadows) = (0, 0);
         for seed in 1..=3 {
             let mut scene = Scene::new(bodies_config(seed, CarColor::Black));
@@ -2969,29 +3259,36 @@ mod tests {
                     continue;
                 }
                 let lights = scene.lights();
-                let shadow_at: Vec<usize> = (0..lights.len())
-                    .filter(|&i| matches!(lights[i].kind, Kind::Shadow { .. }))
-                    .collect();
-                shadows += shadow_at.len();
-                frames += usize::from(!shadow_at.is_empty());
-                // After the pools of the street lamps, and before the other lights
-                // on the road, the bodies and everything else.
-                let pool_end = lights.iter().rposition(|l| l.lamp_pool);
-                let others = lights.iter().position(|l| l.layer() >= 2);
-                for &i in &shadow_at {
-                    assert!(pool_end.is_none_or(|end| end < i), "{seed} {step}");
-                    assert!(others.is_none_or(|first| i < first), "{seed} {step}");
-                    // Each car casts it for lamps within reach, at most two.
-                    assert!(lights[i].car.is_some() && lights[i].alpha == SHADOW_ALPHA);
+                // Only the pools of the street lamps have shadows, and they
+                // are drawn before the other lights on the road.
+                assert!(lights.iter().all(|l| l.lamp.is_some()
+                    == matches!(l.kind, Kind::Pool { radius } if radius == LAMP_POOL_RADIUS)
+                    || !matches!(l.kind, Kind::Pool { .. })));
+                assert!(
+                    lights
+                        .iter()
+                        .all(|l| l.shadows.is_empty() || (l.lamp.is_some() && l.layer() == 0))
+                );
+                let shaded = lights.iter().filter(|l| !l.shadows.is_empty()).count();
+                shadows += shaded;
+                frames += usize::from(shaded > 0);
+                // Both pools of a lamp have the same shadows.
+                for light in lights.iter().filter(|l| !l.shadows.is_empty()) {
+                    let twin = lights
+                        .iter()
+                        .find(|l| l.lamp == light.lamp && l.lateral != light.lateral)
+                        .unwrap();
+                    assert_eq!(twin.shadows.len(), light.shadows.len());
                 }
-                assert!(lights.iter().all(
-                    |l| l.lamp_pool == matches!(l.kind, Kind::Pool { radius } if radius == 9.0)
-                ));
                 let commands = record(&scene, VIEWPORT);
-                for (points, color, alpha) in shadow_shapes(&commands) {
-                    assert_eq!((color, alpha), (SHADOW_COLOR, SHADOW_ALPHA));
-                    assert!(points.len() >= 3);
-                    assert!(points.iter().all(|(x, y)| x.is_finite() && y.is_finite()));
+                // No dark shape is laid over the picture: the only silhouettes
+                // are bodies, and the pools are cut.
+                for (part, layers) in shaded_pools(&commands) {
+                    assert!(part > 0.0 && part.is_finite());
+                    for points in layers.iter() {
+                        assert!(points.len() >= 3);
+                        assert!(points.iter().all(|(x, y)| x.is_finite() && y.is_finite()));
+                    }
                 }
             }
         }
@@ -2999,50 +3296,210 @@ mod tests {
     }
 
     #[test]
-    fn a_shadow_is_drawn_between_the_pools_of_the_street_lamps_and_the_other_lights() {
-        // In the commands: after the last pool of a street lamp (pools at the
-        // lamps' lateral positions are the wide ones) and before the first body.
+    fn a_shaded_pool_is_drawn_in_layers_that_add_up_to_the_pool() {
+        for seed in 1..=3 {
+            let scene = driven(bodies_config(seed, CarColor::Black), 40);
+            let commands = record(&scene, VIEWPORT);
+            let mut index = 0;
+            while index < commands.len() {
+                if let Command::ShadedPool { x, y, alpha, .. } = &commands[index] {
+                    // The layers of a pool come one after the other.
+                    let layers: Vec<&Command> = commands[index..]
+                        .iter()
+                        .take_while(|c| {
+                            matches!(c, Command::ShadedPool { x: cx, y: cy, .. } if cx == x && cy == y)
+                        })
+                        .take(SHADOW_LAYERS)
+                        .collect();
+                    assert_eq!(layers.len(), SHADOW_LAYERS, "{seed}");
+                    let total: f32 = layers
+                        .iter()
+                        .map(|c| match c {
+                            Command::ShadedPool { alpha, .. } => *alpha,
+                            _ => unreachable!(),
+                        })
+                        .sum();
+                    assert!((total - alpha * SHADOW_LAYERS as f32).abs() < 1e-5);
+                    index += SHADOW_LAYERS;
+                } else {
+                    index += 1;
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_shadow_darkens_the_pools_before_the_other_lights_and_the_bodies() {
+        // The shaded pools come before every body, and the lights on the road
+        // that are not pools of street lamps come after them.
         let scene = driven(bodies_config(2, CarColor::Black), 40);
         let commands = record(&scene, VIEWPORT);
-        let first_shadow = commands
+        let last_shaded = commands
             .iter()
-            .position(|c| matches!(c, Command::Silhouette { color, .. } if *color == SHADOW_COLOR));
+            .rposition(|c| matches!(c, Command::ShadedPool { .. }))
+            .unwrap();
         let first_body = commands
             .iter()
-            .position(|c| matches!(c, Command::Silhouette { color, .. } if *color != SHADOW_COLOR));
-        let (first_shadow, first_body) = (first_shadow.unwrap(), first_body.unwrap());
-        assert!(first_shadow < first_body);
+            .position(|c| matches!(c, Command::Silhouette { .. }))
+            .unwrap();
+        assert!(last_shaded < first_body);
         assert!(
-            commands[..first_shadow]
-                .iter()
-                .any(|c| matches!(c, Command::Pool { .. }))
-        );
-        // The headlight reflections and the lane lights come after the shadows.
-        assert!(
-            commands[first_shadow..first_body]
+            commands[last_shaded..first_body]
                 .iter()
                 .any(|c| matches!(c, Command::Pool { .. } | Command::Glow { .. }))
         );
+    }
+
+    /// The light that the shadow takes from the pools of the street lamp `lamp`
+    /// meters ahead, as the parts of the pools, summed over their area.
+    fn light_taken(shadow: &Shadow, lamp: f32) -> f32 {
+        let profile = |u: f32| {
+            if u >= 1.0 {
+                0.0
+            } else if u < 0.5 {
+                1.0 - 1.3 * u
+            } else {
+                0.7 * (1.0 - u)
+            }
+        };
+        let layers: Vec<Vec<(f32, f32)>> = (0..SHADOW_LAYERS).map(|i| shadow.layer(i)).collect();
+        let step = 0.25;
+        let mut taken = 0.0;
+        for lateral_pool in LAMP_POOL_LATERALS {
+            let mut d = lamp - LAMP_POOL_RADIUS;
+            while d <= lamp + LAMP_POOL_RADIUS {
+                let mut l = lateral_pool - LAMP_POOL_RADIUS;
+                while l <= lateral_pool + LAMP_POOL_RADIUS {
+                    let light = profile(
+                        ((d - lamp).powi(2) + (l - lateral_pool).powi(2)).sqrt() / LAMP_POOL_RADIUS,
+                    );
+                    let dark = layers
+                        .iter()
+                        .filter(|polygon| {
+                            polygon.len() >= 3 && distance_to_polygon((d, l), polygon) == 0.0
+                        })
+                        .count();
+                    taken += light * dark as f32 / SHADOW_LAYERS as f32 * step * step;
+                    l += step;
+                }
+                d += step;
+            }
+        }
+        taken
+    }
+
+    #[test]
+    fn a_shadow_grows_and_fades_smoothly_as_a_car_drives_by_a_lamp() {
+        let lamp = 100.0;
+        for (bottom, top, shadow_top) in [(0.0, 1.45, 1.45), (1.2, 3.8, 3.8)] {
+            let mut series = Vec::new();
+            let mut ahead = -40.0;
+            while ahead <= 40.0 {
+                let body = BodyBox {
+                    bottom,
+                    top,
+                    shadow: Some((bottom, shadow_top)),
+                    ..box_beside_a_lamp(ahead, lamp)
+                };
+                let taken = match cast(&body, lamp) {
+                    Some(shadow) if shadow.reaches_pools(lamp) => light_taken(&shadow, lamp),
+                    _ => 0.0,
+                };
+                series.push(taken);
+                ahead += 0.2;
+            }
+            let most = series.iter().copied().fold(0.0, f32::max);
+            assert!(most > 1.0, "{most}");
+            // A car moves 0.2 m: the light it takes never jumps.
+            let jump = series
+                .windows(2)
+                .map(|w| (w[1] - w[0]).abs())
+                .fold(0.0, f32::max);
+            assert!(jump < 0.08 * most, "{jump} {most}");
+            // No shadow at the ends, and it is there in the middle.
+            assert_eq!((series[0], series[series.len() - 1]), (0.0, 0.0));
+            // It rises to the most and falls back once, not on and off.
+            let on_off = series
+                .windows(2)
+                .filter(|w| (w[0] > 0.0) != (w[1] > 0.0))
+                .count();
+            assert_eq!(on_off, 2, "{on_off}");
+        }
+    }
+
+    #[test]
+    fn a_shadow_that_does_not_reach_the_pools_is_not_made() {
+        let lamp = 100.0;
+        for ahead in [-60.0, -30.0, 25.0, 60.0] {
+            let body = box_beside_a_lamp(ahead, lamp);
+            let shadow = cast(&body, lamp).unwrap();
+            assert!(!shadow.reaches_pools(lamp), "{ahead}");
+        }
+        assert!(
+            cast(&box_beside_a_lamp(-2.25, lamp), lamp)
+                .unwrap()
+                .reaches_pools(lamp)
+        );
+        // The scene makes none for a car far from every lamp.
+        let scene = Scene::new(bodies_config(1, CarColor::Black));
+        let far = BodyBox {
+            sight: (300.0, 1.75, 0.7),
+            ..box_beside_a_lamp(247.0, 50.0)
+        };
+        let found = scene.shadows_by_lamp(&[far], |_| false);
+        for (lamp, shadows) in found {
+            assert!(!shadows.is_empty(), "{lamp}");
+        }
+    }
+
+    #[test]
+    fn the_edge_of_a_shadow_is_soft_in_proportion_to_its_height() {
+        let low = cast(&box_beside_a_lamp(-2.25, 100.0), 100.0).unwrap();
+        let high = Shadow::of(
+            &BodyBox {
+                top: 3.8,
+                ..box_beside_a_lamp(-2.25, 100.0)
+            },
+            (0.0, 3.8),
+            100.0,
+        )
+        .unwrap();
+        assert!(
+            low.soft > 0.1 && high.soft > 2.0 * low.soft,
+            "{} {}",
+            low.soft,
+            high.soft
+        );
+        // The layers hold one another, from the smallest to the largest.
+        let area = |polygon: &[(f32, f32)]| {
+            (0..polygon.len())
+                .map(|i| {
+                    let (a, b) = (polygon[i], polygon[(i + 1) % polygon.len()]);
+                    a.0 * b.1 - b.0 * a.1
+                })
+                .sum::<f32>()
+                * 0.5
+        };
+        for shadow in [low, high] {
+            let areas: Vec<f32> = (0..SHADOW_LAYERS).map(|i| area(&shadow.layer(i))).collect();
+            assert!(areas.windows(2).all(|w| w[0] < w[1]), "{areas:?}");
+            assert!(areas.iter().all(|a| *a > 0.0));
+        }
     }
 
     #[test]
     fn transparent_cars_cast_no_shadow() {
         for seed in [1, 2, 3] {
             let scene = driven(plain_config(seed), 30);
-            assert!(shadow_shapes(&record(&scene, VIEWPORT)).is_empty());
-            assert!(
-                scene
-                    .lights()
-                    .iter()
-                    .all(|l| !matches!(l.kind, Kind::Shadow { .. }))
-            );
+            assert!(shaded_pools(&record(&scene, VIEWPORT)).is_empty());
+            assert!(scene.lights().iter().all(|l| l.shadows.is_empty()));
         }
     }
 
     #[test]
     fn there_are_no_shadows_inside_a_tunnel() {
         let (mut scene, tunnel) = near_first_tunnel(TunnelLighting::Led, -300.0);
-        scene.config.car_shapes = CarShapes::Detailed;
+        scene.config.car_shapes = CarShapes::Blocks;
         scene.config.car_color = CarColor::Black;
         assert!(scene.in_tunnel());
         let mut cars_seen = 0;
@@ -3054,9 +3511,7 @@ mod tests {
                 .filter(|l| matches!(l.kind, Kind::Body { .. }))
                 .count();
             assert!(
-                lights
-                    .iter()
-                    .all(|l| !matches!(l.kind, Kind::Shadow { .. })),
+                lights.iter().all(|l| l.shadows.is_empty()),
                 "{}",
                 tunnel.start
             );
@@ -3080,6 +3535,102 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn detailed_bodies_are_valid_through_a_whole_drive_on_both_sides_of_the_road() {
+        for left_hand_traffic in [true, false] {
+            for trucks in [TruckStyle::NorthAmerican] {
+                let mut scene = Scene::new(SceneConfig {
+                    left_hand_traffic,
+                    trucks,
+                    ..detailed_config(9, CarColor::TranslucentBlack)
+                });
+                let mut windows = 0;
+                for _ in 0..600 {
+                    scene.update(0.05);
+                    let commands = record(&scene, VIEWPORT);
+                    for command in &commands {
+                        assert_valid(command);
+                    }
+                    // Windows are bluer than the paint.
+                    windows += scene
+                        .lights()
+                        .iter()
+                        .filter(|l| matches!(l.kind, Kind::Body { .. }) && l.color == BODY_GLASS)
+                        .count();
+                }
+                assert!(windows > 100, "{windows}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_light_is_drawn_before_the_detailed_bodies_in_front_of_it_and_after_those_behind_it() {
+        let (mut behind, mut front) = (0, 0);
+        for seed in 1..=2 {
+            covered_pairs(
+                detailed_config(seed, CarColor::TranslucentBlack),
+                1500,
+                |lights, light, body, is_behind| {
+                    if lights[light].car.is_some() {
+                        return;
+                    }
+                    assert_eq!(light < body, is_behind, "{seed}");
+                    behind += usize::from(is_behind);
+                    front += usize::from(!is_behind);
+                },
+            );
+        }
+        assert!(behind > 200 && front > 200, "{behind} {front}");
+    }
+
+    #[test]
+    fn an_opaque_detailed_body_hides_the_lights_behind_it() {
+        // No light that is seen over a body, and farther than it, is drawn.
+        let mut hidden = 0;
+        for seed in 1..=2 {
+            let config = detailed_config(seed, CarColor::Black);
+            let projector = Projector::new(1280.0, 720.0, config.left_hand_traffic);
+            let mut scene = Scene::new(config);
+            for step in 0..1200 {
+                scene.update(MAX_STEP_SECONDS);
+                if step % 8 != 0 {
+                    continue;
+                }
+                let view = RoadView::new(&scene.road, scene.track_s);
+                let lights = scene.lights_on(&view, &projector);
+                let faces: Vec<(Option<u32>, Corners)> = lights
+                    .iter()
+                    .filter_map(|l| match l.kind {
+                        Kind::Body { corners, .. } => Some((l.car, corners)),
+                        _ => None,
+                    })
+                    .collect();
+                for light in &lights {
+                    if light.on_road()
+                        || !matches!(light.kind, Kind::Glow { .. } | Kind::Glare { .. })
+                        || light.car.is_some()
+                    {
+                        continue;
+                    }
+                    let (bend, rise) = view.offset(light.d);
+                    let Some(p) =
+                        projector.project(light.d, light.lateral + bend, light.height + rise)
+                    else {
+                        continue;
+                    };
+                    for (_, corners) in &faces {
+                        if let Some(depth) = depth_at(corners, &projector, &view, (p.x, p.y)) {
+                            assert!(light.d <= depth + 1e-3, "{seed}: {} {depth}", light.d);
+                            hidden += 1;
+                        }
+                    }
+                }
+            }
+        }
+        assert!(hidden > 50, "{hidden}");
+    }
+
     /// A hash of the commands drawn over a drive, which tests that a picture
     /// without car bodies is that of v1.10.0. With `exact`, the numbers of the
     /// commands count; otherwise only which commands are drawn in which order.
@@ -3199,7 +3750,7 @@ mod tests {
     fn the_shapes_of_car_bodies_draw_what_they_should() {
         for seed in [1, 2, 3] {
             // Trucks are made of several boxes that cast shadows when they are
-            // detailed, so there are none: cars cast one shadow in both.
+            // blocks, so there are none: cars cast one shadow in all.
             let config = |car_shapes| SceneConfig {
                 car_shapes,
                 trucks: TruckStyle::None,
@@ -3208,17 +3759,21 @@ mod tests {
             let drawn = |car_shapes| {
                 let scene = driven(config(car_shapes), 30);
                 let commands = record(&scene, VIEWPORT);
-                (body_shapes(&commands).len(), shadow_shapes(&commands).len())
+                (body_shapes(&commands).len(), shaded_pools(&commands).len())
             };
             let (none_bodies, none_shadows) = drawn(CarShapes::None);
             assert_eq!((none_bodies, none_shadows), (0, 0), "{seed}");
             let (boxes_bodies, boxes_shadows) = drawn(CarShapes::Boxes);
+            let (blocks_bodies, blocks_shadows) = drawn(CarShapes::Blocks);
             let (detailed_bodies, detailed_shadows) = drawn(CarShapes::Detailed);
             assert!(boxes_bodies > 5, "{seed}");
-            // The same cars in the same places: a detailed car is made of more
+            // The same cars in the same places: a block car is made of more
             // faces, and casts one shadow, as the box of a simple car does.
-            assert!(detailed_bodies > boxes_bodies, "{seed}");
-            assert_eq!(detailed_shadows, boxes_shadows, "{seed}");
+            assert!(blocks_bodies > boxes_bodies, "{seed}");
+            assert_eq!(blocks_shadows, boxes_shadows, "{seed}");
+            // A detailed car is made of more faces still, with the same shadows.
+            assert!(detailed_bodies > blocks_bodies, "{seed}");
+            assert!(detailed_shadows > 0, "{seed}");
         }
     }
 }

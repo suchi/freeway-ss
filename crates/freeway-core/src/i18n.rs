@@ -68,6 +68,7 @@ pub enum Text {
     CarShapesLabel,
     CarShapesNone,
     CarShapesBoxes,
+    CarShapesBlocks,
     CarShapesDetailed,
     CarColorLabel,
     CarColorTranslucent,
@@ -86,7 +87,7 @@ pub enum Text {
 
 impl Text {
     /// Every key, so that tests can check all of them.
-    pub const ALL: [Text; 39] = [
+    pub const ALL: [Text; 40] = [
         Text::DialogTitle,
         Text::SpeedLabel,
         Text::DrivingSideLabel,
@@ -114,6 +115,7 @@ impl Text {
         Text::CarShapesLabel,
         Text::CarShapesNone,
         Text::CarShapesBoxes,
+        Text::CarShapesBlocks,
         Text::CarShapesDetailed,
         Text::CarColorLabel,
         Text::CarColorTranslucent,
@@ -176,7 +178,8 @@ impl Text {
             Text::CarShapesLabel => ("Car bodies:", "他車の車体:"),
             Text::CarShapesNone => ("None (lights only)", "なし(灯火だけ)"),
             Text::CarShapesBoxes => ("Simple boxes", "シンプルな箱"),
-            Text::CarShapesDetailed => ("Realistic shapes", "それらしい形"),
+            Text::CarShapesBlocks => ("Blocks", "ブロック"),
+            Text::CarShapesDetailed => ("Detailed shapes", "詳細な形"),
             Text::CarColorLabel => ("Body color:", "車体の色:"),
             Text::CarColorTranslucent => ("Translucent black", "半透明の黒"),
             Text::CarColorBlack => ("Black", "黒"),

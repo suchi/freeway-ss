@@ -4,7 +4,7 @@
 
 ## 日本語
 
-夜の高速道路を光の点で描く、Windows用のスクリーンセイバーです。mhatta氏の[nightfreeway](https://github.com/mhatta/nightfreeway)を参考に、独自に実装しました。
+夜の高速道路を光の点で描く、Windows用のスクリーンセーバーです。mhatta氏の[nightfreeway](https://github.com/mhatta/nightfreeway)を参考に、独自に実装しました。
 
 ### 動作環境
 
@@ -15,23 +15,23 @@
 
 | ファイル | 内容 |
 | --- | --- |
-| `NightFreewaySS.scr` | スクリーンセイバー本体 |
+| `NightFreewaySS.scr` | スクリーンセーバー本体 |
 | `LICENSE` | ライセンス(MIT) |
 | `THIRD-PARTY-NOTICES.txt` | 本体に組み込まれている第三者のソフトウェアの著作権表示とライセンス |
 | `README.md` | この説明書 |
 
 ### インストール
 
-1. zipを、スクリーンセイバーを置いておくフォルダーに展開します。
-2. 展開した`NightFreewaySS.scr`を右クリックし、「インストール」を選びます。スクリーンセイバーの設定画面が開き、一覧に「Night Freeway SS」が加わります。
+1. zipを、スクリーンセーバーを置いておくフォルダーに展開します。
+2. 展開した`NightFreewaySS.scr`を右クリックし、「インストール」を選びます。スクリーンセーバーの設定画面が開き、一覧に「Night Freeway SS」が加わります。
 
-Windowsの「インストール」はファイルをコピーせず、展開した場所の`NightFreewaySS.scr`をそのまま登録します。このファイルを移動・削除すると、スクリーンセイバーは動かなくなります。
+Windowsの「インストール」はファイルをコピーせず、展開した場所の`NightFreewaySS.scr`をそのまま登録します。このファイルを移動・削除すると、スクリーンセーバーは動かなくなります。
 
 デジタル署名がないため、Microsoft Defender SmartScreenの警告が表示されることがあります。警告の「詳細情報」から実行できます。
 
 ### 設定
 
-スクリーンセイバーの設定画面で「Night Freeway SS」を選び、「設定」ボタンを押すと、次の項目を変えられます。
+スクリーンセーバーの設定画面で「Night Freeway SS」を選び、「設定」ボタンを押すと、次の項目を変えられます。
 
 | 項目 | 設定画面の表示 | 範囲 | 既定値 |
 | --- | --- | --- | --- |
@@ -43,9 +43,9 @@ Windowsの「インストール」はファイルをコピーせず、展開し�
 | 巡航速度のゆらぎ | Vary the cruising speed | オン / オフ(オンのとき、設定した速度の±20 km/hの範囲で、数分かけてゆっくり変わる。速度計は実際の速さを表示する) | オン |
 | 時刻に応じた交通量 | Traffic follows the time of day | オン / オフ(オンのとき、起動時のPCの時刻に合わせて、夜中と早朝は他の車が少なくトラックが多く、日中は従来どおりになる) | オン |
 | 景色の区間 | Alternate mountains and plains | オン / オフ(オンのとき、100 km/hで10〜20分ごとに、山並みとトンネルのある山あいと、山並みもトンネルもない平野が入れ替わる) | オン |
-| トラック | Trucks | なし / 日本風 / 北米風(他の車の約5台に1台がトラックになり、日本風は大型の箱車とトラクターとトレーラー(上側の端灯と側面の橙のサイドマーカーが付く)、北米風はボンネット型のセミトレーラーと箱型トラック(識別灯・車幅灯と、前寄りが橙で後ろ寄りが赤の側面のマーカーが付く)になる。他車の車体が「それらしい形」のときは、タイヤ・運転台・荷台のある立体で、「シンプルな箱」のときは全体を囲む1つの箱で描く) | 日本風 |
+| トラック | Trucks | なし / 日本風 / 北米風(他の車の約5台に1台がトラックになり、日本風は大型の箱車とトラクターとトレーラー(上側の端灯と側面の橙のサイドマーカーが付く)、北米風はボンネット型のセミトレーラーと箱型トラック(識別灯・車幅灯と、前寄りが橙で後ろ寄りが赤の側面のマーカーが付く)になる。他車の車体が「ブロック」のときは、タイヤ・運転台・荷台のある箱の組み合わせで、「詳細な形」のときは、運転台の前面の傾きや屋根の風よけのある形で、「シンプルな箱」のときは全体を囲む1つの箱で描く) | 日本風 |
 | トンネル | Tunnels | なし / 混在 / ナトリウム灯(橙) / LED(白)(なし以外のとき、100 km/hで平均3分に1本、通り抜けるのに20秒〜1分のトンネルが現れる。混在はトンネルごとに照明の色が変わる。トンネルの中では空が見えない) | 混在 |
-| 他車の車体 | Car bodies | なし(灯火だけ) / シンプルな箱 / それらしい形(なしのときは車の灯火だけを描く。シンプルな箱とそれらしい形のときは、先行車・追い越し車・対向車(トラックを含む)の車体を黒っぽい面(端・側面・屋根の面ごとに濃さが違う)で描き、車の奥の光を隠す。シンプルな箱は、どの車も全体を囲む1つの箱で描く。それらしい形は、普通車をセダン・ハッチバック・ミニバン・SUVの形で描き(トラックの設定が日本風のときは軽自動車、北米風のときはピックアップトラックも加わる)、トラックを運転台・荷台・タイヤのある形で描く。車体を描くときは、中央分離帯の街灯の路面の光の上に、他車の影も落とす。前の版で車体を描く設定にしていた場合は、それらしい形になる) | なし |
+| 他車の車体 | Car bodies | なし(灯火だけ) / シンプルな箱 / ブロック / 詳細な形(なしのときは車の灯火だけを描く。シンプルな箱・ブロック・詳細な形のときは、先行車・追い越し車・対向車(トラックを含む)の車体を黒っぽい面(端・側面・屋根の面ごとに濃さが違う)で描き、車の奥の光を隠す。シンプルな箱は、どの車も全体を囲む1つの箱で描く。ブロックは、普通車をセダン・ハッチバック・ミニバン・SUVの形で、箱の組み合わせで描き(トラックの設定が日本風のときは軽自動車、北米風のときはピックアップトラックも加わる)、トラックを運転台・荷台・タイヤのある形で描く。詳細な形は、同じ車種を、ボンネット・傾いたフロントガラスと窓(車体より少し青みのある暗い色)・屋根に向かって狭まる側面のある実際の車に近い輪郭で描き、トラックの運転台も輪郭のある形で描く(遠くの車はブロックで描く)。車体を描くときは、中央分離帯の街灯の路面の光の上に、他車の影が落ち、影はその街灯の光だけをさえぎり、縁がやわらかい。前の版で車体を描く設定にしていた場合は、ブロックになる) | なし |
 | 車体の色 | Body color | 半透明の黒 / 黒(車体を描くときの色。半透明の黒は奥の光が1割だけ透け、黒は完全に隠す。車体がなしのときは使われず、設定画面では選べない) | 半透明の黒 |
 | 表示言語 | Language | 自動(Windowsの表示言語) / English / 日本語 | 自動 |
 
@@ -55,7 +55,7 @@ Windowsの「インストール」はファイルをコピーせず、展開し�
 
 ### アンインストール
 
-1. スクリーンセイバーの設定画面で、別のスクリーンセイバーまたは「(なし)」を選びます。
+1. スクリーンセーバーの設定画面で、別のスクリーンセーバーまたは「(なし)」を選びます。
 2. 展開したフォルダーごと削除します。
 3. 保存された設定も消す場合は、コマンドプロンプトで次のコマンドを実行します。
 
@@ -118,9 +118,9 @@ Select "Night Freeway SS" in the screensaver settings and click "Settings" to ch
 | Vary the cruising speed | On / Off (when on, the speed slowly changes over a few minutes within 20 km/h of the chosen speed; the speedometer shows the actual speed) | On |
 | Traffic follows the time of day | On / Off (when on, the traffic follows the PC's time at startup: fewer cars and more trucks late at night and early in the morning, and as usual during the day) | On |
 | Alternate mountains and plains | On / Off (when on, every 10 to 20 minutes at 100 km/h, mountain areas with mountain ranges and tunnels and plains with neither take turns) | On |
-| Trucks | None / Japanese style / North American style (about one in five other vehicles is a truck; Japanese style has large box trucks and tractor-trailers with upper marker lamps and amber side markers, North American style has hooded semi-trailers and box trucks with identification and clearance lamps and side markers that are amber toward the front and red toward the rear; when the car bodies are Realistic shapes, trucks are solid shapes with wheels, a cab and a cargo area, and with Simple boxes each truck is one box that holds its whole shape) | Japanese style |
+| Trucks | None / Japanese style / North American style (about one in five other vehicles is a truck; Japanese style has large box trucks and tractor-trailers with upper marker lamps and amber side markers, North American style has hooded semi-trailers and box trucks with identification and clearance lamps and side markers that are amber toward the front and red toward the rear; when the car bodies are Blocks, trucks are made of boxes with wheels, a cab and a cargo area; with Detailed shapes, the cab has a leaning front and the roof a deflector; and with Simple boxes each truck is one box that holds its whole shape) | Japanese style |
 | Tunnels | None / Mixed lighting / Sodium (orange) / LED (white) (unless None, a tunnel that takes 20 to 60 seconds to drive through appears about once every 3 minutes at 100 km/h; Mixed lighting changes the lamp color from tunnel to tunnel; the sky is not seen inside a tunnel) | Mixed lighting |
-| Car bodies | None (lights only) / Simple boxes / Realistic shapes (with None, only the lights of the cars are drawn; with Simple boxes or Realistic shapes, the bodies of the cars ahead, the passing cars and the oncoming cars, trucks included, are drawn as blackish surfaces, with a different shade for the end, the sides and the roof, that hide the lights behind them; Simple boxes draws every vehicle as one box that holds its whole shape; Realistic shapes draws cars as sedans, hatchbacks, minivans and SUVs (with the Japanese trucks setting, kei cars are added; with the North American one, pickup trucks), and trucks with a cab, a cargo area and wheels; with bodies, the cars also cast shadows on the pools of light of the street lamps on the median; if a version before 1.11 had the bodies on, they are Realistic shapes) | None |
+| Car bodies | None (lights only) / Simple boxes / Blocks / Detailed shapes (with None, only the lights of the cars are drawn; with Simple boxes, Blocks or Detailed shapes, the bodies of the cars ahead, the passing cars and the oncoming cars, trucks included, are drawn as blackish surfaces, with a different shade for the end, the sides and the roof, that hide the lights behind them; Simple boxes draws every vehicle as one box that holds its whole shape; Blocks draws cars as sedans, hatchbacks, minivans and SUVs out of boxes (with the Japanese trucks setting, kei cars are added; with the North American one, pickup trucks), and trucks with a cab, a cargo area and wheels; Detailed shapes draws the same cars with outlines close to those of real ones, with a hood, a raked windshield and windows (a slightly bluer dark color than the body) and sides that narrow toward the roof, and the cabs of trucks with outlines too (cars far away are drawn as blocks); with bodies, the cars also cast shadows on the pools of light of the street lamps on the median, each shadow shades only the pool of its own lamp and has a soft edge; if a version before 1.11 had the bodies on, they are Blocks) | None |
 | Body color | Translucent black / Black (the color of the bodies when they are drawn; translucent black lets a tenth of the light behind them through, and black hides it completely; it is not used, and cannot be chosen in the settings dialog, while the car bodies are None) | Translucent black |
 | Language | Automatic (Windows display language) / English / 日本語 | Automatic |
 

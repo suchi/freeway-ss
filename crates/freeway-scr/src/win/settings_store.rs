@@ -197,7 +197,7 @@ mod tests {
             show_mountains: false,
             trucks: TruckStyle::NorthAmerican,
             tunnels: TunnelLighting::Led,
-            car_shapes: CarShapes::Detailed,
+            car_shapes: CarShapes::Blocks,
             car_color: CarColor::Black,
             language: Language::Japanese,
             vary_speed: false,
@@ -228,7 +228,7 @@ mod tests {
         write_dword(HKEY_CURRENT_USER, test.key(), VARY_SPEED, 2)?;
         write_dword(HKEY_CURRENT_USER, test.key(), TRAFFIC_BY_TIME, 7)?;
         write_dword(HKEY_CURRENT_USER, test.key(), SCENERY_ZONES, u32::MAX)?;
-        write_dword(HKEY_CURRENT_USER, test.key(), CAR_SHAPES, 3)?;
+        write_dword(HKEY_CURRENT_USER, test.key(), CAR_SHAPES, 4)?;
         write_dword(HKEY_CURRENT_USER, test.key(), CAR_COLOR, 2)?;
         let settings = test.load();
         assert_eq!(settings.speed_kmh, DEFAULT_SPEED_KMH);
@@ -391,7 +391,7 @@ mod tests {
         assert_eq!(missing.load().car_color, CarColor::TranslucentBlack);
         // With one out of range, each falls back by itself.
         let invalid = TestKey::new("car-shapes-invalid");
-        for raw in [3, u32::MAX] {
+        for raw in [4, u32::MAX] {
             write_dword(HKEY_CURRENT_USER, invalid.key(), CAR_SHAPES, raw)?;
             write_dword(HKEY_CURRENT_USER, invalid.key(), CAR_COLOR, 1)?;
             let loaded = invalid.load();
@@ -400,7 +400,7 @@ mod tests {
             write_dword(HKEY_CURRENT_USER, invalid.key(), CAR_SHAPES, 2)?;
             write_dword(HKEY_CURRENT_USER, invalid.key(), CAR_COLOR, raw)?;
             let loaded = invalid.load();
-            assert_eq!(loaded.car_shapes, CarShapes::Detailed, "{raw}");
+            assert_eq!(loaded.car_shapes, CarShapes::Blocks, "{raw}");
             assert_eq!(loaded.car_color, CarColor::TranslucentBlack, "{raw}");
         }
         Ok(())
@@ -411,8 +411,8 @@ mod tests {
         // Settings saved by a version before 1.11 have CarBodies only.
         for (raw, shapes, color) in [
             (0, CarShapes::None, CarColor::TranslucentBlack),
-            (1, CarShapes::Detailed, CarColor::TranslucentBlack),
-            (2, CarShapes::Detailed, CarColor::Black),
+            (1, CarShapes::Blocks, CarColor::TranslucentBlack),
+            (2, CarShapes::Blocks, CarColor::Black),
         ] {
             let test = TestKey::new(&format!("car-bodies-old-{raw}"));
             write_dword(HKEY_CURRENT_USER, test.key(), CAR_BODIES, raw)?;
@@ -453,9 +453,9 @@ mod tests {
             (CarShapes::None, CarColor::TranslucentBlack, 0),
             (CarShapes::None, CarColor::Black, 0),
             (CarShapes::Boxes, CarColor::TranslucentBlack, 1),
-            (CarShapes::Detailed, CarColor::TranslucentBlack, 1),
+            (CarShapes::Blocks, CarColor::TranslucentBlack, 1),
             (CarShapes::Boxes, CarColor::Black, 2),
-            (CarShapes::Detailed, CarColor::Black, 2),
+            (CarShapes::Blocks, CarColor::Black, 2),
         ] {
             let settings = Settings {
                 car_shapes,
