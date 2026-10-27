@@ -222,7 +222,7 @@ MVPの項目は、本家の実行中の操作と表示(速度・通行方向・H
 | v1.9.0: 他車の影とトラックらしい形 | 完了(実機確認済み) | [0016](0016-v1-9-shadows-and-truck-shapes.md) | [#24](https://github.com/suchi/freeway-ss/pull/24) | [v1.9.0](https://github.com/suchi/freeway-ss/releases/tag/v1.9.0) |
 | v1.10.0: ダッシュボード風の速度計 | 完了(実機確認済み) | [0017](0017-v1-10-dashboard-speedometer.md) | [#26](https://github.com/suchi/freeway-ss/pull/26) | [v1.10.0](https://github.com/suchi/freeway-ss/releases/tag/v1.10.0) |
 | v1.11.0: 他車の形と表示の選び方 | 完了(実機確認済み) | [0018](0018-v1-11-car-shapes.md) | [#27](https://github.com/suchi/freeway-ss/pull/27) | [v1.11.0](https://github.com/suchi/freeway-ss/releases/tag/v1.11.0) |
-| v1.12.0: 他車の詳細な形と影 | 実装済み(実機確認待ち) | [0019](0019-v1-12-detailed-cars-and-shadows.md) | [#28](https://github.com/suchi/freeway-ss/pull/28) | `v1.12.0`(未公開) |
+| v1.12.0: 他車の詳細な形と影 | 完了(実機確認済み) | [0019](0019-v1-12-detailed-cars-and-shadows.md) | [#28](https://github.com/suchi/freeway-ss/pull/28) | [v1.12.0](https://github.com/suchi/freeway-ss/releases/tag/v1.12.0) |
 
 ```mermaid
 flowchart LR

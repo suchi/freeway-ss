@@ -1,6 +1,6 @@
 # v1.12.0 詳細設計: 他車の詳細な形と影
 
-- ステータス: 実装済み(実機確認待ち。[#28](https://github.com/suchi/freeway-ss/pull/28))
+- ステータス: 完了(実機確認済み。[#28](https://github.com/suchi/freeway-ss/pull/28))
 - 日付: 2026-10-27
 - 親計画: [実装計画](0001-screensaver-implementation-plan.md)の6章
 
