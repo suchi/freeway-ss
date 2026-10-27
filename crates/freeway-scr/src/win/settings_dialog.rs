@@ -11,16 +11,19 @@ use freeway_core::{
 use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::Controls::{
-    BST_CHECKED, BST_UNCHECKED, CheckDlgButton, CheckRadioButton, ICC_BAR_CLASSES,
+    BST_CHECKED, BST_UNCHECKED, CheckDlgButton, CheckRadioButton, EM_LIMITTEXT, ICC_BAR_CLASSES,
     INITCOMMONCONTROLSEX, InitCommonControlsEx, IsDlgButtonChecked, TBM_SETPOS, TBM_SETRANGE,
 };
 use windows::Win32::UI::Input::KeyboardAndMouse::EnableWindow;
 use windows::Win32::UI::WindowsAndMessaging::{
     CB_ADDSTRING, CB_GETCURSEL, CB_RESETCONTENT, CB_SETCURSEL, CBN_SELCHANGE, DialogBoxParamW,
-    EndDialog, GWLP_USERDATA, GetDlgItem, GetWindowLongPtrW, IDCANCEL, IDOK, SendDlgItemMessageW,
-    SetDlgItemTextW, SetWindowLongPtrW, SetWindowTextW, WM_COMMAND, WM_HSCROLL, WM_INITDIALOG,
+    EndDialog, GWLP_USERDATA, GetDlgItem, GetDlgItemInt, GetWindowLongPtrW, IDCANCEL, IDOK,
+    SendDlgItemMessageW, SetDlgItemTextW, SetWindowLongPtrW, SetWindowTextW, WM_COMMAND,
+    WM_HSCROLL, WM_INITDIALOG,
 };
-use windows::core::{Error, HSTRING, PCWSTR, Result};
+use windows::core::{BOOL, Error, HSTRING, PCWSTR, Result};
+
+use crate::args::{MINUTES_RANGE, Mode};
 
 const DIALOG: usize = 100;
 const SPEED_SLIDER: i32 = 101;
@@ -46,9 +49,18 @@ const CAR_SHAPES: i32 = 120;
 const SPEEDOMETER_LABEL: i32 = 121;
 const CAR_COLOR_LABEL: i32 = 122;
 const CAR_COLOR: i32 = 123;
+const RUN_GROUP: i32 = 124;
+const RUN_WINDOW: i32 = 125;
+const RUN_FULLSCREEN: i32 = 126;
+const RUN_MINUTES_LABEL: i32 = 127;
+const RUN_MINUTES: i32 = 128;
+const RUN_START: i32 = 129;
+
+/// How many characters the minutes may have: `MINUTES_RANGE` ends at 1440.
+const MINUTES_DIGITS: usize = 4;
 
 /// The texts of the controls that are set from the string table, by ID.
-const CONTROL_TEXTS: [(i32, Text); 17] = [
+const CONTROL_TEXTS: [(i32, Text); 22] = [
     (SPEED_LABEL, Text::SpeedLabel),
     (SIDE_LABEL, Text::DrivingSideLabel),
     (LEFT_HAND, Text::LeftHandTraffic),
@@ -64,6 +76,11 @@ const CONTROL_TEXTS: [(i32, Text); 17] = [
     (CAR_SHAPES_LABEL, Text::CarShapesLabel),
     (CAR_COLOR_LABEL, Text::CarColorLabel),
     (LANGUAGE_LABEL, Text::LanguageLabel),
+    (RUN_GROUP, Text::RunLabel),
+    (RUN_WINDOW, Text::RunInWindow),
+    (RUN_FULLSCREEN, Text::RunFullscreen),
+    (RUN_MINUTES_LABEL, Text::RunMinutesLabel),
+    (RUN_START, Text::RunStart),
     // OK and Cancel use the IDs of the standard buttons.
     (IDOK.0, Text::Ok),
     (IDCANCEL.0, Text::Cancel),
@@ -113,10 +130,19 @@ const CAR_COLOR_TEXTS: [Text; 2] = [Text::CarColorTranslucent, Text::CarColorBla
 /// `WM_USER`; the windows crate does not define this message.
 const TBM_GETPOS: u32 = 0x0400;
 
+/// How the dialog was closed.
+pub enum Outcome {
+    /// Cancel, or the close button: nothing is saved.
+    Cancel,
+    /// OK: the new settings are to be saved.
+    Save(Settings),
+    /// Start: the new settings are to be saved, and then the program runs in
+    /// the mode that was chosen.
+    Start(Settings, Mode),
+}
+
 /// Shows the dialog with `current` as the initial values.
-///
-/// Returns the new settings when the user chose OK, or `None` for Cancel.
-pub fn show(owner: Option<HWND>, current: Settings) -> Result<Option<Settings>> {
+pub fn show(owner: Option<HWND>, current: Settings) -> Result<Outcome> {
     // The slider is a common control, which needs its class registered.
     let controls = INITCOMMONCONTROLSEX {
         dwSize: size_of::<INITCOMMONCONTROLSEX>() as u32,
@@ -126,7 +152,7 @@ pub fn show(owner: Option<HWND>, current: Settings) -> Result<Option<Settings>> 
 
     let mut state = State {
         settings: current,
-        accepted: false,
+        outcome: None,
     };
     let result = unsafe {
         DialogBoxParamW(
@@ -141,14 +167,20 @@ pub fn show(owner: Option<HWND>, current: Settings) -> Result<Option<Settings>> 
     if result == -1 {
         return Err(Error::from_thread());
     }
-    Ok(state.accepted.then_some(state.settings))
+    Ok(match state.outcome {
+        None => Outcome::Cancel,
+        Some(None) => Outcome::Save(state.settings),
+        Some(Some(mode)) => Outcome::Start(state.settings, mode),
+    })
 }
 
 /// What the dialog procedure reads and writes; it lives on the stack of
 /// `show`, which does not return before the dialog is closed.
 struct State {
     settings: Settings,
-    accepted: bool,
+    /// `None` until the dialog is closed with OK (`Some(None)`) or Start
+    /// (`Some(Some(mode))`).
+    outcome: Option<Option<Mode>>,
 }
 
 unsafe extern "system" fn dialog_proc(
@@ -171,6 +203,7 @@ unsafe extern "system" fn dialog_proc(
                 select_car_color(hwnd, state.settings.car_color);
                 update_car_color_enabled(hwnd);
                 select_speedometer(hwnd, state.settings.speedometer);
+                init_run_controls(hwnd);
             }
             // Let the dialog manager give the focus to the first control.
             1
@@ -196,7 +229,15 @@ unsafe extern "system" fn dialog_proc(
                 id if id == IDOK.0 => {
                     if let Some(state) = unsafe { state_of(hwnd) } {
                         state.settings = read_controls(hwnd);
-                        state.accepted = true;
+                        state.outcome = Some(None);
+                    }
+                    end(hwnd, 1);
+                    1
+                }
+                RUN_START => {
+                    if let Some(state) = unsafe { state_of(hwnd) } {
+                        state.settings = read_controls(hwnd);
+                        state.outcome = Some(Some(read_run_mode(hwnd)));
                     }
                     end(hwnd, 1);
                     1
@@ -462,6 +503,36 @@ fn init_controls(hwnd: HWND, settings: &Settings) {
         }
     }
     update_speed_label(hwnd);
+}
+
+/// Chooses the window and no time limit to begin with. The choice is not
+/// saved: the part of the dialog starts a run, and is not a setting.
+fn init_run_controls(hwnd: HWND) {
+    unsafe {
+        let _ = CheckRadioButton(hwnd, RUN_WINDOW, RUN_FULLSCREEN, RUN_WINDOW);
+        SendDlgItemMessageW(
+            hwnd,
+            RUN_MINUTES,
+            EM_LIMITTEXT,
+            WPARAM(MINUTES_DIGITS),
+            LPARAM(0),
+        );
+        let _ = SetDlgItemTextW(hwnd, RUN_MINUTES, &HSTRING::from("0"));
+    }
+}
+
+/// The mode that Start runs: the window or the full screen, which ends after
+/// the minutes of the box; 0, or nothing, means that it does not end by
+/// itself, and more than a day is a day.
+fn read_run_mode(hwnd: HWND) -> Mode {
+    let mut valid = BOOL(0);
+    let value = unsafe { GetDlgItemInt(hwnd, RUN_MINUTES, Some(&mut valid), false) };
+    let minutes = (valid.as_bool() && value > 0).then(|| value.min(*MINUTES_RANGE.end()));
+    if unsafe { IsDlgButtonChecked(hwnd, RUN_FULLSCREEN) } == BST_CHECKED.0 {
+        Mode::Play { minutes }
+    } else {
+        Mode::Window { minutes }
+    }
 }
 
 fn read_controls(hwnd: HWND) -> Settings {

@@ -12,18 +12,22 @@ use freeway_core::{DisplayLanguage, Language, Scene, Settings, SpeedometerStyle,
 
 use windows::Win32::Foundation::HWND;
 use windows::Win32::Globalization::GetUserDefaultUILanguage;
+use windows::Win32::System::Power::{
+    ES_CONTINUOUS, ES_DISPLAY_REQUIRED, ES_SYSTEM_REQUIRED, SetThreadExecutionState,
+};
 use windows::Win32::System::SystemInformation::GetLocalTime;
 use windows::Win32::UI::HiDpi::{
     DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, SetProcessDpiAwarenessContext,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    DispatchMessageW, IsWindow, MB_ICONERROR, MB_OK, MSG, MessageBoxW, PM_REMOVE, PeekMessageW,
-    TranslateMessage, WM_QUIT,
+    DispatchMessageW, IsIconic, IsWindow, MB_ICONERROR, MB_OK, MSG, MessageBoxW, PM_REMOVE,
+    PeekMessageW, TranslateMessage, WM_QUIT,
 };
 use windows::core::{HSTRING, Result, w};
 
 use crate::args::Mode;
 use renderer::{Renderer, Target, is_device_lost};
+use settings_dialog::Outcome;
 
 /// Runs the screensaver in the requested mode until it should exit.
 pub fn run(mode: Mode) -> Result<()> {
@@ -33,30 +37,107 @@ pub fn run(mode: Mode) -> Result<()> {
     let _ = unsafe { SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) };
 
     match mode {
-        Mode::Fullscreen => animate(&window::create_fullscreen_windows()?, None),
+        Mode::Fullscreen => animate(&window::create_fullscreen_windows()?, Run::default()),
         Mode::Preview { parent } => {
             let parent = window::hwnd_from_handle(parent);
             match window::create_preview_window(parent)? {
-                Some(hwnd) => animate(&[hwnd], Some(parent)),
+                Some(hwnd) => animate(
+                    &[hwnd],
+                    Run {
+                        preview_parent: Some(parent),
+                        ..Run::default()
+                    },
+                ),
                 None => Ok(()),
             }
         }
         Mode::Configure { parent } => configure(parent.map(window::hwnd_from_handle)),
+        Mode::Window { minutes } => animate(&[window::create_normal_window()?], Run::keep(minutes)),
+        Mode::Play { minutes } => animate(&window::create_play_windows()?, Run::keep(minutes)),
     }
 }
 
-/// Shows the settings dialog and saves the result when the user chose OK.
-fn configure(owner: Option<HWND>) -> Result<()> {
-    if let Some(settings) = settings_dialog::show(owner, settings_store::load())? {
-        // Why: a save failure is shown here, with its cause, instead of
-        // ending the program with the generic message of `main`. It uses the
-        // language that was just chosen.
-        if let Err(error) = settings_store::save(&settings) {
-            let language = display_language(&settings);
-            show_error(&Text::SaveFailed.with_error(language, error));
+/// How a run differs from the screensaver.
+#[derive(Default)]
+struct Run {
+    /// The window of the settings dialog that the preview lives in; the run
+    /// ends when it is gone.
+    preview_parent: Option<HWND>,
+    /// How long the run lasts, if it ends by itself.
+    duration: Option<Duration>,
+    /// Whether the display and the system must not go to sleep meanwhile.
+    keep_awake: bool,
+}
+
+impl Run {
+    /// A run that is meant to be left on, for the `/window` and `/play`
+    /// modes: it keeps the machine awake, and ends after `minutes` if given.
+    fn keep(minutes: Option<u32>) -> Self {
+        Self {
+            duration: minutes.map(|minutes| Duration::from_secs(u64::from(minutes) * 60)),
+            keep_awake: true,
+            ..Self::default()
         }
     }
+}
+
+/// Keeps the display and the system awake while it lives.
+struct KeepAwake;
+
+impl KeepAwake {
+    fn new() -> Self {
+        // Why: a screensaver is started by the idle time, and sleeps with the
+        // rest of the display when it ends; a run that is left on has to ask
+        // Windows to stay awake. The request belongs to this thread, which
+        // runs the loop, and `ES_CONTINUOUS` makes it last until it is reset.
+        unsafe {
+            SetThreadExecutionState(ES_CONTINUOUS | ES_DISPLAY_REQUIRED | ES_SYSTEM_REQUIRED)
+        };
+        Self
+    }
+}
+
+impl Drop for KeepAwake {
+    fn drop(&mut self) {
+        unsafe { SetThreadExecutionState(ES_CONTINUOUS) };
+    }
+}
+
+/// Shows the settings dialog and saves the result when the user chose OK or
+/// Start. Start then runs this program again in the mode that was chosen.
+fn configure(owner: Option<HWND>) -> Result<()> {
+    let (settings, start) = match settings_dialog::show(owner, settings_store::load())? {
+        Outcome::Cancel => return Ok(()),
+        Outcome::Save(settings) => (settings, None),
+        Outcome::Start(settings, mode) => (settings, Some(mode)),
+    };
+    // Why: a save failure is shown here, with its cause, instead of
+    // ending the program with the generic message of `main`. It uses the
+    // language that was just chosen.
+    if let Err(error) = settings_store::save(&settings) {
+        let language = display_language(&settings);
+        show_error(&Text::SaveFailed.with_error(language, error));
+        // The new run reads the saved settings: it would show the old ones.
+        return Ok(());
+    }
+    if let Some(mode) = start
+        && let Err(error) = start_again(mode)
+    {
+        show_error(&Text::RunFailed.with_error(display_language(&settings), error));
+    }
     Ok(())
+}
+
+/// Runs this program again in `mode`, as a process of its own that goes on
+/// when this one ends.
+fn start_again(mode: Mode) -> std::io::Result<()> {
+    // Why: the program starts itself, by the path Windows reports for the
+    // running executable, with arguments that `args::Mode::arguments` makes
+    // and nothing from outside.
+    std::process::Command::new(std::env::current_exe()?)
+        .args(mode.arguments())
+        .spawn()
+        .map(|_| ())
 }
 
 /// The language to show `settings` in; `Auto` follows the Windows display
@@ -90,7 +171,9 @@ pub fn show_error(message: &str) {
     };
 }
 
-fn animate(windows: &[HWND], preview_parent: Option<HWND>) -> Result<()> {
+fn animate(windows: &[HWND], run: Run) -> Result<()> {
+    let _keep_awake = run.keep_awake.then(KeepAwake::new);
+    let deadline = run.duration.map(|duration| Instant::now() + duration);
     let settings = settings_store::load();
     let mut renderer = Renderer::new()?;
     let mut targets = create_targets(&renderer, windows)?;
@@ -102,13 +185,26 @@ fn animate(windows: &[HWND], preview_parent: Option<HWND>) -> Result<()> {
         if !pump_messages() {
             return Ok(());
         }
-        if let Some(parent) = preview_parent
+        if let Some(parent) = run.preview_parent
             && !unsafe { IsWindow(Some(parent)) }.as_bool()
         {
             return Ok(());
         }
-
         let now = Instant::now();
+        if deadline.is_some_and(|deadline| now >= deadline) {
+            return Ok(());
+        }
+        // Why: a minimized window has no picture to draw; the road stands
+        // still meanwhile, and the time limit goes on.
+        if windows
+            .iter()
+            .all(|&hwnd| unsafe { IsIconic(hwnd) }.as_bool())
+        {
+            std::thread::sleep(Duration::from_millis(100));
+            last_frame = Instant::now();
+            continue;
+        }
+
         let dt = now.duration_since(last_frame).as_secs_f32();
         last_frame = now;
         for scene in &mut scenes {
@@ -282,6 +378,65 @@ mod tests {
             }
         }
         assert!(shown.len() > 1, "{shown:?}");
+        Ok(())
+    }
+
+    #[test]
+    fn a_run_with_a_time_limit_ends_by_itself() -> Result<()> {
+        let hwnd = window::create_hidden_window(640, 360)?;
+        let started = Instant::now();
+        animate(
+            &[hwnd],
+            Run {
+                duration: Some(Duration::from_millis(300)),
+                keep_awake: true,
+                ..Run::default()
+            },
+        )?;
+        let lasted = started.elapsed();
+        assert!(lasted >= Duration::from_millis(300), "{lasted:?}");
+        assert!(lasted < Duration::from_secs(30), "{lasted:?}");
+        Ok(())
+    }
+
+    #[test]
+    fn the_minutes_of_a_run_are_a_duration() {
+        assert_eq!(Run::keep(None).duration, None);
+        assert_eq!(
+            Run::keep(Some(30)).duration,
+            Some(Duration::from_secs(30 * 60))
+        );
+        assert!(Run::keep(None).keep_awake);
+        assert!(!Run::default().keep_awake);
+    }
+
+    #[test]
+    fn the_display_stays_awake_only_while_the_guard_lives() {
+        let guard = KeepAwake::new();
+        // Setting a state returns the one before it.
+        let during = unsafe {
+            SetThreadExecutionState(ES_CONTINUOUS | ES_DISPLAY_REQUIRED | ES_SYSTEM_REQUIRED)
+        };
+        assert_ne!(during.0 & ES_DISPLAY_REQUIRED.0, 0);
+        assert_ne!(during.0 & ES_SYSTEM_REQUIRED.0, 0);
+        drop(guard);
+        let after = unsafe { SetThreadExecutionState(ES_CONTINUOUS) };
+        assert_eq!(after.0 & (ES_DISPLAY_REQUIRED.0 | ES_SYSTEM_REQUIRED.0), 0);
+    }
+
+    #[test]
+    fn renders_in_the_window_of_the_window_mode_and_resizes_it() -> Result<()> {
+        use windows::Win32::UI::WindowsAndMessaging::{DestroyWindow, SWP_NOMOVE, SWP_NOZORDER};
+        let hwnd = window::create_normal_window()?;
+        let mut renderer = Renderer::new()?;
+        let mut target = renderer.create_target(hwnd)?;
+        let scene = create_scenes(1, &Settings::default()).remove(0);
+        for style in SpeedometerStyle::ALL {
+            renderer.draw_scene(&mut target, &scene, style, false)?;
+        }
+        unsafe { SetWindowPos(hwnd, None, 0, 0, 900, 600, SWP_NOMOVE | SWP_NOZORDER)? };
+        renderer.draw_scene(&mut target, &scene, SpeedometerStyle::None, false)?;
+        unsafe { DestroyWindow(hwnd)? };
         Ok(())
     }
 
