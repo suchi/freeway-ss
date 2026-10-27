@@ -88,6 +88,14 @@ pub enum Text {
     RunFullscreen,
     RunMinutesLabel,
     RunStart,
+    /// A line of the dialog of the run that says how a run ends.
+    RunEndNote,
+    /// The keys of a run in a window, shown on the picture.
+    HintInWindow,
+    /// The keys of a run in full screen, shown on the picture.
+    HintFullscreen,
+    /// Shown on the picture while time stands still.
+    Paused,
     /// Contains `{error}`; use `with_error`.
     SaveFailed,
     /// Contains `{error}`; use `with_error`.
@@ -98,7 +106,7 @@ pub enum Text {
 
 impl Text {
     /// Every key, so that tests can check all of them.
-    pub const ALL: [Text; 47] = [
+    pub const ALL: [Text; 51] = [
         Text::DialogTitle,
         Text::SpeedLabel,
         Text::DrivingSideLabel,
@@ -143,6 +151,10 @@ impl Text {
         Text::RunFullscreen,
         Text::RunMinutesLabel,
         Text::RunStart,
+        Text::RunEndNote,
+        Text::HintInWindow,
+        Text::HintFullscreen,
+        Text::Paused,
         Text::SaveFailed,
         Text::Stopped,
         Text::RunFailed,
@@ -221,6 +233,16 @@ impl Text {
                 "閉じる時間(分、0 = 制限なし):",
             ),
             Text::RunStart => ("Start", "開始"),
+            Text::RunEndNote => ("Esc ends the run.", "Esc キーで終了します。"),
+            Text::HintInWindow => (
+                "Esc exit · ↑↓ speed · Space pause · D driving side · F full screen",
+                "Esc 終了 ・ ↑↓ 速度 ・ Space 一時停止 ・ D 通行方向 ・ F 全画面",
+            ),
+            Text::HintFullscreen => (
+                "Esc exit · ↑↓ speed · Space pause · D driving side · F window",
+                "Esc 終了 ・ ↑↓ 速度 ・ Space 一時停止 ・ D 通行方向 ・ F ウィンドウ",
+            ),
+            Text::Paused => ("Paused", "一時停止中"),
             Text::SaveFailed => (
                 "The settings could not be saved: {error}",
                 "設定を保存できませんでした: {error}",
@@ -330,6 +352,26 @@ mod tests {
             Text::RunFailed.with_error(DisplayLanguage::Japanese, "denied"),
             "Night Freeway SS を起動できませんでした: denied"
         );
+    }
+
+    #[test]
+    fn the_hint_names_the_keys_of_a_run_but_not_the_secret_one() {
+        for language in LANGUAGES {
+            for hint in [Text::HintInWindow, Text::HintFullscreen] {
+                let text = hint.get(language);
+                for key in ["Esc", "Space", "D ", "F "] {
+                    assert!(text.contains(key), "{text}");
+                }
+                // The arrows of the speed keys, written out.
+                assert!(text.contains('↑') && text.contains('↓'));
+                assert!(!text.to_lowercase().contains("ufo") && !text.contains("BA"));
+            }
+            // The key of the full screen is described for what it does now.
+            assert_ne!(
+                Text::HintInWindow.get(language),
+                Text::HintFullscreen.get(language)
+            );
+        }
     }
 
     #[test]
