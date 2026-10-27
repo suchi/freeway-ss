@@ -114,6 +114,9 @@ pub const EGO_LENGTH: f32 = 4.5;
 /// A car that moves to another lane to pass a car takes about this long, in
 /// seconds, to be past it.
 pub const PASS_SECONDS: f32 = 15.0;
+/// A car returns to its lane after it has passed a car that is not farther
+/// behind than this, in meters.
+const PASSED_WITHIN: f32 = 100.0;
 /// A car signals this long before it moves to the next lane, in seconds.
 pub const SIGNAL_SECONDS: f32 = 3.0;
 /// A car takes this long to move to the next lane, in seconds.
@@ -2764,8 +2767,9 @@ impl Traffic {
                 let held_again = own.ahead.is_some_and(|a| {
                     -a.velocity > MIN_CLOSING && a.gap < (CATCH_SECONDS * speed).max(AHEAD_CLEAR)
                 });
+                let just_passed = own.behind.is_some_and(|b| b.gap < PASSED_WITHIN);
                 (
-                    own.behind.is_some() && !held_again,
+                    just_passed && !held_again,
                     Seconds::RETURN,
                     RETURN_AHEAD_CLEAR,
                     RETURN_GAP,
@@ -5038,6 +5042,21 @@ mod tests {
                 }
                 // The car of the camera is `rel` meters behind the held-up car.
                 assert_eq!(started, moves, "{rel}");
+            }
+        }
+
+        #[test]
+        fn a_car_in_the_passing_lane_returns_only_after_it_has_passed_a_car() {
+            for (rel, returns) in [(60.0, true), (300.0, false)] {
+                let mut traffic = Traffic::empty(1, CarShapes::None, LaneChanges::All);
+                // Faster than the car of the camera, so that it keeps its distance to it.
+                traffic.plant(5, PASSING_LANE, rel, 3.0, true);
+                let mut started = false;
+                for _ in 0..(10.0 / DT) as usize {
+                    step(&mut traffic, &[OWN_LANE]);
+                    started |= traffic.cars[5].change.is_some();
+                }
+                assert_eq!(started, returns, "{rel}");
             }
         }
 
