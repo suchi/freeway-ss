@@ -2071,8 +2071,9 @@ impl Car {
 
 /// Where the car of the camera stands, for keeping clear of it.
 fn ego_occupant(lanes: &[f32]) -> Occupant {
+    let first = lanes.first().copied().unwrap_or(OWN_LANE);
     Occupant {
-        lanes: [lanes[0], *lanes.get(1).unwrap_or(&lanes[0])],
+        lanes: [first, lanes.get(1).copied().unwrap_or(first)],
         rel: -EGO_LENGTH,
         length: EGO_LENGTH,
     }
@@ -2221,8 +2222,7 @@ impl Traffic {
         };
         let changing = self.lane_changes != LaneChanges::None;
         if changing {
-            let lanes = around.ego_lanes;
-            self.ego_lanes = [lanes[0], *lanes.get(1).unwrap_or(&lanes[0])];
+            self.ego_lanes = ego_occupant(around.ego_lanes).lanes;
             self.ego_lateral = around.ego_lateral;
             self.own_speed = own_speed;
             self.tunnels.clear();
