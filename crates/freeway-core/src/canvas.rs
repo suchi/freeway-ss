@@ -27,6 +27,24 @@ pub trait Canvas {
     fn glow(&mut self, x: f32, y: f32, core_radius: f32, color: Rgb, alpha: f32);
     /// A soft elliptical pool of light lying on the road surface.
     fn light_pool(&mut self, x: f32, y: f32, radius_x: f32, radius_y: f32, color: Rgb, alpha: f32);
+    /// A pool of light as `light_pool` draws it, but not inside any of the
+    /// `shadows`, polygons through points of the screen where something stands
+    /// in the way of the light. A renderer that cannot cut the shadows out draws
+    /// the whole pool.
+    #[allow(clippy::too_many_arguments)]
+    fn shaded_light_pool(
+        &mut self,
+        x: f32,
+        y: f32,
+        radius_x: f32,
+        radius_y: f32,
+        color: Rgb,
+        alpha: f32,
+        shadows: &[Vec<(f32, f32)>],
+    ) {
+        let _ = shadows;
+        self.light_pool(x, y, radius_x, radius_y, color, alpha);
+    }
     /// A tiny solid point of `size` pixels, for stars and distant city lights.
     fn dot(&mut self, x: f32, y: f32, size: f32, color: Rgb, alpha: f32);
     /// A full-width horizontal band whose opacity rises from 0 at `top` to
