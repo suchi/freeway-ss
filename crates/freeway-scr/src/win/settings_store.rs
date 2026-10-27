@@ -228,7 +228,7 @@ mod tests {
         write_dword(HKEY_CURRENT_USER, test.key(), VARY_SPEED, 2)?;
         write_dword(HKEY_CURRENT_USER, test.key(), TRAFFIC_BY_TIME, 7)?;
         write_dword(HKEY_CURRENT_USER, test.key(), SCENERY_ZONES, u32::MAX)?;
-        write_dword(HKEY_CURRENT_USER, test.key(), CAR_SHAPES, 3)?;
+        write_dword(HKEY_CURRENT_USER, test.key(), CAR_SHAPES, 4)?;
         write_dword(HKEY_CURRENT_USER, test.key(), CAR_COLOR, 2)?;
         let settings = test.load();
         assert_eq!(settings.speed_kmh, DEFAULT_SPEED_KMH);
