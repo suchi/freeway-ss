@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::mem::ManuallyDrop;
 
 use freeway_core::canvas::GLOW_HALO_RATIO;
-use freeway_core::{Canvas, Rgb, Scene, SpeedometerStyle, Viewport};
+use freeway_core::{Canvas, Clip, Rgb, Scene, Span, SpeedometerStyle, Viewport};
 
 use super::dashboard::{Dashboards, Devices};
 use super::hint::{HintPainter, Overlay};
@@ -149,6 +149,29 @@ pub struct Target {
     size: (u32, u32),
 }
 
+impl Target {
+    /// DPI of the window of the target relative to 96.
+    pub fn pixel_scale(&self) -> f32 {
+        pixel_scale(self.hwnd)
+    }
+}
+
+/// What a window shows of a picture that spans several monitors
+/// (docs/adr/0008-span-monitors-as-one-scene.md). All of it is in physical
+/// pixels of the picture, whose origin is the top left corner of the
+/// rectangle around all the monitors.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Part {
+    /// The size of the whole picture.
+    pub screen: (f32, f32),
+    /// The vanishing point.
+    pub center: (f32, f32),
+    /// Where the window's part starts; it is as large as the window.
+    pub origin: (f32, f32),
+    /// DPI relative to 96, of the monitor that sets the sizes of the lights.
+    pub pixel_scale: f32,
+}
+
 impl Renderer {
     pub fn new() -> Result<Self> {
         let d3d_device = create_d3d_device()?;
@@ -264,6 +287,21 @@ impl Renderer {
         overlay: Option<&Overlay>,
         wait_for_vsync: bool,
     ) -> Result<bool> {
+        self.draw_part(target, scene, None, speedometer, overlay, wait_for_vsync)
+    }
+
+    /// Like `draw_scene_with_hint`, with the scene drawn as the `part` of a
+    /// picture that spans several monitors, if it is given. The speedometer
+    /// and the hint are those of the window either way.
+    pub fn draw_part(
+        &mut self,
+        target: &mut Target,
+        scene: &Scene,
+        part: Option<Part>,
+        speedometer: SpeedometerStyle,
+        overlay: Option<&Overlay>,
+        wait_for_vsync: bool,
+    ) -> Result<bool> {
         self.resize_if_needed(target)?;
         let viewport = Viewport {
             width: target.size.0 as f32,
@@ -291,7 +329,26 @@ impl Renderer {
             width: viewport.width,
             error: None,
         };
-        scene.draw(viewport, &mut canvas);
+        match part {
+            None => scene.draw(viewport, &mut canvas),
+            Some(part) => scene.draw_span(
+                Span {
+                    screen: Viewport {
+                        width: part.screen.0,
+                        height: part.screen.1,
+                        pixel_scale: part.pixel_scale,
+                    },
+                    center: part.center,
+                    part: Clip {
+                        left: part.origin.0,
+                        top: part.origin.1,
+                        right: part.origin.0 + viewport.width,
+                        bottom: part.origin.1 + viewport.height,
+                    },
+                },
+                &mut canvas,
+            ),
+        }
         let mut brush_error = canvas.error;
         unsafe {
             context.SetTransform(&Matrix3x2::identity());

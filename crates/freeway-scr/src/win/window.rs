@@ -18,14 +18,15 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     CS_HREDRAW, CS_VREDRAW, CreateWindowExW, DefWindowProcW, DestroyWindow, GWL_EXSTYLE, GWL_STYLE,
-    GetClientRect, GetCursorPos, HWND_NOTOPMOST, HWND_TOPMOST, IDC_ARROW, IsWindow, KillTimer,
-    LoadCursorW, PostQuitMessage, RegisterClassExW, SPI_GETWORKAREA, SW_RESTORE, SWP_FRAMECHANGED,
-    SWP_SHOWWINDOW, SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS, SetCursor, SetForegroundWindow, SetTimer,
-    SetWindowLongPtrW, SetWindowPos, ShowWindow, SystemParametersInfoW, WINDOW_EX_STYLE,
-    WM_ACTIVATEAPP, WM_DESTROY, WM_ERASEBKGND, WM_KEYDOWN, WM_KEYUP, WM_KILLFOCUS, WM_LBUTTONDOWN,
-    WM_MBUTTONDOWN, WM_MOUSEHWHEEL, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_RBUTTONDOWN, WM_SETCURSOR,
-    WM_SYSCOMMAND, WM_SYSKEYDOWN, WM_TIMER, WM_XBUTTONDOWN, WNDCLASSEXW, WS_CHILD, WS_EX_TOPMOST,
-    WS_OVERLAPPEDWINDOW, WS_POPUP, WS_VISIBLE,
+    GetClientRect, GetCursorPos, GetWindowRect, HWND_NOTOPMOST, HWND_TOPMOST, IDC_ARROW, IsWindow,
+    KillTimer, LoadCursorW, PostQuitMessage, RegisterClassExW, SPI_GETWORKAREA, SW_RESTORE,
+    SWP_FRAMECHANGED, SWP_SHOWWINDOW, SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS, SetCursor,
+    SetForegroundWindow, SetTimer, SetWindowLongPtrW, SetWindowPos, ShowWindow,
+    SystemParametersInfoW, WINDOW_EX_STYLE, WM_ACTIVATEAPP, WM_DESTROY, WM_ERASEBKGND, WM_KEYDOWN,
+    WM_KEYUP, WM_KILLFOCUS, WM_LBUTTONDOWN, WM_MBUTTONDOWN, WM_MOUSEHWHEEL, WM_MOUSEMOVE,
+    WM_MOUSEWHEEL, WM_RBUTTONDOWN, WM_SETCURSOR, WM_SYSCOMMAND, WM_SYSKEYDOWN, WM_TIMER,
+    WM_XBUTTONDOWN, WNDCLASSEXW, WS_CHILD, WS_EX_TOPMOST, WS_OVERLAPPEDWINDOW, WS_POPUP,
+    WS_VISIBLE,
 };
 use windows::core::{BOOL, Error, PCWSTR, Result, w};
 
@@ -39,6 +40,9 @@ const MOUSE_EXIT_THRESHOLD: u32 = 10;
 /// How long the cursor stays in sight after the mouse moved in the `/play`
 /// mode, and how often the windows look whether that time is over.
 const CURSOR_IDLE: Duration = Duration::from_secs(2);
+/// `MONITORINFO::dwFlags` has this bit for the primary monitor (the windows
+/// crate does not define the constant).
+const MONITORINFOF_PRIMARY: u32 = 1;
 const CURSOR_TIMER: usize = 1;
 const CURSOR_TIMER_MILLISECONDS: u32 = 500;
 
@@ -139,48 +143,93 @@ pub fn create_fullscreen_windows() -> Result<Vec<HWND>> {
 pub fn create_play_windows() -> Result<Vec<HWND>> {
     let windows = create_monitor_windows(Behavior::Play)?;
     for &hwnd in &windows {
-        // Why: no message tells that the cursor has stood still, so each
-        // window looks at the time now and then and hides the cursor.
-        if unsafe { SetTimer(Some(hwnd), CURSOR_TIMER, CURSOR_TIMER_MILLISECONDS, None) } == 0 {
-            return Err(Error::from_thread());
-        }
+        start_cursor_timer(hwnd)?;
     }
     Ok(windows)
+}
+
+/// Creates the full-screen windows of the `/play` mode on every monitor but
+/// the one that `hwnd` is on, where the window `hwnd` is already full screen:
+/// the F key brings the monitors back that it left when it made a window.
+pub fn create_play_windows_besides(hwnd: HWND) -> Result<Vec<HWND>> {
+    BEHAVIOR.set(Behavior::Play);
+    let instance = register_class()?;
+    let own = unsafe { MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST) };
+    let mut windows = Vec::new();
+    for (monitor, rect) in monitors()? {
+        if monitor == own {
+            continue;
+        }
+        let other = create_topmost_window(instance, rect)?;
+        start_cursor_timer(other)?;
+        windows.push(other);
+    }
+    Ok(windows)
+}
+
+fn start_cursor_timer(hwnd: HWND) -> Result<()> {
+    // Why: no message tells that the cursor has stood still, so each
+    // window looks at the time now and then and hides the cursor.
+    if unsafe { SetTimer(Some(hwnd), CURSOR_TIMER, CURSOR_TIMER_MILLISECONDS, None) } == 0 {
+        return Err(Error::from_thread());
+    }
+    Ok(())
 }
 
 fn create_monitor_windows(behavior: Behavior) -> Result<Vec<HWND>> {
     BEHAVIOR.set(behavior);
     let instance = register_class()?;
-    let monitors = monitor_rects()?;
+    let monitors = monitors()?;
     if monitors.is_empty() {
         // Without a window nothing could receive the input that ends the program.
         return Err(Error::new(E_FAIL, "No display monitor was found"));
     }
     let mut windows = Vec::new();
-    for rect in monitors {
-        let hwnd = unsafe {
-            CreateWindowExW(
-                WS_EX_TOPMOST,
-                CLASS_NAME,
-                TITLE,
-                WS_POPUP | WS_VISIBLE,
-                rect.left,
-                rect.top,
-                rect.right - rect.left,
-                rect.bottom - rect.top,
-                None,
-                None,
-                Some(instance),
-                None,
-            )?
-        };
-        windows.push(hwnd);
+    for (_, rect) in monitors {
+        windows.push(create_topmost_window(instance, rect)?);
     }
     if let Some(&first) = windows.first() {
         // Keyboard input only reaches the foreground window.
         let _ = unsafe { SetForegroundWindow(first) };
     }
     Ok(windows)
+}
+
+/// A topmost borderless window that covers `rect`.
+fn create_topmost_window(instance: HINSTANCE, rect: RECT) -> Result<HWND> {
+    unsafe {
+        CreateWindowExW(
+            WS_EX_TOPMOST,
+            CLASS_NAME,
+            TITLE,
+            WS_POPUP | WS_VISIBLE,
+            rect.left,
+            rect.top,
+            rect.right - rect.left,
+            rect.bottom - rect.top,
+            None,
+            None,
+            Some(instance),
+            None,
+        )
+    }
+}
+
+/// Where `hwnd` is on the screen, in physical pixels; `None` if it is gone.
+pub fn rect_of(hwnd: HWND) -> Option<Placement> {
+    let mut rect = RECT::default();
+    unsafe { GetWindowRect(hwnd, &mut rect) }.ok()?;
+    Some(Placement {
+        left: rect.left,
+        top: rect.top,
+        right: rect.right,
+        bottom: rect.bottom,
+    })
+}
+
+/// Whether `hwnd` is on the primary monitor, the one with Windows' main display.
+pub fn is_on_primary_monitor(hwnd: HWND) -> bool {
+    monitor_of(hwnd).is_ok_and(|info| info.dwFlags & MONITORINFOF_PRIMARY != 0)
 }
 
 /// The style of the window of the `/window` mode.
@@ -321,6 +370,11 @@ fn place(hwnd: HWND, after: HWND, rect: Placement) -> Result<()> {
     }
 }
 
+/// Gives the keyboard to `hwnd`.
+pub fn focus(hwnd: HWND) {
+    let _ = unsafe { SetForegroundWindow(hwnd) };
+}
+
 /// Destroys a window without ending the program, when the run goes on in
 /// another window.
 pub fn close(hwnd: HWND) {
@@ -379,6 +433,29 @@ pub fn create_hidden_window(width: i32, height: i32) -> Result<HWND> {
     }
 }
 
+/// Creates an invisible window at `position`, for rendering tests of windows
+/// that lie side by side.
+#[cfg(test)]
+pub fn create_hidden_window_at(position: (i32, i32), size: (i32, i32)) -> Result<HWND> {
+    let instance = register_class()?;
+    unsafe {
+        CreateWindowExW(
+            WINDOW_EX_STYLE(0),
+            CLASS_NAME,
+            TITLE,
+            WS_POPUP,
+            position.0,
+            position.1,
+            size.0,
+            size.1,
+            None,
+            None,
+            Some(instance),
+            None,
+        )
+    }
+}
+
 fn register_class() -> Result<HINSTANCE> {
     let instance: HINSTANCE = unsafe { GetModuleHandleW(None)? }.into();
     let class = WNDCLASSEXW {
@@ -401,7 +478,8 @@ fn register_class() -> Result<HINSTANCE> {
     Ok(instance)
 }
 
-fn monitor_rects() -> Result<Vec<RECT>> {
+/// Every monitor with its rectangle on the virtual desktop, in physical pixels.
+fn monitors() -> Result<Vec<(HMONITOR, RECT)>> {
     unsafe extern "system" fn collect(
         monitor: HMONITOR,
         _: HDC,
@@ -410,28 +488,28 @@ fn monitor_rects() -> Result<Vec<RECT>> {
     ) -> BOOL {
         // SAFETY: `data` is the address of the vector below, which outlives
         // the synchronous EnumDisplayMonitors call.
-        let rects = unsafe { &mut *(data.0 as *mut Vec<RECT>) };
+        let monitors = unsafe { &mut *(data.0 as *mut Vec<(HMONITOR, RECT)>) };
         let mut info = MONITORINFO {
             cbSize: size_of::<MONITORINFO>() as u32,
             ..Default::default()
         };
         if unsafe { GetMonitorInfoW(monitor, &mut info) }.as_bool() {
-            rects.push(info.rcMonitor);
+            monitors.push((monitor, info.rcMonitor));
         }
         true.into()
     }
 
-    let mut rects: Vec<RECT> = Vec::new();
+    let mut monitors: Vec<(HMONITOR, RECT)> = Vec::new();
     unsafe {
         EnumDisplayMonitors(
             None,
             None,
             Some(collect),
-            LPARAM(&mut rects as *mut Vec<RECT> as isize),
+            LPARAM(&mut monitors as *mut Vec<(HMONITOR, RECT)> as isize),
         )
     }
     .ok()?;
-    Ok(rects)
+    Ok(monitors)
 }
 
 /// Whether the mouse has stood still for long enough to hide the cursor of
