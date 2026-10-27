@@ -6,7 +6,7 @@
 
 use crate::i18n::DisplayLanguage;
 use crate::scene::SceneConfig;
-use crate::traffic::{CarColor, CarShapes, TruckStyle};
+use crate::traffic::{CarColor, CarShapes, LaneChanges, TruckStyle};
 use crate::tunnel::TunnelLighting;
 
 pub const MIN_SPEED_KMH: u32 = 30;
@@ -118,6 +118,8 @@ pub struct Settings {
     pub traffic_by_time: bool,
     /// Whether the road alternates between mountains and plains.
     pub scenery_zones: bool,
+    /// Who changes lanes.
+    pub lane_changes: LaneChanges,
 }
 
 impl Default for Settings {
@@ -136,6 +138,7 @@ impl Default for Settings {
             vary_speed: true,
             traffic_by_time: true,
             scenery_zones: true,
+            lane_changes: LaneChanges::All,
         }
     }
 }
@@ -175,6 +178,7 @@ impl Settings {
         speedometer: Option<u32>,
         car_shapes: Option<u32>,
         car_color: Option<u32>,
+        lane_changes: Option<u32>,
     ) -> Self {
         let defaults = Self::default();
         let (car_shapes, car_color) = match car_shapes {
@@ -205,6 +209,7 @@ impl Settings {
             scenery_zones: flag(scenery_zones).unwrap_or(defaults.scenery_zones),
             car_shapes,
             car_color,
+            lane_changes: LaneChanges::from_raw(lane_changes).unwrap_or(defaults.lane_changes),
         }
     }
 
@@ -239,6 +244,7 @@ impl Settings {
             vary_speed: self.vary_speed,
             traffic_by_time: self.traffic_by_time,
             scenery_zones: self.scenery_zones,
+            lane_changes: self.lane_changes,
             seed,
             ..SceneConfig::default()
         }
@@ -295,7 +301,7 @@ mod tests {
         assert_eq!(
             Settings::from_raw(
                 None, None, None, None, None, None, None, None, None, None, None, None, None, None,
-                None
+                None, None
             ),
             settings
         );
@@ -319,6 +325,7 @@ mod tests {
             Some(3),
             Some(1),
             Some(1),
+            Some(1),
         );
         assert_eq!(
             settings,
@@ -336,11 +343,13 @@ mod tests {
                 vary_speed: true,
                 traffic_by_time: true,
                 scenery_zones: true,
+                lane_changes: LaneChanges::OwnCar,
             }
         );
         assert_eq!(
             Settings::from_raw(
                 Some(30),
+                None,
                 None,
                 None,
                 None,
@@ -367,6 +376,7 @@ mod tests {
             assert_eq!(
                 Settings::from_raw(
                     Some(speed),
+                    None,
                     None,
                     None,
                     None,
@@ -408,6 +418,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
             );
             assert_eq!(settings, Settings::default(), "{raw}");
         }
@@ -424,6 +435,7 @@ mod tests {
             None,
             None,
             Some(1),
+            None,
             None,
             None,
             None,
@@ -456,8 +468,10 @@ mod tests {
             vary_speed: false,
             traffic_by_time: false,
             scenery_zones: false,
+            lane_changes: LaneChanges::None,
         };
         let config = settings.scene_config(42);
+        assert_eq!(config.lane_changes, LaneChanges::None);
         assert_eq!(config.speed_kmh, 60.0);
         assert!(!config.left_hand_traffic);
         assert_eq!(config.seed, 42);
@@ -473,6 +487,7 @@ mod tests {
                 None,
                 None,
                 Some(1),
+                None,
                 None,
                 None,
                 None,
@@ -503,6 +518,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
                 None
             )
             .show_ufo
@@ -514,6 +530,7 @@ mod tests {
                     None,
                     None,
                     Some(raw),
+                    None,
                     None,
                     None,
                     None,
@@ -562,6 +579,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
                 None
             )
             .show_mountains
@@ -573,6 +591,7 @@ mod tests {
                 None,
                 None,
                 Some(0),
+                None,
                 None,
                 None,
                 None,
@@ -603,6 +622,7 @@ mod tests {
                     None,
                     None,
                     None,
+                    None,
                     None
                 )
                 .show_mountains,
@@ -617,7 +637,7 @@ mod tests {
         assert!(settings.vary_speed && settings.traffic_by_time && settings.scenery_zones);
         let none = Settings::from_raw(
             None, None, None, None, None, None, None, None, None, None, None, None, None, None,
-            None,
+            None, None,
         );
         assert!(none.vary_speed && none.traffic_by_time && none.scenery_zones);
     }
@@ -627,7 +647,7 @@ mod tests {
         let read = |vary, traffic, zones| {
             let s = Settings::from_raw(
                 None, None, None, None, None, None, None, None, vary, traffic, zones, None, None,
-                None, None,
+                None, None, None,
             );
             (s.vary_speed, s.traffic_by_time, s.scenery_zones)
         };
@@ -672,6 +692,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         );
         assert_eq!(settings.speed_kmh, 60);
         assert_eq!(settings.language, Language::English);
@@ -704,11 +725,39 @@ mod tests {
     }
 
     #[test]
+    fn lane_changes_are_on_for_everyone_by_default_and_off_in_the_bare_scene() {
+        assert_eq!(Settings::default().lane_changes, LaneChanges::All);
+        assert_eq!(SceneConfig::default().lane_changes, LaneChanges::None);
+        assert_eq!(
+            Settings::default().scene_config(1).lane_changes,
+            LaneChanges::All
+        );
+    }
+
+    #[test]
+    fn lane_changes_are_read_back_and_a_bad_value_is_the_default() {
+        let read = |raw: Option<u32>| {
+            Settings::from_raw(
+                None, None, None, None, None, None, None, None, None, None, None, None, None, None,
+                None, raw,
+            )
+            .lane_changes
+        };
+        for choice in LaneChanges::ALL {
+            assert_eq!(read(Some(choice.to_raw())), choice);
+        }
+        assert_eq!(read(None), LaneChanges::All);
+        for raw in [3, 4, 100, u32::MAX] {
+            assert_eq!(read(Some(raw)), LaneChanges::All, "{raw}");
+        }
+    }
+
+    #[test]
     fn trucks_are_japanese_style_by_default() {
         assert_eq!(Settings::default().trucks, TruckStyle::Japanese);
         let settings = Settings::from_raw(
             None, None, None, None, None, None, None, None, None, None, None, None, None, None,
-            None,
+            None, None,
         );
         assert_eq!(settings.trucks, TruckStyle::Japanese);
     }
@@ -747,6 +796,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
             );
             assert_eq!(settings.trucks, TruckStyle::Japanese, "{raw}");
         }
@@ -760,6 +810,7 @@ mod tests {
             Some(9),
             None,
             Some(1),
+            None,
             None,
             None,
             None,
@@ -788,7 +839,7 @@ mod tests {
         assert_eq!(Settings::default().tunnels, TunnelLighting::Mixed);
         let settings = Settings::from_raw(
             None, None, None, None, None, None, None, None, None, None, None, None, None, None,
-            None,
+            None, None,
         );
         assert_eq!(settings.tunnels, TunnelLighting::Mixed);
         assert_eq!(
@@ -841,6 +892,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
             );
             assert_eq!(settings.tunnels, TunnelLighting::Mixed, "{raw}");
         }
@@ -854,6 +906,7 @@ mod tests {
             None,
             Some(9),
             Some(1),
+            None,
             None,
             None,
             None,
@@ -886,7 +939,7 @@ mod tests {
     ) -> (CarShapes, CarColor) {
         let settings = Settings::from_raw(
             None, None, None, None, None, None, None, None, None, None, None, legacy, None, shapes,
-            color,
+            color, None,
         );
         (settings.car_shapes, settings.car_color)
     }
@@ -961,6 +1014,7 @@ mod tests {
                 None,
                 Some(raw),
                 Some(raw),
+                None,
             );
             assert_eq!(settings.car_shapes, CarShapes::None, "{raw}");
             assert_eq!(settings.car_color, CarColor::TranslucentBlack, "{raw}");
@@ -1113,6 +1167,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
             );
             assert_eq!(settings.language, Language::Auto, "{raw}");
         }
@@ -1157,6 +1212,7 @@ mod tests {
             None,
             None,
             speedometer,
+            None,
             None,
             None,
         )

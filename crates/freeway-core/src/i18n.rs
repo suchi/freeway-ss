@@ -73,6 +73,10 @@ pub enum Text {
     CarColorLabel,
     CarColorTranslucent,
     CarColorBlack,
+    LaneChangesLabel,
+    LaneChangesNone,
+    LaneChangesOwnCar,
+    LaneChangesAll,
     LanguageLabel,
     LanguageAuto,
     LanguageEnglish,
@@ -106,7 +110,7 @@ pub enum Text {
 
 impl Text {
     /// Every key, so that tests can check all of them.
-    pub const ALL: [Text; 51] = [
+    pub const ALL: [Text; 55] = [
         Text::DialogTitle,
         Text::SpeedLabel,
         Text::DrivingSideLabel,
@@ -139,6 +143,10 @@ impl Text {
         Text::CarColorLabel,
         Text::CarColorTranslucent,
         Text::CarColorBlack,
+        Text::LaneChangesLabel,
+        Text::LaneChangesNone,
+        Text::LaneChangesOwnCar,
+        Text::LaneChangesAll,
         Text::LanguageLabel,
         Text::LanguageAuto,
         Text::LanguageEnglish,
@@ -213,6 +221,10 @@ impl Text {
             Text::CarColorLabel => ("Body color:", "車体の色:"),
             Text::CarColorTranslucent => ("Translucent black", "半透明の黒"),
             Text::CarColorBlack => ("Black", "黒"),
+            Text::LaneChangesLabel => ("Lane changes:", "車線変更:"),
+            Text::LaneChangesNone => ("None", "なし"),
+            Text::LaneChangesOwnCar => ("Own car only", "自車だけ"),
+            Text::LaneChangesAll => ("Own car and other cars", "自車と他車"),
             Text::LanguageLabel => ("Language:", "言語:"),
             Text::LanguageAuto => (
                 "Automatic (Windows display language)",

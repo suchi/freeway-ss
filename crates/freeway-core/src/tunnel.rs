@@ -9,7 +9,7 @@
 use std::collections::VecDeque;
 
 use crate::canvas::{Canvas, Rgb};
-use crate::projection::{CAMERA_HEIGHT, CAMERA_LATERAL, NEAR_DISTANCE, Projector, VIEW_DISTANCE};
+use crate::projection::{CAMERA_HEIGHT, NEAR_DISTANCE, Projector, VIEW_DISTANCE};
 use crate::rng::hash01;
 use crate::road::RoadView;
 use crate::scenery::{BLEND_HALF, ZoneKind, Zones};
@@ -245,6 +245,8 @@ fn opening_edges() -> [(f32, f32, f32); OPENING.len()] {
 /// way (the road bends and rises, so a wall or the hill stands in the way).
 pub struct Sight<'a> {
     view: &'a RoadView,
+    /// Lateral position of the eye.
+    eye: f32,
     spans: Vec<Span>,
     edges: [(f32, f32, f32); OPENING.len()],
 }
@@ -263,7 +265,7 @@ impl Sight<'_> {
     pub fn blocked(&self, d: f32, lateral: f32, height: f32) -> bool {
         let (bend, rise) = self.view.offset(d);
         let target = (lateral + bend, height + rise);
-        let eye = (CAMERA_LATERAL, CAMERA_HEIGHT);
+        let eye = (self.eye, CAMERA_HEIGHT);
         self.spans.iter().any(|span| {
             if span.start >= d {
                 return false;
@@ -365,8 +367,9 @@ impl Tunnels {
     }
 
     /// What the camera at `track_s` can see through the tunnels ahead: the
-    /// road ahead is `view`.
-    pub fn sight<'a>(&self, track_s: f64, view: &'a RoadView) -> Sight<'a> {
+    /// road ahead is `view`, and the eye stands `eye` to the side of its
+    /// reference line.
+    pub fn sight<'a>(&self, track_s: f64, view: &'a RoadView, eye: f32) -> Sight<'a> {
         let spans = self
             .ahead
             .iter()
@@ -392,6 +395,7 @@ impl Tunnels {
             .collect();
         Sight {
             view,
+            eye,
             spans,
             edges: opening_edges(),
         }
@@ -728,7 +732,7 @@ mod tests {
             made: 1,
             next: None,
         };
-        tunnels.sight(0.0, view)
+        tunnels.sight(0.0, view, crate::projection::CAMERA_LATERAL)
     }
 
     #[test]

@@ -72,7 +72,7 @@ END
 // sets every string from freeway-core's string table when it opens and when
 // the language changes (docs/adr/0007-localize-ui-strings-in-code.md), so
 // controls with text that changes have an ID.
-100 DIALOGEX 0, 0, 224, 288
+100 DIALOGEX 0, 0, 224, 306
 STYLE DIALOG_STYLE
 CAPTION "Night Freeway SS Settings"
 FONT 9, "Segoe UI"
@@ -83,26 +83,28 @@ BEGIN
     LTEXT           "Driving side:", 109, 12, 50, 100, 8
     AUTORADIOBUTTON "Left-hand traffic", 103, 12, 62, 96, 10, GROUP_START
     AUTORADIOBUTTON "Right-hand traffic", 104, 112, 62, 96, 10
-    LTEXT           "Speedometer:", 121, 12, 82, 48, 8
-    CONTROL         "", 105, "COMBOBOX", DROPDOWN_STYLE, 62, 80, 150, 70
+    LTEXT           "Speedometer:", 121, 12, 82, 56, 8
+    CONTROL         "", 105, "COMBOBOX", DROPDOWN_STYLE, 70, 80, 142, 70
     AUTOCHECKBOX    "Show a UFO now and then", 106, 12, 100, 160, 10
     AUTOCHECKBOX    "Show distant mountains", 111, 12, 114, 160, 10
     AUTOCHECKBOX    "Vary the cruising speed", 116, 12, 128, 200, 10
     AUTOCHECKBOX    "Traffic follows the time of day", 117, 12, 142, 200, 10
     AUTOCHECKBOX    "Alternate mountains and plains", 118, 12, 156, 200, 10
-    LTEXT           "Trucks:", 112, 12, 176, 48, 8
-    CONTROL         "", 113, "COMBOBOX", DROPDOWN_STYLE, 62, 174, 150, 60
-    LTEXT           "Tunnels:", 114, 12, 194, 48, 8
-    CONTROL         "", 115, "COMBOBOX", DROPDOWN_STYLE, 62, 192, 150, 60
-    LTEXT           "Car bodies:", 119, 12, 212, 48, 8
-    CONTROL         "", 120, "COMBOBOX", DROPDOWN_STYLE, 62, 210, 150, 70
-    LTEXT           "Body color:", 122, 12, 230, 48, 8
-    CONTROL         "", 123, "COMBOBOX", DROPDOWN_STYLE, 62, 228, 150, 60
-    LTEXT           "Language:", 110, 12, 248, 48, 8
-    CONTROL         "", 107, "COMBOBOX", DROPDOWN_STYLE, 62, 246, 150, 60
-    PUSHBUTTON      "Keep running...", 124, 12, 268, 72, 14
-    DEFPUSHBUTTON   "OK", 1, 108, 268, 50, 14
-    PUSHBUTTON      "Cancel", 2, 162, 268, 50, 14
+    LTEXT           "Trucks:", 112, 12, 176, 56, 8
+    CONTROL         "", 113, "COMBOBOX", DROPDOWN_STYLE, 70, 174, 142, 60
+    LTEXT           "Tunnels:", 114, 12, 194, 56, 8
+    CONTROL         "", 115, "COMBOBOX", DROPDOWN_STYLE, 70, 192, 142, 60
+    LTEXT           "Car bodies:", 119, 12, 212, 56, 8
+    CONTROL         "", 120, "COMBOBOX", DROPDOWN_STYLE, 70, 210, 142, 70
+    LTEXT           "Body color:", 122, 12, 230, 56, 8
+    CONTROL         "", 123, "COMBOBOX", DROPDOWN_STYLE, 70, 228, 142, 60
+    LTEXT           "Lane changes:", 131, 12, 248, 56, 8
+    CONTROL         "", 132, "COMBOBOX", DROPDOWN_STYLE, 70, 246, 142, 60
+    LTEXT           "Language:", 110, 12, 266, 56, 8
+    CONTROL         "", 107, "COMBOBOX", DROPDOWN_STYLE, 70, 264, 142, 60
+    PUSHBUTTON      "Keep running...", 124, 12, 286, 72, 14
+    DEFPUSHBUTTON   "OK", 1, 108, 286, 50, 14
+    PUSHBUTTON      "Cancel", 2, 162, 286, 50, 14
 END
 
 // The dialog that the "Keep running..." button of the settings dialog opens: how

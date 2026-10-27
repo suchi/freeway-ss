@@ -5,8 +5,8 @@
 
 use freeway_core::settings::{SPEED_CHOICES, position_to_speed, speed_to_position};
 use freeway_core::{
-    CarColor, CarShapes, DisplayLanguage, Language, Settings, SpeedometerStyle, Text, TruckStyle,
-    TunnelLighting,
+    CarColor, CarShapes, DisplayLanguage, LaneChanges, Language, Settings, SpeedometerStyle, Text,
+    TruckStyle, TunnelLighting,
 };
 use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
@@ -60,12 +60,14 @@ const RUN_MINUTES: i32 = 128;
 const RUN_START: i32 = 129;
 /// The line that says how a run ends.
 const RUN_END_NOTE: i32 = 130;
+const LANE_CHANGES_LABEL: i32 = 131;
+const LANE_CHANGES: i32 = 132;
 
 /// How many characters the minutes may have: `MINUTES_RANGE` ends at 1440.
 const MINUTES_DIGITS: usize = 4;
 
 /// The texts of the controls that are set from the string table, by ID.
-const CONTROL_TEXTS: [(i32, Text); 18] = [
+const CONTROL_TEXTS: [(i32, Text); 19] = [
     (SPEED_LABEL, Text::SpeedLabel),
     (SIDE_LABEL, Text::DrivingSideLabel),
     (LEFT_HAND, Text::LeftHandTraffic),
@@ -80,6 +82,7 @@ const CONTROL_TEXTS: [(i32, Text); 18] = [
     (TUNNELS_LABEL, Text::TunnelsLabel),
     (CAR_SHAPES_LABEL, Text::CarShapesLabel),
     (CAR_COLOR_LABEL, Text::CarColorLabel),
+    (LANE_CHANGES_LABEL, Text::LaneChangesLabel),
     (LANGUAGE_LABEL, Text::LanguageLabel),
     (RUN_OPEN, Text::RunOpen),
     // OK and Cancel use the IDs of the standard buttons.
@@ -127,6 +130,13 @@ const CAR_SHAPE_TEXTS: [Text; 4] = [
 
 /// The items of the car color drop-down, in the order of `CarColor::ALL`.
 const CAR_COLOR_TEXTS: [Text; 2] = [Text::CarColorTranslucent, Text::CarColorBlack];
+
+/// The items of the lane changes drop-down, in the order of `LaneChanges::ALL`.
+const LANE_CHANGE_TEXTS: [Text; 3] = [
+    Text::LaneChangesNone,
+    Text::LaneChangesOwnCar,
+    Text::LaneChangesAll,
+];
 
 /// The texts of the controls of the dialog of the run, by ID.
 const RUN_CONTROL_TEXTS: [(i32, Text); 6] = [
@@ -212,6 +222,7 @@ unsafe extern "system" fn dialog_proc(
                 select_tunnels(hwnd, state.settings.tunnels);
                 select_car_shapes(hwnd, state.settings.car_shapes);
                 select_car_color(hwnd, state.settings.car_color);
+                select_lane_changes(hwnd, state.settings.lane_changes);
                 update_car_color_enabled(hwnd);
                 select_speedometer(hwnd, state.settings.speedometer);
             }
@@ -387,6 +398,30 @@ fn select_car_color(hwnd: HWND, car_color: CarColor) {
     }
 }
 
+/// The lane changes choice selected in the drop-down; the default while the
+/// drop-down is still empty.
+fn selected_lane_changes(hwnd: HWND) -> LaneChanges {
+    let index =
+        unsafe { SendDlgItemMessageW(hwnd, LANE_CHANGES, CB_GETCURSEL, WPARAM(0), LPARAM(0)) }.0;
+    // CB_ERR (-1) means nothing is selected.
+    u32::try_from(index)
+        .ok()
+        .and_then(|index| LaneChanges::from_raw(Some(index)))
+        .unwrap_or_default()
+}
+
+fn select_lane_changes(hwnd: HWND, lane_changes: LaneChanges) {
+    unsafe {
+        SendDlgItemMessageW(
+            hwnd,
+            LANE_CHANGES,
+            CB_SETCURSEL,
+            WPARAM(lane_changes.to_raw() as usize),
+            LPARAM(0),
+        );
+    }
+}
+
 /// Grays out the color of the car bodies while the cars have no bodies.
 fn update_car_color_enabled(hwnd: HWND) {
     let enabled = selected_car_shapes(hwnd).has_bodies();
@@ -437,6 +472,7 @@ fn apply_language(hwnd: HWND, selected: Language) {
     let tunnels = selected_tunnels(hwnd);
     let car_shapes = selected_car_shapes(hwnd);
     let car_color = selected_car_color(hwnd);
+    let lane_changes = selected_lane_changes(hwnd);
     let speedometer = selected_speedometer(hwnd);
     fill_dropdown(hwnd, LANGUAGE, &LANGUAGE_TEXTS, language, selected.to_raw());
     fill_dropdown(hwnd, TRUCKS, &TRUCK_TEXTS, language, trucks.to_raw());
@@ -454,6 +490,13 @@ fn apply_language(hwnd: HWND, selected: Language) {
         &CAR_COLOR_TEXTS,
         language,
         car_color.to_raw(),
+    );
+    fill_dropdown(
+        hwnd,
+        LANE_CHANGES,
+        &LANE_CHANGE_TEXTS,
+        language,
+        lane_changes.to_raw(),
     );
     fill_dropdown(
         hwnd,
@@ -638,6 +681,7 @@ fn read_controls(hwnd: HWND) -> Settings {
         tunnels: selected_tunnels(hwnd),
         car_shapes: selected_car_shapes(hwnd),
         car_color: selected_car_color(hwnd),
+        lane_changes: selected_lane_changes(hwnd),
         language: selected_language(hwnd),
         vary_speed: unsafe { IsDlgButtonChecked(hwnd, VARY_SPEED) } == BST_CHECKED.0,
         traffic_by_time: unsafe { IsDlgButtonChecked(hwnd, TRAFFIC_BY_TIME) } == BST_CHECKED.0,

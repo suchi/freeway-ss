@@ -6,13 +6,15 @@ use std::f64::consts::TAU;
 use crate::body::{Corners, depth_at, faces_camera};
 use crate::canvas::{Canvas, GLOW_HALO_RATIO, Rgb};
 use crate::cruise::Drift;
-use crate::projection::{CAMERA_HEIGHT, NEAR_DISTANCE, Projector, VIEW_DISTANCE};
+use crate::ego::Ego;
+use crate::projection::{CAMERA_HEIGHT, CAMERA_LATERAL, NEAR_DISTANCE, Projector, VIEW_DISTANCE};
 use crate::road::{RoadShape, RoadView};
 use crate::scenery::Zones;
 use crate::settings::{MAX_SPEED_KMH, MIN_SPEED_KMH};
 use crate::sky::{Sky, SkyView};
 use crate::traffic::{
-    BodyBox, CarColor, CarShapes, FacePart, MINUTES_PER_DAY, Traffic, TrafficLevel, TruckStyle,
+    BodyBox, CarColor, CarShapes, FacePart, LaneChanges, MINUTES_PER_DAY, Surroundings, Traffic,
+    TrafficLevel, TruckStyle,
 };
 use crate::tunnel::{Tunnel, TunnelLighting, Tunnels, draw_entrance};
 use crate::ufo::Ufo;
@@ -48,6 +50,8 @@ pub struct SceneConfig {
     pub car_shapes: CarShapes,
     /// The color of the bodies.
     pub car_color: CarColor,
+    /// Who changes lanes.
+    pub lane_changes: LaneChanges,
     /// Whether the speed drifts slowly around `speed_kmh`.
     pub vary_speed: bool,
     /// Whether the traffic follows the time of day, given by `start_minute`.
@@ -71,6 +75,9 @@ impl Default for SceneConfig {
             tunnels: TunnelLighting::default(),
             car_shapes: CarShapes::default(),
             car_color: CarColor::default(),
+            // The road as it was before the lane changes; the settings turn
+            // them on by default.
+            lane_changes: LaneChanges::None,
             // The three kinds of variation are off here, which is the road
             // as it was before them. The settings turn them on by default.
             vary_speed: false,
@@ -399,6 +406,13 @@ pub struct Scene {
     heading: f64,
     /// Seconds of (capped) steps since the start.
     time: f64,
+    /// Lateral position of the car, which is that of the camera.
+    lateral: f32,
+    /// How far the camera is turned toward larger lateral positions while
+    /// the car changes lanes, in radians.
+    yaw: f32,
+    /// The car that overtakes, where lane changes are on.
+    ego: Ego,
     sky: Sky,
     traffic: Traffic,
     ufo: Ufo,
@@ -454,14 +468,18 @@ impl Scene {
             track_s: 0.0,
             heading: 0.0,
             time: 0.0,
+            lateral: CAMERA_LATERAL,
+            yaw: 0.0,
             sky,
             // The cars start out as busy as the road is at the start time.
-            traffic: Traffic::with_shapes(
+            traffic: Traffic::with_lane_changes(
                 config.seed,
                 config.trucks,
                 traffic_level(&config, 0.0),
                 config.car_shapes,
+                config.lane_changes,
             ),
+            ego: Ego::new(config.speed_kmh / 3.6),
             ufo: Ufo::new(config.seed, config.ufo_mean_interval),
             tunnels: Tunnels::with_zones(config.seed, config.tunnels, config.scenery_zones),
             drift: Drift::new(config.seed, config.speed_kmh, config.vary_speed),
@@ -470,9 +488,43 @@ impl Scene {
         }
     }
 
-    /// The speed now, in km/h: the chosen one, plus the drift if it is on.
-    pub fn speed_kmh(&self) -> f32 {
+    /// The speed the car would drive at on an empty road, in km/h: the chosen
+    /// one, plus the drift if it is on.
+    pub fn target_kmh(&self) -> f32 {
         self.base_kmh + self.drift.offset()
+    }
+
+    /// The speed now, in km/h: the target, unless the car is held up by cars
+    /// ahead of it where lane changes are on.
+    pub fn speed_kmh(&self) -> f32 {
+        if self.config.lane_changes == LaneChanges::None {
+            self.target_kmh()
+        } else {
+            self.ego.speed() * 3.6
+        }
+    }
+
+    /// What the car is doing, where lane changes are on.
+    pub fn ego(&self) -> &Ego {
+        &self.ego
+    }
+
+    /// Where the car is across the road, which is that of the camera.
+    pub fn lateral(&self) -> f32 {
+        self.lateral
+    }
+
+    /// The tunnels as (entrance, exit) in meters ahead of the camera.
+    fn tunnel_spans(&self) -> Vec<(f32, f32)> {
+        self.tunnels
+            .ahead()
+            .map(|t| {
+                (
+                    (t.start - self.track_s) as f32,
+                    (t.end - self.track_s) as f32,
+                )
+            })
+            .collect()
     }
 
     /// Raises (`direction` above 0) or lowers (below 0) the chosen speed for
@@ -575,6 +627,17 @@ impl Scene {
             return;
         }
         self.drift.update(dt);
+        let spans = if self.config.lane_changes == LaneChanges::None {
+            Vec::new()
+        } else {
+            self.tunnel_spans()
+        };
+        if self.config.lane_changes != LaneChanges::None {
+            self.ego
+                .update(dt, self.target_kmh() / 3.6, &self.traffic, &spans);
+            self.lateral = self.ego.lateral();
+            self.yaw = self.ego.yaw();
+        }
         let speed_kmh = self.speed_kmh();
         let step = f64::from(speed_kmh / 3.6 * dt);
         // The car turns by the curvature of the road it is driving on.
@@ -586,7 +649,20 @@ impl Scene {
         self.ufo.update(self.time, self.heading, self.side());
         self.traffic
             .set_level(traffic_level(&self.config, self.time));
-        self.traffic.update(dt, speed_kmh / 3.6);
+        if self.config.lane_changes == LaneChanges::None {
+            self.traffic.update(dt, speed_kmh / 3.6);
+        } else {
+            self.traffic.update_around(
+                dt,
+                speed_kmh / 3.6,
+                &Surroundings {
+                    target_speed: self.target_kmh() / 3.6,
+                    ego_lanes: &self.ego.lanes(),
+                    ego_lateral: self.lateral,
+                    tunnels: &spans,
+                },
+            );
+        }
         self.tunnels.update(self.track_s);
         self.mountain_level = self.zones.mountain_level(self.track_s);
         self.sky.set_mountain_level(self.mountain_level);
@@ -604,7 +680,7 @@ impl Scene {
             pixel_scale,
             ..viewport
         };
-        let projector = Projector::with_side(viewport.width, viewport.height, self.side);
+        let projector = self.projector(viewport.width, viewport.height);
         let view = RoadView::new(&self.road, self.track_s);
 
         let sky_view = SkyView {
@@ -613,7 +689,8 @@ impl Scene {
             pixel_scale,
             focal: projector.focal(),
             side: self.side(),
-            heading: self.heading,
+            // The camera turns toward the lane it moves to.
+            heading: self.heading + f64::from(self.yaw),
             time: self.time,
         };
         // Inside a tunnel there is no sky to see.
@@ -692,6 +769,11 @@ impl Scene {
         }
     }
 
+    /// The projection of the view from the car.
+    fn projector(&self, width: f32, height: f32) -> Projector {
+        Projector::with_side(width, height, self.side).with_camera(self.lateral, self.yaw)
+    }
+
     /// `1.0` for left-hand traffic, `-1.0` for right-hand traffic, and in
     /// between while the picture turns over.
     fn side(&self) -> f32 {
@@ -708,7 +790,7 @@ impl Scene {
 
     #[cfg(test)]
     fn lights(&self) -> Vec<Light> {
-        let projector = Projector::with_side(1280.0, 720.0, self.side);
+        let projector = self.projector(1280.0, 720.0);
         self.lights_on(&RoadView::new(&self.road, self.track_s), &projector)
     }
 
@@ -753,7 +835,7 @@ impl Scene {
             d,
             order: d,
             car: None,
-            lateral: -1.75,
+            lateral: self.lateral,
             height: 0.0,
             color: WHITE,
             alpha,
@@ -792,7 +874,7 @@ impl Scene {
             _ => true,
         });
         // Only what fits through a tunnel is seen along it.
-        let sight = self.tunnels.sight(self.track_s, view);
+        let sight = self.tunnels.sight(self.track_s, view, self.lateral);
         lights.retain(|l| {
             let (d, lateral, height) = l.sight_point();
             !sight.hides(d, lateral, height)
@@ -1431,7 +1513,7 @@ mod tests {
     use super::*;
 
     #[derive(Debug, PartialEq)]
-    enum Command {
+    pub(super) enum Command {
         Glow {
             x: f32,
             y: f32,
@@ -1588,13 +1670,13 @@ mod tests {
         }
     }
 
-    const VIEWPORT: Viewport = Viewport {
+    pub(super) const VIEWPORT: Viewport = Viewport {
         width: 1280.0,
         height: 720.0,
         pixel_scale: 1.0,
     };
 
-    fn record(scene: &Scene, viewport: Viewport) -> Vec<Command> {
+    pub(super) fn record(scene: &Scene, viewport: Viewport) -> Vec<Command> {
         let mut recorder = Recorder::default();
         scene.draw(viewport, &mut recorder);
         recorder.0
@@ -4238,5 +4320,265 @@ mod tests {
             seen |= !shaded_pools(&record(&scene, VIEWPORT)).is_empty();
         }
         assert!(seen);
+    }
+}
+
+#[cfg(test)]
+mod lane_change_tests {
+    use super::tests::{VIEWPORT, record};
+    use super::*;
+    use crate::ego::{MAX_YAW, Phase};
+    use crate::traffic::LANE_GAP;
+
+    const STEP: f32 = 0.05;
+
+    fn config(seed: u64, lane_changes: LaneChanges) -> SceneConfig {
+        SceneConfig {
+            seed,
+            lane_changes,
+            vary_speed: true,
+            tunnels: TunnelLighting::None,
+            ..SceneConfig::default()
+        }
+    }
+
+    fn run(scene: &mut Scene, seconds: f32, mut each: impl FnMut(&Scene)) {
+        for _ in 0..(seconds / STEP) as usize {
+            scene.update(STEP);
+            each(scene);
+        }
+    }
+
+    #[test]
+    fn without_lane_changes_the_car_stays_in_its_lane_at_its_speed() {
+        let mut scene = Scene::new(config(2, LaneChanges::None));
+        run(&mut scene, 300.0, |s| {
+            assert_eq!(s.lateral(), CAMERA_LATERAL);
+            assert_eq!(s.yaw, 0.0);
+            assert_eq!(s.speed_kmh(), s.target_kmh());
+        });
+        assert_eq!(scene.traffic.lane_change_count(), 0);
+    }
+
+    #[test]
+    fn with_the_own_car_only_the_other_cars_keep_their_lanes() {
+        let mut scene = Scene::new(config(2, LaneChanges::OwnCar));
+        let mut passes = 0;
+        let mut last = scene.ego().phase();
+        run(&mut scene, 900.0, |s| {
+            if last != Phase::Pass && s.ego().phase() == Phase::Pass {
+                passes += 1;
+            }
+            last = s.ego().phase();
+        });
+        assert!(passes >= 3, "{passes}");
+        assert_eq!(scene.traffic.lane_change_count(), 0);
+    }
+
+    #[test]
+    fn with_all_the_other_cars_change_lanes_too_and_not_all_at_once() {
+        for seed in 0..3 {
+            let mut scene = Scene::new(config(seed, LaneChanges::All));
+            run(&mut scene, 900.0, |_| {});
+            let changes = scene.traffic.lane_change_count();
+            // Some every minute or so, over all the cars, seen or not.
+            assert!((8..=120).contains(&changes), "seed {seed}: {changes}");
+        }
+    }
+
+    #[test]
+    fn the_speed_shown_is_the_speed_of_the_car_and_falls_behind_a_car_it_follows() {
+        let mut scene = Scene::new(config(1, LaneChanges::OwnCar));
+        let mut held_back = false;
+        run(&mut scene, 900.0, |s| {
+            assert!((s.speed_kmh() - s.ego().speed() * 3.6).abs() < 1e-3);
+            assert!(s.speed_kmh() <= s.target_kmh() + 0.5);
+            held_back |= s.ego().phase() == Phase::Follow && s.speed_kmh() < s.target_kmh() - 3.0;
+        });
+        assert!(held_back);
+    }
+
+    #[test]
+    fn cars_keep_clear_of_each_other_and_of_the_car_while_lanes_change() {
+        // Every shape of body, every kind of truck, a quiet hour and a busy one.
+        for lane_changes in [LaneChanges::OwnCar, LaneChanges::All] {
+            for shapes in CarShapes::ALL {
+                for (trucks, start_minute) in [
+                    (TruckStyle::None, 3 * 60),
+                    (TruckStyle::Japanese, 8 * 60),
+                    (TruckStyle::NorthAmerican, 17 * 60),
+                ] {
+                    let mut scene = Scene::new(SceneConfig {
+                        car_shapes: shapes,
+                        trucks,
+                        traffic_by_time: true,
+                        start_minute,
+                        ..config(u64::from(start_minute), lane_changes)
+                    });
+                    let mut least = f32::MAX;
+                    run(&mut scene, 360.0, |s| {
+                        least = least.min(s.traffic.least_gap())
+                    });
+                    assert!(
+                        least >= LANE_GAP - 0.01,
+                        "{lane_changes:?} {shapes:?} {trucks:?} {start_minute}: {least}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    #[ignore = "an hour of driving; run it by hand"]
+    fn cars_keep_clear_for_an_hour() {
+        for seed in 0..3 {
+            let mut scene = Scene::new(SceneConfig {
+                car_shapes: CarShapes::Blocks,
+                trucks: TruckStyle::Japanese,
+                traffic_by_time: true,
+                ..config(seed, LaneChanges::All)
+            });
+            let mut least = f32::MAX;
+            run(&mut scene, 3600.0, |s| {
+                least = least.min(s.traffic.least_gap())
+            });
+            assert!(least >= LANE_GAP - 0.01, "{seed}: {least}");
+        }
+    }
+
+    #[test]
+    fn no_lane_change_starts_or_goes_on_in_a_tunnel() {
+        let mut scene = Scene::new(SceneConfig {
+            tunnels: TunnelLighting::Mixed,
+            ..config(4, LaneChanges::All)
+        });
+        let (mut inside, mut passes) = (0, 0);
+        let mut last = Phase::Cruise;
+        run(&mut scene, 1200.0, |s| {
+            let spans = s.tunnel_spans();
+            if s.tunnels.contains(s.track_s) {
+                inside += 1;
+                assert!(!s.ego().phase().is_signaling(), "{:?}", s.ego().phase());
+            }
+            assert!(!s.traffic.any_change_in(&spans));
+            if last != Phase::Pass && s.ego().phase() == Phase::Pass {
+                passes += 1;
+            }
+            last = s.ego().phase();
+        });
+        assert!(inside > 1000 && passes >= 3, "{inside} {passes}");
+    }
+
+    #[test]
+    fn the_same_seed_gives_the_same_ride() {
+        let ride = |seed| {
+            let mut scene = Scene::new(config(seed, LaneChanges::All));
+            let mut trace = Vec::new();
+            run(&mut scene, 600.0, |s| {
+                trace.push((s.lateral(), s.yaw, s.speed_kmh(), s.ego().phase()));
+            });
+            (trace, scene.traffic.lane_change_count(), scene.track_s())
+        };
+        assert_eq!(ride(3), ride(3));
+        assert_ne!(ride(3), ride(4));
+    }
+
+    #[test]
+    fn right_hand_traffic_is_the_same_ride_seen_in_a_mirror() {
+        let ride = |left_hand_traffic| {
+            let mut scene = Scene::new(SceneConfig {
+                left_hand_traffic,
+                ..config(5, LaneChanges::All)
+            });
+            let mut trace = Vec::new();
+            run(&mut scene, 600.0, |s| {
+                trace.push((s.lateral(), s.yaw, s.speed_kmh(), s.ego().phase()));
+            });
+            trace
+        };
+        assert_eq!(ride(true), ride(false));
+    }
+
+    #[test]
+    fn the_picture_stays_sound_through_lane_changes_and_a_turn_of_the_side() {
+        let mut scene = Scene::new(SceneConfig {
+            car_shapes: CarShapes::Detailed,
+            trucks: TruckStyle::Japanese,
+            tunnels: TunnelLighting::Mixed,
+            ..config(6, LaneChanges::All)
+        });
+        let mut drawn_moving = 0;
+        let mut flipped = false;
+        let mut steps = 0;
+        for _ in 0..8000 {
+            scene.update(STEP);
+            steps += 1;
+            if steps % 100 == 0 {
+                for command in record(&scene, VIEWPORT) {
+                    let text = format!("{command:?}");
+                    assert!(!text.contains("NaN") && !text.contains("inf"), "{text}");
+                }
+                drawn_moving += usize::from(matches!(
+                    scene.ego().phase(),
+                    Phase::MoveOut | Phase::MoveIn
+                ));
+            }
+            // Turn the side over in the middle of a move.
+            if !flipped && matches!(scene.ego().phase(), Phase::MoveOut | Phase::MoveIn) {
+                scene.set_left_hand_traffic(false);
+                flipped = true;
+            }
+        }
+        assert!(flipped && drawn_moving > 0);
+    }
+
+    #[test]
+    fn the_headlight_pools_and_the_projection_follow_the_car() {
+        let mut scene = Scene::new(config(1, LaneChanges::OwnCar));
+        let mut checked = false;
+        run(&mut scene, 400.0, |s| {
+            if s.ego().phase() != Phase::Pass {
+                return;
+            }
+            let pools: Vec<_> = s
+                .lights()
+                .into_iter()
+                .filter(|l| l.car.is_none() && l.d < 40.0 && l.lateral == s.lateral())
+                .collect();
+            assert_eq!(pools.len(), 2);
+            assert_eq!(
+                s.projector(1280.0, 720.0).camera_lateral(),
+                crate::traffic::PASSING_LANE
+            );
+            checked = true;
+        });
+        assert!(checked);
+    }
+
+    #[test]
+    fn the_backdrop_turns_with_the_camera_like_the_road_does() {
+        // A point far down the road shifts on the screen by as much as the
+        // sky does, for both sides of traffic.
+        for side in [1.0, -1.0] {
+            let plain = Projector::with_side(1280.0, 720.0, side);
+            let turned = plain.with_camera(CAMERA_LATERAL, MAX_YAW);
+            let far = plain.project(500.0, CAMERA_LATERAL, CAMERA_HEIGHT).unwrap();
+            let shifted = turned
+                .project(500.0, CAMERA_LATERAL, CAMERA_HEIGHT)
+                .unwrap();
+            let sky = |heading| SkyView {
+                width: 1280.0,
+                height: 720.0,
+                pixel_scale: 1.0,
+                focal: plain.focal(),
+                side,
+                heading,
+                time: 0.0,
+            };
+            let backdrop = sky(MAX_YAW as f64).screen_x(0.0) - sky(0.0).screen_x(0.0);
+            let road = shifted.x - far.x;
+            assert!((backdrop - road).abs() < 0.5, "{side}: {backdrop} {road}");
+            assert!(road != 0.0);
+        }
     }
 }

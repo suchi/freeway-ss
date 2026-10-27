@@ -16,8 +16,8 @@ const ONCOMING_CARS: u32 = 14;
 
 /// Lateral positions assume the camera is in the left lane of left-hand
 /// traffic; the projection mirrors them for right-hand traffic.
-const OWN_LANE: f32 = -1.75;
-const PASSING_LANE: f32 = 1.75;
+pub(crate) const OWN_LANE: f32 = -1.75;
+pub(crate) const PASSING_LANE: f32 = 1.75;
 const ONCOMING_LANES: [f32; 2] = [7.25, 10.75];
 
 /// A same-direction car farther ahead than this is placed again.
@@ -60,6 +60,8 @@ const STREAM_TRUCK: u32 = 17;
 const STREAM_ACTIVE: u32 = 18;
 const STREAM_SHAPE: u32 = 19;
 const STREAM_MODEL: u32 = 20;
+const STREAM_CHANGER: u32 = 21;
+const STREAM_COOLDOWN: u32 = 22;
 
 /// The share of cars that are trucks, when trucks are enabled.
 pub const TRUCK_RATIO: f32 = 0.2;
@@ -85,11 +87,11 @@ const WHEEL_WIDTH: f32 = 0.6;
 /// Wheels that are less than this far apart are drawn as one.
 const TANDEM_GAP: f32 = 0.5;
 /// Cars of one lane keep at least this far apart where bodies are drawn.
-const LANE_GAP: f32 = 10.0;
+pub(crate) const LANE_GAP: f32 = 10.0;
 /// A car that closes in on the one ahead of it in its lane eases off at this
 /// rate, in meters per second squared, so that it has the speed of the other
 /// when the gap is `LANE_GAP`.
-const LANE_DECEL: f32 = 3.0;
+pub(crate) const LANE_DECEL: f32 = 3.0;
 /// Where cars keep clear of each other, no car changes its speed faster than
 /// this, in meters per second squared. A car that is let go (the one ahead of it
 /// has left) speeds up to its own speed as slowly as it slowed down.
@@ -106,6 +108,52 @@ const SLOT_STEP: f32 = 5.0;
 /// The far end of a body is cut off this far before the view ends, where the
 /// projection stops.
 const VIEW_MARGIN: f32 = 0.01;
+
+/// The length of the car of the camera, in meters. The camera is at its front.
+pub const EGO_LENGTH: f32 = 4.5;
+/// A car that moves to another lane to pass a car takes about this long, in
+/// seconds, to be past it.
+pub const PASS_SECONDS: f32 = 15.0;
+/// A car returns to its lane after it has passed a car that is not farther
+/// behind than this, in meters.
+const PASSED_WITHIN: f32 = 100.0;
+/// A car signals this long before it moves to the next lane, in seconds.
+pub const SIGNAL_SECONDS: f32 = 3.0;
+/// A car takes this long to move to the next lane, in seconds.
+pub const MOVE_SECONDS: f32 = 4.0;
+/// The turn signals blink with this period, in seconds.
+pub const BLINK_SECONDS: f32 = 0.7;
+/// The distance between the middles of the two lanes, in meters.
+pub const LANE_WIDTH: f32 = PASSING_LANE - OWN_LANE;
+/// A car that closes in on the one ahead of it in its lane thinks of a lane
+/// change when the gap is less than this many seconds of driving.
+const CATCH_SECONDS: f32 = 4.0;
+/// The lane to move to needs this much room ahead of a car that moves in,
+/// beyond what the closing speed takes, in meters; and this much room behind
+/// it. A car that returns to its lane keeps `RETURN_GAP` ahead of the car it
+/// passed, and less ahead of it.
+pub const AHEAD_CLEAR: f32 = 40.0;
+pub const BEHIND_CLEAR: f32 = 25.0;
+pub const RETURN_AHEAD_CLEAR: f32 = 30.0;
+pub const RETURN_GAP: f32 = 30.0;
+/// The slowest the cars that change lanes get, in meters per second, before a
+/// car ahead in the lane is thought to be in the way.
+pub const MIN_CLOSING: f32 = 1.0;
+/// The share of the cars that ever change lanes.
+const CHANGER_SHARE: f32 = 0.8;
+/// Seconds before a car that has been placed thinks of a lane change.
+const FIRST_WAIT: (f32, f32) = (2.0, 20.0);
+/// Seconds before a car that has changed lanes thinks of another change.
+const NEXT_WAIT: (f32, f32) = (10.0, 30.0);
+/// Seconds before a car that has given up a lane change thinks of it again.
+const GIVE_UP_WAIT: f32 = 8.0;
+/// A car looks at the tunnels this far ahead, in meters; beyond it nothing is
+/// known of them.
+pub const TUNNEL_HORIZON: f32 = VIEW_DISTANCE + 100.0;
+/// A car that moves to the next lane keeps this much more clear of a tunnel
+/// than it drives in the time of the lane change, as a factor and in meters.
+pub const TUNNEL_SPEED_MARGIN: f32 = 1.3;
+pub const TUNNEL_MARGIN: f32 = 50.0;
 
 /// A lead truck drives at this fraction of the camera's speed, where a
 /// lead car drives at 0.85 to 0.95.
@@ -475,6 +523,37 @@ impl CarShapes {
     /// Whether the cars have bodies at all.
     pub fn has_bodies(self) -> bool {
         self != CarShapes::None
+    }
+}
+
+/// Who changes lanes.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum LaneChanges {
+    /// Nobody: the road is as it was before lane changes.
+    None,
+    /// The car of the camera overtakes slower cars; the others keep their lanes.
+    OwnCar,
+    /// The car of the camera and the other cars change lanes.
+    #[default]
+    All,
+}
+
+impl LaneChanges {
+    /// Every choice, in the order of the stored values 0, 1, 2.
+    pub const ALL: [LaneChanges; 3] = [LaneChanges::None, LaneChanges::OwnCar, LaneChanges::All];
+
+    /// The choice for a stored value; `None` when the value is not valid.
+    pub fn from_raw(raw: Option<u32>) -> Option<Self> {
+        Self::ALL.get(usize::try_from(raw?).ok()?).copied()
+    }
+
+    /// The value to store; `from_raw` reads it back.
+    pub fn to_raw(self) -> u32 {
+        match self {
+            LaneChanges::None => 0,
+            LaneChanges::OwnCar => 1,
+            LaneChanges::All => 2,
+        }
     }
 }
 
@@ -949,9 +1028,144 @@ pub struct CarLight {
 /// Where a car stands on the road, for keeping clear of it.
 #[derive(Clone, Copy)]
 struct Occupant {
-    lateral: f32,
+    /// The lanes it takes up: both while it changes lanes.
+    lanes: [f32; 2],
     rel: f32,
     length: f32,
+}
+
+impl Occupant {
+    fn in_lane(&self, lane: f32) -> bool {
+        self.lanes.iter().any(|&l| (l - lane).abs() < 0.5)
+    }
+
+    fn shares_lane(&self, other: &Occupant) -> bool {
+        self.lanes.iter().any(|&l| other.in_lane(l))
+    }
+}
+
+/// The neighbor of a car in a lane: the nearest car ahead or behind in it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Neighbor {
+    /// The free space between the two cars in meters; below zero when they overlap.
+    pub gap: f32,
+    /// How fast the neighbor moves ahead relative to the car, in meters per
+    /// second: positive while it pulls away from a car behind it or comes up
+    /// to a car ahead of it.
+    pub velocity: f32,
+}
+
+/// The nearest cars ahead and behind in some lanes.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct LaneScan {
+    pub ahead: Option<Neighbor>,
+    pub behind: Option<Neighbor>,
+}
+
+/// How long a car that moves to another lane looks ahead for cars that close
+/// in on it, in seconds.
+#[derive(Clone, Copy, Debug)]
+pub struct Seconds {
+    /// For the car ahead in the lane.
+    pub ahead: f32,
+    /// For the car behind in the lane.
+    pub behind: f32,
+}
+
+impl Seconds {
+    /// Moving to a lane to get past a car: the car ahead is to stay clear
+    /// until the pass is done.
+    pub const OUT: Seconds = Seconds {
+        ahead: SIGNAL_SECONDS + MOVE_SECONDS + PASS_SECONDS,
+        behind: SIGNAL_SECONDS + MOVE_SECONDS,
+    };
+    /// Returning to a lane.
+    pub const RETURN: Seconds = Seconds {
+        ahead: SIGNAL_SECONDS + MOVE_SECONDS,
+        behind: SIGNAL_SECONDS + MOVE_SECONDS,
+    };
+    /// Looking again before the move, when the signal is done.
+    pub const MOVE: Seconds = Seconds {
+        ahead: MOVE_SECONDS,
+        behind: MOVE_SECONDS,
+    };
+}
+
+impl LaneScan {
+    /// Whether a car can move into the lanes, if it takes `seconds` to do so
+    /// and drives on as it does now. `ahead_clear` and `behind_clear` are the
+    /// room it keeps to the car ahead of it and the car behind it, once it
+    /// is there.
+    pub fn is_open(&self, seconds: Seconds, ahead_clear: f32, behind_clear: f32) -> bool {
+        if let Some(ahead) = self.ahead {
+            // The car ahead is slower when `velocity` is negative.
+            let closing = (-ahead.velocity).max(0.0);
+            if ahead.gap - closing * seconds.ahead < ahead_clear {
+                return false;
+            }
+        }
+        if let Some(behind) = self.behind {
+            let closing = behind.velocity.max(0.0);
+            let room = behind_clear + closing * closing / (2.0 * LANE_DECEL);
+            if behind.gap - closing * seconds.behind < room {
+                return false;
+            }
+        }
+        true
+    }
+}
+
+/// What the traffic needs to know of the world beyond it.
+#[derive(Clone, Copy, Debug)]
+pub struct Surroundings<'a> {
+    /// The speed the car of the camera would drive at without a car in the
+    /// way, meters per second. The cars that follow it keep that speed.
+    pub target_speed: f32,
+    /// The lanes the car of the camera takes up: one, or two while it changes.
+    pub ego_lanes: &'a [f32],
+    /// Where the camera is across the road.
+    pub ego_lateral: f32,
+    /// The tunnels as (entrance, exit) in meters ahead of the camera.
+    pub tunnels: &'a [(f32, f32)],
+}
+
+/// A lane change in progress: first the car signals, then it moves.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Change {
+    from: f32,
+    to: f32,
+    /// Seconds since the signal began.
+    t: f32,
+}
+
+impl Change {
+    /// The lateral position at the time `t`.
+    fn lateral(&self) -> f32 {
+        let moved = ((self.t - SIGNAL_SECONDS) / MOVE_SECONDS).clamp(0.0, 1.0);
+        self.from + (self.to - self.from) * smooth(moved)
+    }
+
+    fn is_done(&self) -> bool {
+        self.t >= SIGNAL_SECONDS + MOVE_SECONDS
+    }
+}
+
+/// The curve of a lane change: from 0 to 1, with no speed and no
+/// acceleration at either end.
+pub fn smooth(x: f32) -> f32 {
+    let x = x.clamp(0.0, 1.0);
+    x * x * x * (10.0 + x * (6.0 * x - 15.0))
+}
+
+/// The slope of `smooth`, which is 1.875 at its steepest.
+pub fn smooth_slope(x: f32) -> f32 {
+    let x = x.clamp(0.0, 1.0);
+    30.0 * x * x * (1.0 - x) * (1.0 - x)
+}
+
+/// Whether the turn signal is lit `t` seconds after the lane change began.
+pub fn blink_on(t: f32) -> bool {
+    (t / BLINK_SECONDS).fract() < 0.5
 }
 
 struct Car {
@@ -991,6 +1205,17 @@ struct Car {
     brakes: u32,
     until_brake: f32,
     braking_left: f32,
+    /// Whether the car is among those that ever change lanes; decided each
+    /// time the car is placed.
+    changer: bool,
+    /// Seconds before the car thinks of changing lanes.
+    wait: f32,
+    /// The lane change the car is making.
+    change: Option<Change>,
+    /// How many lane changes the car has made, for the random values.
+    changes: u32,
+    /// How fast the car moved ahead of the camera in the last step.
+    velocity: f32,
 }
 
 impl Car {
@@ -1032,6 +1257,11 @@ impl Car {
             brakes: 0,
             until_brake: 0.0,
             braking_left: 0.0,
+            changer: false,
+            wait: 0.0,
+            change: None,
+            changes: 0,
+            velocity: 0.0,
         };
         car.place(seed, style, level, true, others);
         car.until_brake = car.brake_interval(seed);
@@ -1073,6 +1303,9 @@ impl Car {
         self.model = CarModel::pick(style, self.roll(seed, STREAM_MODEL));
         self.age = 0.0;
         self.drive = None;
+        self.change = None;
+        self.changer = self.roll(seed, STREAM_CHANGER) < CHANGER_SHARE;
+        self.wait = FIRST_WAIT.0 + (FIRST_WAIT.1 - FIRST_WAIT.0) * self.roll(seed, STREAM_COOLDOWN);
         self.phase = self.roll(seed, STREAM_PHASE) * std::f32::consts::TAU;
         self.escape_after = 40.0 + 80.0 * self.roll(seed, STREAM_ESCAPE);
         match self.kind {
@@ -1123,7 +1356,12 @@ impl Car {
             (Kind::Oncoming, false) => (600.0, 400.0),
         };
         let length = self.length();
-        let lane = |o: &&Occupant| (o.lateral - self.lateral).abs() < 0.5;
+        let me = Occupant {
+            lanes: [self.lateral; 2],
+            rel: 0.0,
+            length: 0.0,
+        };
+        let lane = |o: &&Occupant| o.shares_lane(&me);
         let clear = |at: f32| {
             others
                 .iter()
@@ -1164,9 +1402,36 @@ impl Car {
         self.braking_left > 0.0
     }
 
+    /// The lanes the car takes up: both while it signals or moves.
+    fn lanes(&self) -> [f32; 2] {
+        match self.change {
+            Some(change) => [change.from, change.to],
+            None => [self.lateral; 2],
+        }
+    }
+
+    /// The side the car signals toward while it is about to change lanes: `1.0`
+    /// for larger lateral positions, `-1.0` for smaller.
+    fn signaling(&self) -> Option<f32> {
+        self.change.map(|c| (c.to - c.from).signum())
+    }
+
     /// How fast the car's distance ahead of the camera changes, in meters
     /// per second: positive while it pulls away, negative while it closes in.
-    fn rel_velocity(&self, own_speed: f32) -> f32 {
+    ///
+    /// With a `target`, the speed the car of the camera would drive at, the
+    /// other cars drive at speeds that follow it and not the speed the camera
+    /// has, which falls behind it where the camera is held up. Lead cars then
+    /// have no reason to make room (see `FOLLOW_START`): the camera makes room
+    /// for itself.
+    fn rel_velocity(&self, own_speed: f32, target: Option<f32>) -> f32 {
+        if let Some(target) = target {
+            return match self.kind {
+                Kind::Lead => target * self.ratio - own_speed,
+                Kind::Passing => target + self.speed - own_speed,
+                Kind::Oncoming => -(own_speed + self.speed),
+            };
+        }
         match self.kind {
             Kind::Lead => {
                 let ratio = if self.age >= self.escape_after {
@@ -1209,7 +1474,7 @@ impl Car {
 
     fn occupies(&self) -> Occupant {
         Occupant {
-            lateral: self.lateral,
+            lanes: self.lanes(),
             rel: self.rel,
             length: self.length(),
         }
@@ -1230,13 +1495,50 @@ impl Car {
         }
     }
 
-    fn push_lights(&self, style: TruckStyle, shapes: CarShapes, out: &mut Vec<CarLight>) {
+    /// The turn signal of a car that is about to change lanes, on the rear
+    /// corner on the side of the lane it moves to. The front corners face away
+    /// from the camera: the cars that change lanes drive the way of the camera.
+    fn push_turn_signal(&self, shapes: CarShapes, out: &mut Vec<CarLight>) {
+        let (Some(side), Some(change)) = (self.signaling(), self.change) else {
+            return;
+        };
+        if !blink_on(change.t) {
+            return;
+        }
+        let (across, height) = match (self.truck, shapes.has_bodies()) {
+            (Some(_), _) => (TRUCK_HALF_WIDTH - 0.05, 1.0),
+            (None, true) => {
+                let spec = self.model.spec();
+                (spec.half_width - 0.05, spec.body.1 - 0.15)
+            }
+            (None, false) => (0.95, 0.8),
+        };
+        out.push(CarLight {
+            car: self.id,
+            d: self.rel,
+            lateral: self.lateral + side * across,
+            height,
+            size: 0.09,
+            color: MARKER_AMBER,
+            alpha: 0.9 * (1.0 - self.rel / TAIL_RANGE).max(0.0),
+            glare: false,
+        });
+    }
+
+    fn push_lights(
+        &self,
+        style: TruckStyle,
+        shapes: CarShapes,
+        camera: f32,
+        out: &mut Vec<CarLight>,
+    ) {
         let d = self.rel;
         if !self.active || !(NEAR_DISTANCE..VIEW_DISTANCE).contains(&d) {
             return;
         }
+        self.push_turn_signal(shapes, out);
         if let Some(shape) = self.truck {
-            self.push_truck_lights(shape, style, self.detailed(shapes), out);
+            self.push_truck_lights(shape, style, self.detailed(shapes), camera, out);
             return;
         }
         if shapes.has_bodies() {
@@ -1641,13 +1943,14 @@ impl Car {
         shape: TruckShape,
         style: TruckStyle,
         detailed: bool,
+        camera: f32,
         out: &mut Vec<CarLight>,
     ) {
         let spec = shape.spec();
         let oncoming = self.kind == Kind::Oncoming;
-        // The side that faces the camera. The camera is in the own lane, so
-        // a truck in that lane has no near side; it gets the right one.
-        let side = if self.lateral > OWN_LANE { -1.0 } else { 1.0 };
+        // The side that faces the camera. A truck right in front of the
+        // camera has no near side; it gets the right one.
+        let side = if self.lateral > camera { -1.0 } else { 1.0 };
         // Distance from the end that faces the camera, for a place counted
         // from the front of the truck.
         let from_camera = |front: f32| if oncoming { front } else { spec.length - front };
@@ -1769,6 +2072,26 @@ impl Car {
     }
 }
 
+/// Where the car of the camera stands, for keeping clear of it.
+fn ego_occupant(lanes: &[f32]) -> Occupant {
+    let first = lanes.first().copied().unwrap_or(OWN_LANE);
+    Occupant {
+        lanes: [first, lanes.get(1).copied().unwrap_or(first)],
+        rel: -EGO_LENGTH,
+        length: EGO_LENGTH,
+    }
+}
+
+/// Whether a tunnel is in the way of a lane change that a body of the given
+/// place and length starts now, driving at `speed`: it would be in the tunnel,
+/// or enter it, before the lane change ends. A lane change is not started
+/// where the tunnels are not known.
+pub fn tunnel_in_the_way(tunnels: &[(f32, f32)], rel: f32, length: f32, speed: f32) -> bool {
+    let sweep = speed * (SIGNAL_SECONDS + MOVE_SECONDS) * TUNNEL_SPEED_MARGIN + TUNNEL_MARGIN;
+    let (from, to) = (rel, rel + length + sweep);
+    to > TUNNEL_HORIZON || tunnels.iter().any(|&(start, end)| start < to && end > from)
+}
+
 pub struct Traffic {
     seed: u64,
     trucks: TruckStyle,
@@ -1777,6 +2100,16 @@ pub struct Traffic {
     /// where they are drawn, since bodies that pass through each other are
     /// seen; with only lights, that is not worth the change in the traffic.
     shapes: CarShapes,
+    /// Who changes lanes. The cars keep clear of each other also without
+    /// bodies if anyone does, since the car of the camera takes a lane too.
+    lane_changes: LaneChanges,
+    /// The lanes the car of the camera takes up, and where its camera is.
+    ego_lanes: [f32; 2],
+    ego_lateral: f32,
+    /// The speed of the car of the camera and the speed it would drive at.
+    own_speed: f32,
+    /// The tunnels as (entrance, exit) in meters ahead of the camera.
+    tunnels: Vec<(f32, f32)>,
     cars: Vec<Car>,
 }
 
@@ -1787,7 +2120,7 @@ impl Traffic {
 
     /// Traffic that is as busy as `level` from the start.
     pub fn with_level(seed: u64, trucks: TruckStyle, level: TrafficLevel) -> Self {
-        Self::build(seed, trucks, level, CarShapes::None)
+        Self::build(seed, trucks, level, CarShapes::None, LaneChanges::None)
     }
 
     /// Like `with_level`, and the cars of a lane keep clear of each other if
@@ -1798,15 +2131,35 @@ impl Traffic {
         level: TrafficLevel,
         shapes: CarShapes,
     ) -> Self {
-        Self::build(seed, trucks, level, shapes)
+        Self::build(seed, trucks, level, shapes, LaneChanges::None)
     }
 
-    fn build(seed: u64, trucks: TruckStyle, level: TrafficLevel, shapes: CarShapes) -> Self {
-        let keep_apart = shapes.has_bodies();
+    /// Like `with_shapes`, and the cars change lanes as `lane_changes` says.
+    pub fn with_lane_changes(
+        seed: u64,
+        trucks: TruckStyle,
+        level: TrafficLevel,
+        shapes: CarShapes,
+        lane_changes: LaneChanges,
+    ) -> Self {
+        Self::build(seed, trucks, level, shapes, lane_changes)
+    }
+
+    fn build(
+        seed: u64,
+        trucks: TruckStyle,
+        level: TrafficLevel,
+        shapes: CarShapes,
+        lane_changes: LaneChanges,
+    ) -> Self {
+        let keep_apart = shapes.has_bodies() || lane_changes != LaneChanges::None;
         let count = LEAD_CARS + PASSING_CARS + ONCOMING_CARS;
         let mut cars: Vec<Car> = Vec::new();
         for id in 0..count {
-            let placed: Vec<Occupant> = cars.iter().map(Car::occupies).collect();
+            let mut placed: Vec<Occupant> = cars.iter().map(Car::occupies).collect();
+            if lane_changes != LaneChanges::None {
+                placed.push(ego_occupant(&[OWN_LANE; 2]));
+            }
             cars.push(Car::among(
                 seed,
                 id,
@@ -1820,6 +2173,11 @@ impl Traffic {
             trucks,
             level,
             shapes,
+            lane_changes,
+            ego_lanes: [OWN_LANE; 2],
+            ego_lateral: OWN_LANE,
+            own_speed: 0.0,
+            tunnels: Vec::new(),
             cars,
         }
     }
@@ -1840,8 +2198,23 @@ impl Traffic {
     }
 
     /// Moves the cars for `dt` seconds while the camera drives at
-    /// `own_speed` meters per second.
+    /// `own_speed` meters per second, in the own lane.
     pub fn update(&mut self, dt: f32, own_speed: f32) {
+        self.update_around(
+            dt,
+            own_speed,
+            &Surroundings {
+                target_speed: own_speed,
+                ego_lanes: &[OWN_LANE],
+                ego_lateral: OWN_LANE,
+                tunnels: &[],
+            },
+        );
+    }
+
+    /// Moves the cars for `dt` seconds while the camera drives at
+    /// `own_speed` meters per second and the world around is as `around` says.
+    pub fn update_around(&mut self, dt: f32, own_speed: f32, around: &Surroundings) {
         if !(dt.is_finite() && dt > 0.0) {
             return;
         }
@@ -1850,35 +2223,63 @@ impl Traffic {
         } else {
             0.0
         };
+        let changing = self.lane_changes != LaneChanges::None;
+        if changing {
+            self.ego_lanes = ego_occupant(around.ego_lanes).lanes;
+            self.ego_lateral = around.ego_lateral;
+            self.own_speed = own_speed;
+            self.tunnels.clear();
+            self.tunnels.extend_from_slice(around.tunnels);
+            self.step_changes(dt);
+        }
         // A car's speed depends on how long it has been placed, which counts this step.
         for car in &mut self.cars {
             car.age += dt;
         }
+        let target = changing.then(|| {
+            if around.target_speed.is_finite() {
+                around.target_speed.max(0.0)
+            } else {
+                0.0
+            }
+        });
         let mut velocity: Vec<f32> = self
             .cars
             .iter()
-            .map(|c| c.rel_velocity(own_speed))
+            .map(|c| c.rel_velocity(own_speed, target))
             .collect();
-        if self.shapes.has_bodies() {
+        if changing {
+            self.match_speeds_among_lanes(&mut velocity, dt);
+        } else if self.shapes.has_bodies() {
             self.match_speeds(&mut velocity, dt);
         }
         for (car, &velocity) in self.cars.iter_mut().zip(&velocity) {
+            car.velocity = velocity;
             car.advance(self.seed, dt, velocity);
         }
-        if self.shapes.has_bodies() {
+        if changing {
+            self.push_apart_among_lanes();
+            if self.lane_changes == LaneChanges::All {
+                self.think_of_changes();
+            }
+        } else if self.shapes.has_bodies() {
             self.push_apart();
         }
+        let keep_apart = self.shapes.has_bodies() || changing;
         for index in 0..self.cars.len() {
             if !self.cars[index].is_gone() {
                 continue;
             }
-            let others: Vec<Occupant> = self
+            let mut others: Vec<Occupant> = self
                 .cars
                 .iter()
                 .enumerate()
                 .filter(|&(other, _)| other != index)
                 .map(|(_, c)| c.occupies())
                 .collect();
+            if changing {
+                others.push(ego_occupant(&self.ego_lanes));
+            }
             let car = &mut self.cars[index];
             car.generation = car.generation.wrapping_add(1);
             car.place(
@@ -1886,7 +2287,7 @@ impl Traffic {
                 self.trucks,
                 self.level,
                 false,
-                self.shapes.has_bodies().then_some(&others[..]),
+                keep_apart.then_some(&others[..]),
             );
         }
     }
@@ -2002,11 +2403,400 @@ impl Traffic {
         }
     }
 
+    /// Matches the speeds of the cars that drive the way of the camera, and
+    /// those of the oncoming cars, so that they keep `LANE_GAP` apart without
+    /// sudden changes, when the cars change lanes (see `match_speeds`). A car
+    /// that changes lanes takes up both lanes. The car of the camera is one
+    /// of the cars in its lanes, which goes its own way: here the car behind
+    /// always keeps to the one ahead of it.
+    fn match_speeds_among_lanes(&mut self, velocity: &mut [f32], dt: f32) {
+        let allowed =
+            |gap: f32| (2.0 * LANE_DECEL * (gap - LANE_GAP - LANE_CUSHION).max(0.0)).sqrt();
+        // The speed a car drives at, going from what it did to the target. It
+        // changes faster to keep clear of another car than on its own.
+        let follow = |cars: &[Car], index: usize, target: f32| match cars[index].drive {
+            Some(drive) => {
+                let rate = if target == velocity[index] {
+                    LANE_DECEL
+                } else {
+                    LANE_SLEW
+                };
+                drive + (target - drive).clamp(-rate * dt, rate * dt)
+            }
+            None => target,
+        };
+        let mut driven = velocity.to_vec();
+        // The cars that drive the way of the camera, from the farthest on.
+        let mut order: Vec<usize> = (0..self.cars.len())
+            .filter(|&i| self.cars[i].active && self.cars[i].kind != Kind::Oncoming)
+            .collect();
+        order.sort_by(|&a, &b| self.cars[b].rel.total_cmp(&self.cars[a].rel));
+        let ego = ego_occupant(&self.ego_lanes);
+        // The cars that are settled, nearer ones after farther ones, with their speeds.
+        let mut settled: Vec<(Occupant, f32)> = Vec::new();
+        let mut ego_settled = false;
+        for &index in &order {
+            if !ego_settled && self.cars[index].rel < ego.rel {
+                settled.push((ego, 0.0));
+                ego_settled = true;
+            }
+            let me = self.cars[index].occupies();
+            let mut target = velocity[index];
+            for lane in me.lanes {
+                let ahead = settled
+                    .iter()
+                    .filter(|(o, _)| o.in_lane(lane))
+                    .min_by(|a, b| a.0.rel.total_cmp(&b.0.rel));
+                if let Some(&(o, speed)) = ahead {
+                    target = target.min(speed + allowed(o.rel - (me.rel + me.length)));
+                }
+            }
+            driven[index] = follow(&self.cars, index, target);
+            settled.push((me, driven[index]));
+        }
+        // Oncoming cars drive toward the camera: the one ahead is the nearer
+        // one, and the one behind it is faster toward the camera if its
+        // velocity is lower.
+        let mut near_first: Vec<usize> = (0..self.cars.len())
+            .filter(|&i| self.cars[i].active && self.cars[i].kind == Kind::Oncoming)
+            .collect();
+        near_first.sort_by(|&a, &b| self.cars[a].rel.total_cmp(&self.cars[b].rel));
+        for lane in ONCOMING_LANES {
+            let in_lane: Vec<usize> = near_first
+                .iter()
+                .copied()
+                .filter(|&i| self.cars[i].lateral == lane)
+                .collect();
+            for (index, &car) in in_lane.iter().enumerate() {
+                let mut target = velocity[car];
+                if index > 0 {
+                    let ahead = in_lane[index - 1];
+                    let gap =
+                        self.cars[car].rel - (self.cars[ahead].rel + self.cars[ahead].length());
+                    target = target.max(driven[ahead] - allowed(gap));
+                }
+                driven[car] = follow(&self.cars, car, target);
+            }
+        }
+        for (car, &drive) in self.cars.iter_mut().zip(&driven) {
+            car.drive = Some(drive);
+        }
+        velocity.copy_from_slice(&driven);
+    }
+
+    /// Where speeds were not matched in time, a car that has caught up with
+    /// the one ahead of it pushes it on, as in `push_apart`, when the cars
+    /// change lanes. The car of the camera cannot be pushed: the cars behind
+    /// it are held back instead.
+    fn push_apart_among_lanes(&mut self) {
+        let ego = ego_occupant(&self.ego_lanes);
+        let mut order: Vec<usize> = (0..self.cars.len())
+            .filter(|&i| self.cars[i].active && self.cars[i].kind != Kind::Oncoming)
+            .collect();
+        order.sort_by(|&a, &b| self.cars[a].rel.total_cmp(&self.cars[b].rel));
+        // From the nearest car to the camera on, a car is pushed ahead of the
+        // cars behind it that are settled.
+        let mut settled: Vec<Occupant> = Vec::new();
+        let mut ego_settled = false;
+        for &index in &order {
+            if !ego_settled && self.cars[index].rel >= ego.rel {
+                settled.push(ego);
+                ego_settled = true;
+            }
+            let me = self.cars[index].occupies();
+            let least = settled
+                .iter()
+                .filter(|o| o.shares_lane(&me) && o.rel <= me.rel)
+                .map(|o| o.rel + o.length + LANE_GAP)
+                .fold(f32::MIN, f32::max);
+            self.cars[index].rel = self.cars[index].rel.max(least);
+            settled.push(self.cars[index].occupies());
+        }
+        // The cars behind the camera keep clear of it, and of each other, by
+        // dropping back.
+        let mut fixed: Vec<Occupant> = vec![ego];
+        for &index in order.iter().rev() {
+            if self.cars[index].rel >= ego.rel {
+                continue;
+            }
+            let me = self.cars[index].occupies();
+            let most = fixed
+                .iter()
+                .filter(|o| o.shares_lane(&me) && o.rel >= me.rel)
+                .map(|o| o.rel - LANE_GAP - me.length)
+                .fold(f32::MAX, f32::min);
+            self.cars[index].rel = self.cars[index].rel.min(most);
+            fixed.push(self.cars[index].occupies());
+        }
+        // Oncoming cars: the nearer car is ahead.
+        let mut near_first: Vec<usize> = (0..self.cars.len())
+            .filter(|&i| self.cars[i].active && self.cars[i].kind == Kind::Oncoming)
+            .collect();
+        near_first.sort_by(|&a, &b| self.cars[a].rel.total_cmp(&self.cars[b].rel));
+        for lane in ONCOMING_LANES {
+            let in_lane: Vec<usize> = near_first
+                .iter()
+                .copied()
+                .filter(|&i| self.cars[i].lateral == lane)
+                .collect();
+            for pair in in_lane.windows(2).rev() {
+                let (behind, ahead) = (self.cars[pair[1]].occupies(), pair[0]);
+                let car = &mut self.cars[ahead];
+                let most = behind.rel - LANE_GAP - car.length();
+                car.rel = car.rel.min(most);
+            }
+        }
+    }
+
+    /// The nearest cars ahead of and behind a body of the given place and
+    /// `velocity` in the `lanes`, among the cars that run. The car `skip` is
+    /// left out, and the car of the camera counts if the body is another.
+    fn neighbors(
+        &self,
+        (rel, length, velocity): (f32, f32, f32),
+        lanes: &[f32],
+        skip: Option<usize>,
+    ) -> LaneScan {
+        let mut scan = LaneScan::default();
+        let mut consider = |occupant: Occupant, other_velocity: f32| {
+            if !lanes.iter().any(|&lane| occupant.in_lane(lane)) {
+                return;
+            }
+            let (slot, gap) = if occupant.rel > rel {
+                (&mut scan.ahead, occupant.rel - (rel + length))
+            } else {
+                (&mut scan.behind, rel - (occupant.rel + occupant.length))
+            };
+            if slot.is_none_or(|n| gap < n.gap) {
+                *slot = Some(Neighbor {
+                    gap,
+                    velocity: other_velocity - velocity,
+                });
+            }
+        };
+        for (index, car) in self.cars.iter().enumerate() {
+            if Some(index) != skip && car.active && car.kind != Kind::Oncoming {
+                consider(car.occupies(), car.velocity);
+            }
+        }
+        if skip.is_some() {
+            consider(ego_occupant(&self.ego_lanes), 0.0);
+        }
+        scan
+    }
+
+    /// The least space between two cars that take up a lane together, the car
+    /// of the camera included, in meters; below zero for cars that overlap.
+    #[cfg(test)]
+    pub(crate) fn least_gap(&self) -> f32 {
+        let mut all: Vec<(Occupant, bool)> = self
+            .cars
+            .iter()
+            .filter(|c| c.active)
+            .map(|c| (c.occupies(), false))
+            .collect();
+        all.push((ego_occupant(&self.ego_lanes), true));
+        // A car behind the camera is not seen; where it stands is of no
+        // matter until it comes into view, unless it is behind the car of the
+        // camera in its lane.
+        let seen = |o: &Occupant| o.rel + o.length > NEAR_DISTANCE && o.rel < VIEW_DISTANCE;
+        let mut least = f32::MAX;
+        for (i, (a, a_ego)) in all.iter().enumerate() {
+            for (b, b_ego) in all.iter().skip(i + 1) {
+                if !a.shares_lane(b) || !(*a_ego || *b_ego || seen(a) || seen(b)) {
+                    continue;
+                }
+                let gap = if a.rel < b.rel {
+                    b.rel - (a.rel + a.length)
+                } else {
+                    a.rel - (b.rel + b.length)
+                };
+                least = least.min(gap);
+            }
+        }
+        least
+    }
+
+    /// Whether a car that runs is changing lanes in one of the `tunnels`,
+    /// given as (entrance, exit) in meters ahead of the camera.
+    #[cfg(test)]
+    pub(crate) fn any_change_in(&self, tunnels: &[(f32, f32)]) -> bool {
+        self.cars.iter().any(|c| {
+            c.active
+                && c.change.is_some()
+                && tunnels
+                    .iter()
+                    .any(|&(start, end)| start < c.rel + c.length() && end > c.rel)
+        })
+    }
+
+    /// Traffic on an empty road: no car runs until one is planted.
+    #[cfg(test)]
+    pub(crate) fn empty(seed: u64, shapes: CarShapes, lane_changes: LaneChanges) -> Self {
+        let level = TrafficLevel {
+            active: 0.0,
+            trucks: 0.0,
+        };
+        Self::with_lane_changes(seed, TruckStyle::None, level, shapes, lane_changes)
+    }
+
+    /// Puts the car `id` (0 to 4 lead cars, 5 to 10 passing cars) in `lane`,
+    /// `rel` meters ahead, running at `speed`: for a lead car as a fraction
+    /// of the speed of the camera, for a passing car meters per second faster.
+    /// It changes lanes only if `changer`.
+    #[cfg(test)]
+    pub(crate) fn plant(&mut self, id: u32, lane: f32, rel: f32, speed: f32, changer: bool) {
+        let car = &mut self.cars[id as usize];
+        car.active = true;
+        car.lateral = lane;
+        car.rel = rel;
+        car.change = None;
+        car.drive = None;
+        car.changer = changer;
+        car.wait = 0.0;
+        match car.kind {
+            Kind::Lead => car.ratio = speed,
+            Kind::Passing => car.speed = speed,
+            Kind::Oncoming => unreachable!("oncoming cars cannot be planted"),
+        }
+    }
+
+    /// Takes the car `id` off the road.
+    #[cfg(test)]
+    pub(crate) fn unplant(&mut self, id: u32) {
+        self.cars[id as usize].active = false;
+    }
+
+    /// Where the car `id` is, meters ahead of the camera.
+    #[cfg(test)]
+    pub(crate) fn rel_of(&self, id: u32) -> f32 {
+        self.cars[id as usize].rel
+    }
+
+    /// The number of lane changes the cars have begun or finished.
+    #[cfg(test)]
+    pub(crate) fn lane_change_count(&self) -> u32 {
+        self.cars
+            .iter()
+            .map(|c| c.changes + u32::from(c.change.is_some()))
+            .sum()
+    }
+
+    /// The nearest cars ahead of and behind the car of the camera in the `lanes`.
+    pub fn scan(&self, lanes: &[f32]) -> LaneScan {
+        self.neighbors((-EGO_LENGTH, EGO_LENGTH, 0.0), lanes, None)
+    }
+
+    /// Moves the cars along their lane changes: a car that has signaled long
+    /// enough moves if the lane is still free, and one that has moved settles
+    /// in its new lane.
+    fn step_changes(&mut self, dt: f32) {
+        for index in 0..self.cars.len() {
+            let car = &self.cars[index];
+            let Some(mut change) = car.change else {
+                self.cars[index].wait -= dt;
+                continue;
+            };
+            let moves_now = change.t < SIGNAL_SECONDS && change.t + dt >= SIGNAL_SECONDS;
+            if moves_now {
+                let room = self.neighbors(
+                    (car.rel, car.length(), car.velocity),
+                    &[change.to],
+                    Some(index),
+                );
+                if !room.is_open(Seconds::MOVE, LANE_GAP * 2.0, LANE_GAP * 2.0) {
+                    let car = &mut self.cars[index];
+                    car.change = None;
+                    car.wait = GIVE_UP_WAIT;
+                    continue;
+                }
+            }
+            change.t += dt;
+            let seed = self.seed;
+            let car = &mut self.cars[index];
+            car.lateral = change.lateral();
+            if change.is_done() {
+                car.change = None;
+                car.lateral = change.to;
+                car.changes = car.changes.wrapping_add(1);
+                let roll = hash01(
+                    seed,
+                    STREAM_COOLDOWN,
+                    i64::from(car.id) << 32 | i64::from(car.changes) | 1 << 62,
+                );
+                car.wait = NEXT_WAIT.0 + (NEXT_WAIT.1 - NEXT_WAIT.0) * roll;
+            } else {
+                car.change = Some(change);
+            }
+        }
+    }
+
+    /// Lets the cars that are held up, or have passed a car, start a lane
+    /// change if the other lane is free and no tunnel is in the way.
+    fn think_of_changes(&mut self) {
+        for index in 0..self.cars.len() {
+            let car = &self.cars[index];
+            if !(car.active && car.changer && car.change.is_none() && car.wait <= 0.0)
+                || car.kind == Kind::Oncoming
+            {
+                continue;
+            }
+            let (here, there) = if (car.lateral - OWN_LANE).abs() < 0.5 {
+                (OWN_LANE, PASSING_LANE)
+            } else if (car.lateral - PASSING_LANE).abs() < 0.5 {
+                (PASSING_LANE, OWN_LANE)
+            } else {
+                continue;
+            };
+            let at = (car.rel, car.length(), car.velocity);
+            let speed = self.own_speed + car.velocity;
+            let (wants, seconds, ahead_clear, behind_clear) = if here == OWN_LANE {
+                // Held up by a slower car ahead.
+                let held_up = self
+                    .neighbors(at, &[here], Some(index))
+                    .ahead
+                    .is_some_and(|a| {
+                        -a.velocity > MIN_CLOSING
+                            && a.gap < (CATCH_SECONDS * speed).max(AHEAD_CLEAR)
+                    });
+                (held_up, Seconds::OUT, AHEAD_CLEAR, BEHIND_CLEAR)
+            } else {
+                // Has passed a car, which is behind in the lane to return to,
+                // and has no slower car ahead there that it would pass again.
+                let own = self.neighbors(at, &[there], Some(index));
+                let held_again = own.ahead.is_some_and(|a| {
+                    -a.velocity > MIN_CLOSING && a.gap < (CATCH_SECONDS * speed).max(AHEAD_CLEAR)
+                });
+                let just_passed = own.behind.is_some_and(|b| b.gap < PASSED_WITHIN);
+                (
+                    just_passed && !held_again,
+                    Seconds::RETURN,
+                    RETURN_AHEAD_CLEAR,
+                    RETURN_GAP,
+                )
+            };
+            if !wants {
+                continue;
+            }
+            let room = self.neighbors(at, &[there], Some(index));
+            if !room.is_open(seconds, ahead_clear, behind_clear)
+                || tunnel_in_the_way(&self.tunnels, car.rel, car.length(), speed)
+            {
+                continue;
+            }
+            self.cars[index].change = Some(Change {
+                from: here,
+                to: there,
+                t: 0.0,
+            });
+        }
+    }
+
     /// The lights in front of the camera, in no particular order.
     pub fn lights(&self) -> Vec<CarLight> {
         let mut lights = Vec::new();
         for car in &self.cars {
-            car.push_lights(self.trucks, self.shapes, &mut lights);
+            car.push_lights(self.trucks, self.shapes, self.ego_lateral, &mut lights);
         }
         lights
     }
@@ -2208,7 +2998,7 @@ mod tests {
         car.rel = 100.0;
         let lights = |car: &Car| {
             let mut out = Vec::new();
-            car.push_lights(TruckStyle::None, CarShapes::None, &mut out);
+            car.push_lights(TruckStyle::None, CarShapes::None, OWN_LANE, &mut out);
             out
         };
         car.braking_left = 0.0;
@@ -2232,7 +3022,7 @@ mod tests {
         let glare = |car: &mut Car, d: f32| {
             car.rel = d;
             let mut out = Vec::new();
-            car.push_lights(TruckStyle::None, CarShapes::None, &mut out);
+            car.push_lights(TruckStyle::None, CarShapes::None, OWN_LANE, &mut out);
             out.iter().find(|l| l.glare).map(|l| l.alpha)
         };
         assert_eq!(glare(&mut car, 200.0), None);
@@ -2267,7 +3057,7 @@ mod tests {
 
     fn lights_of(car: &Car, style: TruckStyle) -> Vec<CarLight> {
         let mut out = Vec::new();
-        car.push_lights(style, CarShapes::Blocks, &mut out);
+        car.push_lights(style, CarShapes::Blocks, OWN_LANE, &mut out);
         out
     }
 
@@ -3645,7 +4435,12 @@ mod tests {
                     car.braking_left = braking;
                     let boxes = model_boxes(&car, CarShapes::Blocks);
                     let mut lights = Vec::new();
-                    car.push_lights(TruckStyle::Japanese, CarShapes::Blocks, &mut lights);
+                    car.push_lights(
+                        TruckStyle::Japanese,
+                        CarShapes::Blocks,
+                        OWN_LANE,
+                        &mut lights,
+                    );
                     assert!(lights.len() >= 2, "{model:?} {id}");
                     for light in &lights {
                         let (distance, inside) = lamp_clearance(&boxes, light);
@@ -3676,7 +4471,7 @@ mod tests {
             let mut car = model_car(id, CarModel::Minivan, 100.0);
             car.braking_left = 1.0;
             let mut lights = Vec::new();
-            car.push_lights(TruckStyle::Japanese, CarShapes::None, &mut lights);
+            car.push_lights(TruckStyle::Japanese, CarShapes::None, OWN_LANE, &mut lights);
             let heights: Vec<f32> = lights.iter().map(|l| l.height).collect();
             let expected: &[f32] = if id == ONCOMING_ID {
                 &[0.65, 0.65]
@@ -3982,7 +4777,12 @@ mod tests {
                 car.braking_left = 1.0;
                 let boxes = model_boxes(&car, CarShapes::Detailed);
                 let mut lights = Vec::new();
-                car.push_lights(TruckStyle::Japanese, CarShapes::Detailed, &mut lights);
+                car.push_lights(
+                    TruckStyle::Japanese,
+                    CarShapes::Detailed,
+                    OWN_LANE,
+                    &mut lights,
+                );
                 assert!(lights.len() >= 2);
                 for light in lights.iter().filter(|l| !l.glare) {
                     let what = format!("{model:?} {id} {light:?}");
@@ -4021,7 +4821,7 @@ mod tests {
                 car.push_boxes(CarShapes::Detailed, &mut boxes);
                 let style = style_of(shape);
                 let mut lights = Vec::new();
-                car.push_lights(style, CarShapes::Detailed, &mut lights);
+                car.push_lights(style, CarShapes::Detailed, OWN_LANE, &mut lights);
                 for light in lights.iter().filter(|l| !l.glare) {
                     let what = format!("{shape:?} {id} {light:?}");
                     // A lamp on the surface is a hair in front of it, as seen from
@@ -4058,6 +4858,222 @@ mod tests {
                     all_faces_are_flat_and_finite(&boxes, &format!("{seed} {step}"));
                 }
                 assert!(solids > 200, "{solids}");
+            }
+        }
+    }
+
+    mod lane_changes {
+        use super::*;
+
+        const TARGET: f32 = 100.0 / 3.6;
+
+        fn step(traffic: &mut Traffic, ego_lanes: &[f32]) {
+            traffic.update_around(
+                DT,
+                TARGET,
+                &Surroundings {
+                    target_speed: TARGET,
+                    ego_lanes,
+                    ego_lateral: ego_lanes[0],
+                    tunnels: &[],
+                },
+            );
+        }
+
+        /// The lights of the car `id` that are the turn signal: amber, and not a marker.
+        fn signal_lights(traffic: &Traffic, id: u32) -> Vec<CarLight> {
+            traffic
+                .lights()
+                .into_iter()
+                .filter(|l| l.car == id && l.color == MARKER_AMBER && l.size == 0.09)
+                .collect()
+        }
+
+        #[test]
+        fn the_curve_of_a_move_starts_and_ends_at_rest() {
+            assert_eq!((smooth(0.0), smooth(1.0)), (0.0, 1.0));
+            assert_eq!((smooth_slope(0.0), smooth_slope(1.0)), (0.0, 0.0));
+            assert!((smooth(0.5) - 0.5).abs() < 1e-6);
+            assert!((smooth_slope(0.5) - 1.875).abs() < 1e-6);
+            let mut previous = 0.0;
+            for i in 1..=100 {
+                let value = smooth(i as f32 / 100.0);
+                assert!(value > previous);
+                previous = value;
+            }
+            // Out of range, it stays at the ends.
+            assert_eq!((smooth(-1.0), smooth(2.0)), (0.0, 1.0));
+        }
+
+        #[test]
+        fn the_turn_signal_blinks_about_eighty_five_times_a_minute() {
+            // Lit for half a period and dark for half of it, starting lit.
+            assert!(blink_on(0.0) && blink_on(0.34) && !blink_on(0.36) && !blink_on(0.69));
+            assert!(blink_on(0.71) && !blink_on(1.06));
+            let per_minute = 60.0 / BLINK_SECONDS;
+            assert!((60.0..=120.0).contains(&per_minute), "{per_minute}");
+        }
+
+        #[test]
+        fn a_space_is_open_if_the_cars_around_it_leave_room() {
+            let open = |scan: LaneScan| scan.is_open(Seconds::OUT, AHEAD_CLEAR, BEHIND_CLEAR);
+            assert!(open(LaneScan::default()));
+            let ahead = |gap, velocity| LaneScan {
+                ahead: Some(Neighbor { gap, velocity }),
+                behind: None,
+            };
+            let behind = |gap, velocity| LaneScan {
+                ahead: None,
+                behind: Some(Neighbor { gap, velocity }),
+            };
+            // A car ahead that is as fast, or faster, needs only the room.
+            assert!(open(ahead(50.0, 0.0)) && open(ahead(50.0, 5.0)));
+            assert!(!open(ahead(30.0, 0.0)) && !open(ahead(-3.0, 5.0)));
+            // One that is slower is reached before the pass is done.
+            assert!(!open(ahead(100.0, -5.0)) && open(ahead(400.0, -5.0)));
+            // A car behind that keeps its distance needs the room.
+            assert!(open(behind(30.0, 0.0)) && !open(behind(20.0, 0.0)));
+            // One that comes up fast needs more.
+            assert!(!open(behind(60.0, 8.0)) && open(behind(200.0, 8.0)));
+            // One that falls back is no hindrance beyond the room.
+            assert!(open(behind(30.0, -5.0)));
+        }
+
+        #[test]
+        fn a_tunnel_in_the_way_is_one_that_is_entered_before_the_move_is_done() {
+            let speed = 27.0;
+            let sweep =
+                speed * (SIGNAL_SECONDS + MOVE_SECONDS) * TUNNEL_SPEED_MARGIN + TUNNEL_MARGIN;
+            let in_the_way = |tunnels: &[(f32, f32)]| tunnel_in_the_way(tunnels, 0.0, 4.5, speed);
+            assert!(!in_the_way(&[]));
+            assert!(in_the_way(&[(sweep - 5.0, 900.0)]));
+            assert!(!in_the_way(&[(sweep + 10.0, 900.0)]));
+            // Inside a tunnel.
+            assert!(in_the_way(&[(-100.0, 100.0)]));
+            // A tunnel that is passed does not matter.
+            assert!(!in_the_way(&[(-500.0, -10.0)]));
+            // The tunnels beyond what is known leave the answer open: no lane change.
+            assert!(tunnel_in_the_way(&[], TUNNEL_HORIZON, 4.5, speed));
+        }
+
+        #[test]
+        fn a_car_held_up_signals_moves_out_passes_and_returns_without_touching_anyone() {
+            let mut traffic = Traffic::empty(1, CarShapes::None, LaneChanges::All);
+            // A faster car behind a slower one; the slower one keeps pace with
+            // the camera, so that the car of the camera is not in the way.
+            traffic.plant(0, OWN_LANE, 100.0, 1.1, true);
+            traffic.plant(1, OWN_LANE, 200.0, 1.0, false);
+            let mut phases = Vec::new();
+            let mut least = f32::MAX;
+            let mut signaling_seconds = 0.0;
+            for _ in 0..(150.0 / DT) as usize {
+                step(&mut traffic, &[OWN_LANE]);
+                least = least.min(traffic.least_gap());
+                let car = &traffic.cars[0];
+                let state = match car.change {
+                    None if car.lateral == PASSING_LANE => "passing",
+                    None => "own",
+                    Some(c) if c.t < SIGNAL_SECONDS => "signal",
+                    Some(_) => "move",
+                };
+                if phases.last() != Some(&state) {
+                    phases.push(state);
+                }
+                // The signal is lit only while the car signals or moves.
+                let lit = signal_lights(&traffic, 0);
+                assert!(lit.len() <= 1);
+                if car.change.is_none() {
+                    assert!(lit.is_empty());
+                } else if !lit.is_empty() {
+                    signaling_seconds += DT;
+                }
+                if car.change.is_some_and(|c| c.t < SIGNAL_SECONDS) {
+                    assert_eq!(car.lateral, car.change.unwrap().from);
+                }
+            }
+            assert_eq!(
+                phases,
+                ["signal", "move", "passing", "signal", "move", "own"]
+            );
+            assert!(least >= LANE_GAP - 0.01, "{least}");
+            // Lit for about half the time of the two lane changes.
+            let total = 2.0 * (SIGNAL_SECONDS + MOVE_SECONDS);
+            assert!(
+                (signaling_seconds - total / 2.0).abs() < 1.5,
+                "{signaling_seconds}"
+            );
+            // The slower car did not move.
+            assert_eq!(traffic.cars[1].lateral, OWN_LANE);
+            assert_eq!(traffic.lane_change_count(), 2);
+        }
+
+        #[test]
+        fn the_signal_is_on_the_side_of_the_lane_the_car_moves_to() {
+            let mut traffic = Traffic::empty(1, CarShapes::None, LaneChanges::All);
+            traffic.plant(0, OWN_LANE, 100.0, 0.9, false);
+            for (from, to, side) in [
+                (OWN_LANE, PASSING_LANE, 1.0),
+                (PASSING_LANE, OWN_LANE, -1.0),
+            ] {
+                let car = &mut traffic.cars[0];
+                car.lateral = from;
+                car.change = Some(Change { from, to, t: 0.1 });
+                let lit = signal_lights(&traffic, 0);
+                assert_eq!(lit.len(), 1);
+                let across = lit[0].lateral - from;
+                assert!(across * side > 0.5, "{across}");
+                // Dark in the half period when it is dark.
+                traffic.cars[0].change = Some(Change { from, to, t: 0.5 });
+                assert!(signal_lights(&traffic, 0).is_empty());
+            }
+        }
+
+        #[test]
+        fn a_car_does_not_move_into_a_lane_the_car_of_the_camera_takes_up() {
+            for (rel, moves) in [(20.0, false), (60.0, true)] {
+                let mut traffic = Traffic::empty(1, CarShapes::None, LaneChanges::All);
+                traffic.plant(0, OWN_LANE, rel, 1.0, true);
+                traffic.plant(1, OWN_LANE, rel + 70.0, 0.9, false);
+                let mut started = false;
+                for _ in 0..(10.0 / DT) as usize {
+                    // The car of the camera signals to move to the passing lane.
+                    step(&mut traffic, &[OWN_LANE, PASSING_LANE]);
+                    started |= traffic.cars[0].change.is_some();
+                }
+                // The car of the camera is `rel` meters behind the held-up car.
+                assert_eq!(started, moves, "{rel}");
+            }
+        }
+
+        #[test]
+        fn a_car_in_the_passing_lane_returns_only_after_it_has_passed_a_car() {
+            for (rel, returns) in [(60.0, true), (300.0, false)] {
+                let mut traffic = Traffic::empty(1, CarShapes::None, LaneChanges::All);
+                // Faster than the car of the camera, so that it keeps its distance to it.
+                traffic.plant(5, PASSING_LANE, rel, 3.0, true);
+                let mut started = false;
+                for _ in 0..(10.0 / DT) as usize {
+                    step(&mut traffic, &[OWN_LANE]);
+                    started |= traffic.cars[5].change.is_some();
+                }
+                assert_eq!(started, returns, "{rel}");
+            }
+        }
+
+        #[test]
+        fn cars_do_not_change_lanes_when_nobody_does() {
+            for mode in [LaneChanges::None, LaneChanges::OwnCar] {
+                let mut traffic = Traffic::with_lane_changes(
+                    4,
+                    TruckStyle::None,
+                    TrafficLevel::FULL,
+                    CarShapes::None,
+                    mode,
+                );
+                for _ in 0..(600.0 / DT) as usize {
+                    step(&mut traffic, &[OWN_LANE]);
+                }
+                assert_eq!(traffic.lane_change_count(), 0, "{mode:?}");
             }
         }
     }
