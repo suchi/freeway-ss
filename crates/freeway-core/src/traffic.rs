@@ -499,7 +499,7 @@ impl CarModel {
 const SEDAN: ModelSpec = ModelSpec {
     length: 4.7,
     half_width: 0.9,
-    body: (0.3, 0.95),
+    body: (0.15, 0.95),
     cabin: (1.6, 3.7),
     roof: 1.45,
     wheel: 0.65,
@@ -509,7 +509,7 @@ const SEDAN: ModelSpec = ModelSpec {
 const HATCHBACK: ModelSpec = ModelSpec {
     length: 4.0,
     half_width: 0.875,
-    body: (0.3, 0.95),
+    body: (0.15, 0.95),
     cabin: (1.4, 3.9),
     roof: 1.5,
     wheel: 0.6,
@@ -519,7 +519,7 @@ const HATCHBACK: ModelSpec = ModelSpec {
 const MINIVAN: ModelSpec = ModelSpec {
     length: 4.8,
     half_width: 0.9,
-    body: (0.3, 1.0),
+    body: (0.15, 1.0),
     cabin: (1.0, 4.8),
     roof: 1.85,
     wheel: 0.65,
@@ -529,7 +529,7 @@ const MINIVAN: ModelSpec = ModelSpec {
 const SUV: ModelSpec = ModelSpec {
     length: 4.6,
     half_width: 0.925,
-    body: (0.4, 1.1),
+    body: (0.2, 1.1),
     cabin: (1.5, 4.4),
     roof: 1.75,
     wheel: 0.75,
@@ -539,7 +539,7 @@ const SUV: ModelSpec = ModelSpec {
 const KEI: ModelSpec = ModelSpec {
     length: 3.4,
     half_width: 0.74,
-    body: (0.3, 0.9),
+    body: (0.15, 0.9),
     cabin: (0.8, 3.4),
     roof: 1.75,
     wheel: 0.55,
@@ -549,7 +549,7 @@ const KEI: ModelSpec = ModelSpec {
 const PICKUP: ModelSpec = ModelSpec {
     length: 5.9,
     half_width: 1.0,
-    body: (0.45, 1.2),
+    body: (0.22, 1.2),
     cabin: (1.9, 3.6),
     roof: 1.95,
     wheel: 0.8,
@@ -3037,22 +3037,22 @@ mod tests {
     fn the_models_have_the_designed_sizes() {
         // (length, width, body from, body to, cabin from, cabin to, roof, wheel)
         let designed = [
-            (CarModel::Sedan, 4.7, 1.8, 0.3, 0.95, 1.6, 3.7, 1.45, 0.65),
+            (CarModel::Sedan, 4.7, 1.8, 0.15, 0.95, 1.6, 3.7, 1.45, 0.65),
             (
                 CarModel::Hatchback,
                 4.0,
                 1.75,
-                0.3,
+                0.15,
                 0.95,
                 1.4,
                 3.9,
                 1.5,
                 0.6,
             ),
-            (CarModel::Minivan, 4.8, 1.8, 0.3, 1.0, 1.0, 4.8, 1.85, 0.65),
-            (CarModel::Suv, 4.6, 1.85, 0.4, 1.1, 1.5, 4.4, 1.75, 0.75),
-            (CarModel::Kei, 3.4, 1.48, 0.3, 0.9, 0.8, 3.4, 1.75, 0.55),
-            (CarModel::Pickup, 5.9, 2.0, 0.45, 1.2, 1.9, 3.6, 1.95, 0.8),
+            (CarModel::Minivan, 4.8, 1.8, 0.15, 1.0, 1.0, 4.8, 1.85, 0.65),
+            (CarModel::Suv, 4.6, 1.85, 0.2, 1.1, 1.5, 4.4, 1.75, 0.75),
+            (CarModel::Kei, 3.4, 1.48, 0.15, 0.9, 0.8, 3.4, 1.75, 0.55),
+            (CarModel::Pickup, 5.9, 2.0, 0.22, 1.2, 1.9, 3.6, 1.95, 0.8),
         ];
         for (model, length, width, from, to, cabin_from, cabin_to, roof, wheel) in designed {
             let spec = model.spec();
