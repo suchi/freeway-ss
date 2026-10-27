@@ -253,14 +253,14 @@ mod tests {
         assert_eq!(settings.lane_changes, LaneChanges::All);
         assert_eq!(settings.language, Language::Auto);
         assert!(settings.vary_speed && settings.traffic_by_time && settings.scenery_zones);
-        assert!(!settings.span_monitors);
+        assert!(settings.span_monitors);
         Ok(())
     }
 
     #[test]
-    fn spanning_the_monitors_is_read_back_and_off_by_default() -> Result<()> {
+    fn spanning_the_monitors_is_read_back_and_on_by_default() -> Result<()> {
         let test = TestKey::new("span-monitors");
-        assert!(!test.load().span_monitors);
+        assert!(test.load().span_monitors);
         for span_monitors in [true, false] {
             let settings = Settings {
                 span_monitors,
@@ -272,7 +272,7 @@ mod tests {
         // A value that is not 0 or 1 is the default.
         for raw in [2, u32::MAX] {
             write_dword(HKEY_CURRENT_USER, test.key(), SPAN_MONITORS, raw)?;
-            assert!(!test.load().span_monitors, "{raw}");
+            assert!(test.load().span_monitors, "{raw}");
         }
         Ok(())
     }

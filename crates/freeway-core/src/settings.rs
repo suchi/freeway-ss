@@ -142,7 +142,7 @@ impl Default for Settings {
             traffic_by_time: true,
             scenery_zones: true,
             lane_changes: LaneChanges::All,
-            span_monitors: false,
+            span_monitors: true,
         }
     }
 }
@@ -361,7 +361,8 @@ mod tests {
                 traffic_by_time: true,
                 scenery_zones: true,
                 lane_changes: LaneChanges::OwnCar,
-                span_monitors: false,
+                // Not read by `from_raw`, so it is the default.
+                span_monitors: true,
             }
         );
         assert_eq!(
@@ -1100,8 +1101,8 @@ mod tests {
     }
 
     #[test]
-    fn spanning_the_monitors_is_off_unless_stored_as_one() {
-        assert!(!Settings::default().span_monitors);
+    fn spanning_the_monitors_is_on_unless_stored_as_zero() {
+        assert!(Settings::default().span_monitors);
         let read = |raw| {
             Settings::default()
                 .with_span_monitors_raw(raw)
@@ -1109,9 +1110,9 @@ mod tests {
         };
         assert!(read(Some(1)));
         assert!(!read(Some(0)));
-        // Missing or out of range is the default, not "on".
+        // Missing or out of range is the default, which is "on".
         for raw in [None, Some(2), Some(u32::MAX)] {
-            assert!(!read(raw), "{raw:?}");
+            assert!(read(raw), "{raw:?}");
         }
         // Other settings are left as they are.
         let before = Settings {
