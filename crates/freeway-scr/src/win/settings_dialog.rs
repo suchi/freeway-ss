@@ -5,7 +5,8 @@
 
 use freeway_core::settings::{SPEED_CHOICES, position_to_speed, speed_to_position};
 use freeway_core::{
-    CarBodies, DisplayLanguage, Language, Settings, Text, TruckStyle, TunnelLighting,
+    CarBodies, DisplayLanguage, Language, Settings, SpeedometerStyle, Text, TruckStyle,
+    TunnelLighting,
 };
 use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
@@ -41,6 +42,7 @@ const TRAFFIC_BY_TIME: i32 = 117;
 const SCENERY_ZONES: i32 = 118;
 const CAR_BODIES_LABEL: i32 = 119;
 const CAR_BODIES: i32 = 120;
+const SPEEDOMETER_LABEL: i32 = 121;
 
 /// The texts of the controls that are set from the string table, by ID.
 const CONTROL_TEXTS: [(i32, Text); 16] = [
@@ -48,7 +50,7 @@ const CONTROL_TEXTS: [(i32, Text); 16] = [
     (SIDE_LABEL, Text::DrivingSideLabel),
     (LEFT_HAND, Text::LeftHandTraffic),
     (RIGHT_HAND, Text::RightHandTraffic),
-    (SPEEDOMETER, Text::Speedometer),
+    (SPEEDOMETER_LABEL, Text::SpeedometerLabel),
     (UFO, Text::Ufo),
     (MOUNTAINS, Text::Mountains),
     (VARY_SPEED, Text::VarySpeed),
@@ -83,6 +85,14 @@ const TUNNEL_TEXTS: [Text; 4] = [
     Text::TunnelsMixed,
     Text::TunnelsSodium,
     Text::TunnelsLed,
+];
+
+/// The items of the speedometer drop-down, in the order of `SpeedometerStyle::ALL`.
+const SPEEDOMETER_TEXTS: [Text; 4] = [
+    Text::SpeedometerNone,
+    Text::SpeedometerDigits,
+    Text::SpeedometerSimple,
+    Text::SpeedometerDetailed,
 ];
 
 /// The items of the car bodies drop-down, in the order of `CarBodies::ALL`.
@@ -150,6 +160,7 @@ unsafe extern "system" fn dialog_proc(
                 select_trucks(hwnd, state.settings.trucks);
                 select_tunnels(hwnd, state.settings.tunnels);
                 select_car_bodies(hwnd, state.settings.car_bodies);
+                select_speedometer(hwnd, state.settings.speedometer);
             }
             // Let the dialog manager give the focus to the first control.
             1
@@ -282,6 +293,30 @@ fn select_car_bodies(hwnd: HWND, car_bodies: CarBodies) {
     }
 }
 
+/// The speedometer choice selected in the drop-down; the default while the
+/// drop-down is still empty.
+fn selected_speedometer(hwnd: HWND) -> SpeedometerStyle {
+    let index =
+        unsafe { SendDlgItemMessageW(hwnd, SPEEDOMETER, CB_GETCURSEL, WPARAM(0), LPARAM(0)) }.0;
+    // CB_ERR (-1) means nothing is selected.
+    u32::try_from(index)
+        .ok()
+        .and_then(|index| SpeedometerStyle::from_raw(Some(index)))
+        .unwrap_or_default()
+}
+
+fn select_speedometer(hwnd: HWND, speedometer: SpeedometerStyle) {
+    unsafe {
+        SendDlgItemMessageW(
+            hwnd,
+            SPEEDOMETER,
+            CB_SETCURSEL,
+            WPARAM(speedometer.to_raw() as usize),
+            LPARAM(0),
+        );
+    }
+}
+
 /// Shows the dialog in the language that `selected` means, and selects it in
 /// the drop-down.
 fn apply_language(hwnd: HWND, selected: Language) {
@@ -296,6 +331,7 @@ fn apply_language(hwnd: HWND, selected: Language) {
     let trucks = selected_trucks(hwnd);
     let tunnels = selected_tunnels(hwnd);
     let car_bodies = selected_car_bodies(hwnd);
+    let speedometer = selected_speedometer(hwnd);
     fill_dropdown(hwnd, LANGUAGE, &LANGUAGE_TEXTS, language, selected.to_raw());
     fill_dropdown(hwnd, TRUCKS, &TRUCK_TEXTS, language, trucks.to_raw());
     fill_dropdown(hwnd, TUNNELS, &TUNNEL_TEXTS, language, tunnels.to_raw());
@@ -305,6 +341,13 @@ fn apply_language(hwnd: HWND, selected: Language) {
         &CAR_BODY_TEXTS,
         language,
         car_bodies.to_raw(),
+    );
+    fill_dropdown(
+        hwnd,
+        SPEEDOMETER,
+        &SPEEDOMETER_TEXTS,
+        language,
+        speedometer.to_raw(),
     );
 }
 
@@ -351,7 +394,6 @@ fn init_controls(hwnd: HWND, settings: &Settings) {
         };
         let _ = CheckRadioButton(hwnd, LEFT_HAND, RIGHT_HAND, side);
         for (id, checked) in [
-            (SPEEDOMETER, settings.show_speedometer),
             (UFO, settings.show_ufo),
             (MOUNTAINS, settings.show_mountains),
             (VARY_SPEED, settings.vary_speed),
@@ -368,7 +410,7 @@ fn read_controls(hwnd: HWND) -> Settings {
     Settings {
         speed_kmh: position_to_speed(slider_position(hwnd)),
         left_hand_traffic: unsafe { IsDlgButtonChecked(hwnd, LEFT_HAND) } == BST_CHECKED.0,
-        show_speedometer: unsafe { IsDlgButtonChecked(hwnd, SPEEDOMETER) } == BST_CHECKED.0,
+        speedometer: selected_speedometer(hwnd),
         show_ufo: unsafe { IsDlgButtonChecked(hwnd, UFO) } == BST_CHECKED.0,
         show_mountains: unsafe { IsDlgButtonChecked(hwnd, MOUNTAINS) } == BST_CHECKED.0,
         trucks: selected_trucks(hwnd),

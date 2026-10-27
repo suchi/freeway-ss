@@ -38,7 +38,7 @@ END
 // sets every string from freeway-core's string table when it opens and when
 // the language changes (docs/adr/0007-localize-ui-strings-in-code.md), so
 // controls with text that changes have an ID.
-100 DIALOGEX 0, 0, 224, 274
+100 DIALOGEX 0, 0, 224, 280
 STYLE DIALOG_STYLE
 CAPTION "Night Freeway SS Settings"
 FONT 9, "Segoe UI"
@@ -49,20 +49,21 @@ BEGIN
     LTEXT           "Driving side:", 109, 12, 50, 100, 8
     AUTORADIOBUTTON "Left-hand traffic", 103, 12, 62, 96, 10, GROUP_START
     AUTORADIOBUTTON "Right-hand traffic", 104, 112, 62, 96, 10
-    AUTOCHECKBOX    "Show speedometer", 105, 12, 80, 120, 10
-    AUTOCHECKBOX    "Show a UFO now and then", 106, 12, 94, 160, 10
-    AUTOCHECKBOX    "Show distant mountains", 111, 12, 108, 160, 10
-    AUTOCHECKBOX    "Vary the cruising speed", 116, 12, 122, 200, 10
-    AUTOCHECKBOX    "Traffic follows the time of day", 117, 12, 136, 200, 10
-    AUTOCHECKBOX    "Alternate mountains and plains", 118, 12, 150, 200, 10
-    LTEXT           "Trucks:", 112, 12, 170, 48, 8
-    CONTROL         "", 113, "COMBOBOX", DROPDOWN_STYLE, 62, 168, 150, 60
-    LTEXT           "Tunnels:", 114, 12, 190, 48, 8
-    CONTROL         "", 115, "COMBOBOX", DROPDOWN_STYLE, 62, 188, 150, 60
-    LTEXT           "Car bodies:", 119, 12, 210, 48, 8
-    CONTROL         "", 120, "COMBOBOX", DROPDOWN_STYLE, 62, 208, 150, 60
-    LTEXT           "Language:", 110, 12, 230, 48, 8
-    CONTROL         "", 107, "COMBOBOX", DROPDOWN_STYLE, 62, 228, 150, 60
-    DEFPUSHBUTTON   "OK", 1, 108, 252, 50, 14
-    PUSHBUTTON      "Cancel", 2, 162, 252, 50, 14
+    LTEXT           "Speedometer:", 121, 12, 82, 48, 8
+    CONTROL         "", 105, "COMBOBOX", DROPDOWN_STYLE, 62, 80, 150, 70
+    AUTOCHECKBOX    "Show a UFO now and then", 106, 12, 100, 160, 10
+    AUTOCHECKBOX    "Show distant mountains", 111, 12, 114, 160, 10
+    AUTOCHECKBOX    "Vary the cruising speed", 116, 12, 128, 200, 10
+    AUTOCHECKBOX    "Traffic follows the time of day", 117, 12, 142, 200, 10
+    AUTOCHECKBOX    "Alternate mountains and plains", 118, 12, 156, 200, 10
+    LTEXT           "Trucks:", 112, 12, 176, 48, 8
+    CONTROL         "", 113, "COMBOBOX", DROPDOWN_STYLE, 62, 174, 150, 60
+    LTEXT           "Tunnels:", 114, 12, 196, 48, 8
+    CONTROL         "", 115, "COMBOBOX", DROPDOWN_STYLE, 62, 194, 150, 60
+    LTEXT           "Car bodies:", 119, 12, 216, 48, 8
+    CONTROL         "", 120, "COMBOBOX", DROPDOWN_STYLE, 62, 214, 150, 60
+    LTEXT           "Language:", 110, 12, 236, 48, 8
+    CONTROL         "", 107, "COMBOBOX", DROPDOWN_STYLE, 62, 234, 150, 60
+    DEFPUSHBUTTON   "OK", 1, 108, 258, 50, 14
+    PUSHBUTTON      "Cancel", 2, 162, 258, 50, 14
 END

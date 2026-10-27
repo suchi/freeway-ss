@@ -37,7 +37,7 @@ Windowsの「インストール」はファイルをコピーせず、展開し�
 | --- | --- | --- | --- |
 | 巡航速度 | Cruising speed | 30〜160 km/h(10 km/h刻み) | 100 km/h |
 | 通行方向 | Driving side | 左側通行 / 右側通行 | 左側通行 |
-| 速度計の表示 | Show speedometer | オン / オフ | オフ |
+| 速度計 | Speedometer | なし / 数字だけ / ダッシュボード(シンプル) / ダッシュボード(作り込み)(数字だけは左下に速さの数字を表示する。ダッシュボード(シンプル)は円弧のゲージと数字、ダッシュボード(作り込み)は目盛りと針のある速度計・回転計・時刻・走った距離・シフトの位置を表示する。前の版で速度計を表示する設定にしていた場合は、数字だけになる) | なし |
 | UFOの表示 | Show a UFO now and then | オン / オフ(オンのとき、平均10分に1回、UFOが現れる) | オフ |
 | 山並みの表示 | Show distant mountains | オン / オフ(オンのとき、地平線のところどころの方向に山並みが見え、山頂の赤い灯火がゆっくり点滅する) | オン |
 | 巡航速度のゆらぎ | Vary the cruising speed | オン / オフ(オンのとき、設定した速度の±20 km/hの範囲で、数分かけてゆっくり変わる。速度計は実際の速さを表示する) | オン |
@@ -111,7 +111,7 @@ Select "Night Freeway SS" in the screensaver settings and click "Settings" to ch
 | --- | --- | --- |
 | Cruising speed | 30 to 160 km/h (in steps of 10 km/h) | 100 km/h |
 | Driving side | Left-hand traffic / Right-hand traffic | Left-hand traffic |
-| Show speedometer | On / Off | Off |
+| Speedometer | None / Digits only / Dashboard (simple) / Dashboard (detailed) (digits only shows the speed as a number in the lower left corner; the simple dashboard shows an arc gauge with the speed; the detailed dashboard shows a speedometer with a scale and a needle, a tachometer, the time, the distance driven and the gear; a setting that showed the speedometer in an earlier version becomes digits only) | None |
 | Show a UFO now and then | On / Off (when on, a UFO appears about once every 10 minutes on average) | Off |
 | Show distant mountains | On / Off (when on, mountain ranges stand on the horizon in some directions, and red lights on some peaks blink slowly) | On |
 | Vary the cruising speed | On / Off (when on, the speed slowly changes over a few minutes within 20 km/h of the chosen speed; the speedometer shows the actual speed) | On |

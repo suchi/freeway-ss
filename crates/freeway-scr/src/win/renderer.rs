@@ -4,8 +4,9 @@ use std::collections::HashMap;
 use std::mem::ManuallyDrop;
 
 use freeway_core::canvas::GLOW_HALO_RATIO;
-use freeway_core::{Canvas, Rgb, Scene, Viewport};
+use freeway_core::{Canvas, Rgb, Scene, SpeedometerStyle, Viewport};
 
+use super::dashboard::{Dashboards, Devices};
 use crate::speedometer;
 
 use windows::Win32::Foundation::{
@@ -72,7 +73,7 @@ const SPEEDOMETER_GAP: f32 = 8.0;
 const SPEEDOMETER_NUMBER_ALPHA: f32 = 0.9;
 const SPEEDOMETER_UNIT_ALPHA: f32 = 0.6;
 /// Amber (#ffb000).
-const SPEEDOMETER_COLOR: D2D1_COLOR_F = D2D1_COLOR_F {
+pub(super) const SPEEDOMETER_COLOR: D2D1_COLOR_F = D2D1_COLOR_F {
     r: 1.0,
     g: 176.0 / 255.0,
     b: 0.0,
@@ -85,12 +86,12 @@ const SPEEDOMETER_FONT: PCWSTR = w!("Bahnschrift");
 
 /// A light number looks clean at a large size; the small unit is a regular
 /// weight so that it stays legible at its lower opacity.
-const NUMBER_FACE: Face = Face {
+pub(super) const NUMBER_FACE: Face = Face {
     weight: DWRITE_FONT_WEIGHT_SEMI_LIGHT,
     stretch: DWRITE_FONT_STRETCH_NORMAL,
     tabular_figures: true,
 };
-const UNIT_FACE: Face = Face {
+pub(super) const UNIT_FACE: Face = Face {
     weight: DWRITE_FONT_WEIGHT_NORMAL,
     stretch: DWRITE_FONT_STRETCH_NORMAL,
     tabular_figures: false,
@@ -121,6 +122,7 @@ pub struct Renderer {
     streak_style: ID2D1StrokeStyle,
     dwrite_factory: IDWriteFactory,
     speedometer_brush: ID2D1SolidColorBrush,
+    dashboards: Dashboards,
     /// Laid out text per (speed, scale); windows of another size or on another
     /// monitor may have another scale.
     speedometer_text: HashMap<(u32, u32), SpeedometerText>,
@@ -179,6 +181,7 @@ impl Renderer {
         let dwrite_factory: IDWriteFactory =
             unsafe { DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED)? };
         let speedometer_brush = unsafe { context.CreateSolidColorBrush(&SPEEDOMETER_COLOR, None)? };
+        let dashboards = Dashboards::new(&context)?;
 
         Ok(Self {
             d3d_device,
@@ -191,6 +194,7 @@ impl Renderer {
             streak_style: streak_style.into(),
             dwrite_factory,
             speedometer_brush,
+            dashboards,
             speedometer_text: HashMap::new(),
         })
     }
@@ -229,8 +233,9 @@ impl Renderer {
         })
     }
 
-    /// Draws `scene` into the window of `target` and presents it. With
-    /// `speedometer_kmh` the speed is drawn in the lower left corner.
+    /// Draws `scene` into the window of `target` and presents it. With a
+    /// `speedometer` other than none, the speed is drawn in the lower left
+    /// corner.
     ///
     /// With `wait_for_vsync` the call blocks until the frame can be shown,
     /// which paces the render loop. Returns `false` when the window is not
@@ -239,7 +244,7 @@ impl Renderer {
         &mut self,
         target: &mut Target,
         scene: &Scene,
-        speedometer_kmh: Option<u32>,
+        speedometer: SpeedometerStyle,
         wait_for_vsync: bool,
     ) -> Result<bool> {
         self.resize_if_needed(target)?;
@@ -275,9 +280,7 @@ impl Renderer {
             context.SetTransform(&Matrix3x2::identity());
             context.SetPrimitiveBlend(D2D1_PRIMITIVE_BLEND_SOURCE_OVER);
         }
-        if let Some(speed) = speedometer_kmh
-            && let Err(error) = self.draw_speedometer(speed, viewport)
-        {
+        if let Err(error) = self.draw_speedometer(speedometer, scene, viewport) {
             brush_error.get_or_insert(error);
         }
         let context = &self.context;
@@ -296,9 +299,33 @@ impl Renderer {
         }
     }
 
-    /// Draws the speed over the scene with normal blending. Errors are
+    /// Draws the speedometer over the scene with normal blending. Errors are
     /// returned for the caller to report after `EndDraw`.
-    fn draw_speedometer(&mut self, speed_kmh: u32, viewport: Viewport) -> Result<()> {
+    fn draw_speedometer(
+        &mut self,
+        style: SpeedometerStyle,
+        scene: &Scene,
+        viewport: Viewport,
+    ) -> Result<()> {
+        match style {
+            SpeedometerStyle::None => Ok(()),
+            SpeedometerStyle::Digits => {
+                self.draw_digits(speedometer::displayed_speed(scene.speed_kmh()), viewport)
+            }
+            SpeedometerStyle::SimpleDashboard | SpeedometerStyle::DetailedDashboard => {
+                let devices = Devices {
+                    context: &self.context,
+                    factory: &self.d2d_factory,
+                    dwrite: &self.dwrite_factory,
+                    stroke_style: &self.streak_style,
+                };
+                self.dashboards.draw(&devices, style, scene, viewport)
+            }
+        }
+    }
+
+    /// Draws the speed as a number in the lower left corner.
+    fn draw_digits(&mut self, speed_kmh: u32, viewport: Viewport) -> Result<()> {
         let scale = speedometer::scale(viewport.height, viewport.pixel_scale);
         if scale <= 0.0 {
             return Ok(());
@@ -405,16 +432,16 @@ impl SpeedometerText {
 
 /// The look of one line of the speedometer.
 #[derive(Clone, Copy)]
-struct Face {
-    weight: DWRITE_FONT_WEIGHT,
-    stretch: DWRITE_FONT_STRETCH,
+pub(super) struct Face {
+    pub(super) weight: DWRITE_FONT_WEIGHT,
+    pub(super) stretch: DWRITE_FONT_STRETCH,
     /// Digits of equal width, so that the number does not shift when its
     /// digits change (the speed can change in the settings).
-    tabular_figures: bool,
+    pub(super) tabular_figures: bool,
 }
 
 /// A single line of text in the speedometer font, with its size and baseline.
-fn layout(
+pub(super) fn layout(
     factory: &IDWriteFactory,
     text: &str,
     size: f32,
