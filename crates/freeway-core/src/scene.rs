@@ -4,14 +4,14 @@ use std::collections::BTreeMap;
 use std::f64::consts::TAU;
 
 use crate::body::{Corners, depth_at, faces_camera};
-use crate::canvas::{Canvas, GLOW_HALO_RATIO, Rgb};
+use crate::canvas::{Canvas, Clip, GLOW_HALO_RATIO, Rgb, ShiftCanvas};
 use crate::cruise::Drift;
 use crate::ego::Ego;
 use crate::projection::{CAMERA_HEIGHT, CAMERA_LATERAL, NEAR_DISTANCE, Projector, VIEW_DISTANCE};
 use crate::road::{RoadShape, RoadView};
 use crate::scenery::Zones;
 use crate::settings::{MAX_SPEED_KMH, MIN_SPEED_KMH};
-use crate::sky::{Sky, SkyView};
+use crate::sky::{Sky, SkySpan, SkyView};
 use crate::traffic::{
     BodyBox, CarColor, CarShapes, FacePart, LaneChanges, MINUTES_PER_DAY, Surroundings, Traffic,
     TrafficLevel, TruckStyle,
@@ -90,12 +90,36 @@ impl Default for SceneConfig {
 }
 
 /// The drawing area of one window.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Viewport {
     pub width: f32,
     pub height: f32,
     /// DPI divided by 96; scales sizes that are defined on screen, not in the world.
     pub pixel_scale: f32,
+}
+
+/// A picture that may be larger than the window that shows it, as when the
+/// monitors are drawn as one screen (docs/adr/0008-span-monitors-as-one-scene.md).
+/// The picture is `screen`, with its vanishing point at `center`; a window
+/// shows `part` of it. All of it is in the coordinates of the picture, in
+/// physical pixels.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Span {
+    pub screen: Viewport,
+    pub center: (f32, f32),
+    pub part: Clip,
+}
+
+impl Span {
+    /// The picture of one window, which shows all of it, with the vanishing
+    /// point in its middle.
+    pub fn whole(viewport: Viewport) -> Self {
+        Self {
+            screen: viewport,
+            center: (viewport.width * 0.5, viewport.height * 0.5),
+            part: Clip::whole(viewport.width, viewport.height),
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -670,17 +694,35 @@ impl Scene {
 
     /// Draws the sky, then the lights of the road from far to near.
     pub fn draw(&self, viewport: Viewport, canvas: &mut dyn Canvas) {
+        self.draw_span(Span::whole(viewport), canvas);
+    }
+
+    /// Draws `span.part` of the picture `span`, onto a canvas whose origin is
+    /// the top left corner of the part. Lights wholly outside the part are
+    /// left out. The same scene drawn for every part of a picture gives the
+    /// commands of drawing the picture at once, cut to each part.
+    pub fn draw_span(&self, span: Span, canvas: &mut dyn Canvas) {
+        let mut shifted;
+        let canvas: &mut dyn Canvas = if span.part.left != 0.0 || span.part.top != 0.0 {
+            shifted = ShiftCanvas::new(canvas, span.part.left, span.part.top);
+            &mut shifted
+        } else {
+            canvas
+        };
         // `clamp` below panics on a negative or NaN scale.
-        let pixel_scale = if viewport.pixel_scale.is_finite() && viewport.pixel_scale > 0.0 {
-            viewport.pixel_scale
+        let pixel_scale = if span.screen.pixel_scale.is_finite() && span.screen.pixel_scale > 0.0 {
+            span.screen.pixel_scale
         } else {
             1.0
         };
         let viewport = Viewport {
             pixel_scale,
-            ..viewport
+            ..span.screen
         };
-        let projector = self.projector(viewport.width, viewport.height);
+        let clip = span.part;
+        let projector = self
+            .projector(viewport.width, viewport.height)
+            .with_center(span.center.0, span.center.1);
         let view = RoadView::new(&self.road, self.track_s);
 
         let sky_view = SkyView {
@@ -692,6 +734,10 @@ impl Scene {
             // The camera turns toward the lane it moves to.
             heading: self.heading + f64::from(self.yaw),
             time: self.time,
+            span: Some(SkySpan {
+                center: span.center,
+                clip,
+            }),
         };
         // Inside a tunnel there is no sky to see.
         if !self.tunnels.sky_hidden(self.track_s) {
@@ -706,7 +752,7 @@ impl Scene {
 
         for light in &self.lights_on(&view, &projector) {
             if let Kind::Body { corners, .. } = light.kind {
-                draw_body(&corners, light, viewport, &projector, &view, canvas);
+                draw_body(&corners, light, clip, &projector, &view, canvas);
                 continue;
             }
             let (bend, rise) = view.offset(light.d);
@@ -726,7 +772,7 @@ impl Scene {
                     let radius = natural.clamp(minimum, largest * viewport.pixel_scale);
                     let alpha = (light.alpha * (natural / minimum).min(1.0)).min(1.0);
                     let halo = radius * GLOW_HALO_RATIO;
-                    if alpha >= MIN_ALPHA && touches(viewport, p.x, p.y, halo, halo) {
+                    if alpha >= MIN_ALPHA && clip.touches(p.x, p.y, halo, halo) {
                         canvas.glow(p.x, p.y, radius, light.color, alpha);
                     }
                 }
@@ -738,7 +784,7 @@ impl Scene {
                     let alpha = light.alpha.min(1.0);
                     if alpha >= MIN_ALPHA
                         && radius_y >= 0.5 * viewport.pixel_scale
-                        && touches(viewport, p.x, p.y, radius_x, radius_y)
+                        && clip.touches(p.x, p.y, radius_x, radius_y)
                     {
                         let cut = shadow_layers(
                             &light.shadows,
@@ -1464,7 +1510,7 @@ fn shadow_layers(
 fn draw_body(
     corners: &[(f32, f32, f32); 4],
     light: &Light,
-    viewport: Viewport,
+    clip: Clip,
     projector: &Projector,
     view: &RoadView,
     canvas: &mut dyn Canvas,
@@ -1486,8 +1532,7 @@ fn draw_body(
         (lo.min(p.1), hi.max(p.1))
     });
     if light.alpha >= MIN_ALPHA
-        && touches(
-            viewport,
+        && clip.touches(
             (left + right) * 0.5,
             (top + bottom) * 0.5,
             (right - left) * 0.5,
@@ -1496,16 +1541,6 @@ fn draw_body(
     {
         canvas.silhouette(&points, light.color, light.alpha);
     }
-}
-
-/// Whether an ellipse of the given radii overlaps the viewport.
-fn touches(viewport: Viewport, x: f32, y: f32, radius_x: f32, radius_y: f32) -> bool {
-    x.is_finite()
-        && y.is_finite()
-        && x + radius_x >= 0.0
-        && x - radius_x <= viewport.width
-        && y + radius_y >= 0.0
-        && y - radius_y <= viewport.height
 }
 
 #[cfg(test)]
@@ -1680,6 +1715,202 @@ mod tests {
         let mut recorder = Recorder::default();
         scene.draw(viewport, &mut recorder);
         recorder.0
+    }
+
+    /// The picture of two 1920 by 1080 monitors side by side, with the
+    /// vanishing point in the middle of the right one.
+    fn two_monitors() -> (Viewport, (f32, f32)) {
+        (
+            Viewport {
+                width: 3840.0,
+                height: 1080.0,
+                pixel_scale: 1.0,
+            },
+            (2880.0, 540.0),
+        )
+    }
+
+    fn record_span(scene: &Scene, span: Span) -> Vec<Command> {
+        let mut recorder = Recorder::default();
+        scene.draw_span(span, &mut recorder);
+        recorder.0
+    }
+
+    /// The commands of the whole picture, moved the way the canvas of a window
+    /// that starts at (`dx`, `dy`) moves them.
+    fn record_whole_moved(scene: &Scene, whole: Span, dx: f32, dy: f32) -> Vec<Command> {
+        let mut recorder = Recorder::default();
+        scene.draw_span(whole, &mut ShiftCanvas::new(&mut recorder, dx, dy));
+        recorder.0
+    }
+
+    fn spanned_scene(seed: u64, seconds: usize) -> Scene {
+        let mut scene = Scene::new(SceneConfig {
+            seed,
+            ufo_mean_interval: Some(5.0),
+            car_shapes: CarShapes::Detailed,
+            ..Default::default()
+        });
+        for _ in 0..seconds * 20 {
+            scene.update(0.05);
+        }
+        scene
+    }
+
+    #[test]
+    fn a_picture_of_one_window_is_drawn_as_before() {
+        let scene = spanned_scene(5, 20);
+        assert_eq!(
+            record(&scene, VIEWPORT),
+            record_span(&scene, Span::whole(VIEWPORT))
+        );
+        assert_eq!(Span::whole(VIEWPORT).center, (640.0, 360.0));
+    }
+
+    #[test]
+    fn each_window_draws_its_part_of_the_commands_of_the_whole_picture() {
+        let (screen, center) = two_monitors();
+        let whole = Span {
+            screen,
+            center,
+            part: Clip::whole(screen.width, screen.height),
+        };
+        for seed in [1, 5, 9] {
+            // Several moments: the sky, the lights, the cars and the UFO.
+            let scene = spanned_scene(seed, 15 + 10 * seed as usize);
+            let everything = record_span(&scene, whole);
+            for left in [0.0, 1920.0] {
+                let part = Clip {
+                    left,
+                    top: 0.0,
+                    right: left + 1920.0,
+                    bottom: 1080.0,
+                };
+                let drawn = record_span(&scene, Span { part, ..whole });
+                let moved = record_whole_moved(&scene, whole, left, 0.0);
+                assert_eq!(moved.len(), everything.len(), "{seed} {left}");
+                // What a window draws is some of the commands of the whole
+                // picture, in the same order and the same numbers.
+                // Except for the ridges of the mountains: a window keeps the
+                // points of a ridge that are in view and one beyond each side,
+                // so a ridge is not the same polygon in every window.
+                let mut rest = moved.iter();
+                for command in drawn.iter().filter(
+                    |c| !matches!(c, Command::Silhouette { points, .. } if points.len() > 4),
+                ) {
+                    assert!(
+                        rest.any(|candidate| candidate == command),
+                        "{seed} {left}: {command:?} is not in the whole picture"
+                    );
+                }
+                // And everything anchored inside the window is drawn.
+                for command in moved.iter().filter(|c| {
+                    c.position().is_some_and(|(x, y)| {
+                        (0.0..1920.0).contains(&x) && (0.0..1080.0).contains(&y)
+                    })
+                }) {
+                    assert!(
+                        drawn.contains(command),
+                        "{seed} {left}: {command:?} is missing"
+                    );
+                }
+                // The window leaves out what is in the other one.
+                assert!(drawn.len() < everything.len(), "{seed} {left}");
+            }
+        }
+    }
+
+    #[test]
+    fn moving_the_vanishing_point_moves_the_road_and_the_sky_with_it() {
+        let (screen, middle) = two_monitors();
+        let mut scene = Scene::new(SceneConfig {
+            seed: 3,
+            ..Default::default()
+        });
+        for _ in 0..600 {
+            scene.update(0.05);
+        }
+        // A part so large that nothing is left out, whichever way it is moved.
+        let everything = Clip {
+            left: -1.0e5,
+            top: -1.0e5,
+            right: 1.0e5,
+            bottom: 1.0e5,
+        };
+        let draw = |center: (f32, f32)| {
+            record_span(
+                &scene,
+                Span {
+                    screen,
+                    center,
+                    part: everything,
+                },
+            )
+        };
+        let at_middle = draw((screen.width * 0.5, screen.height * 0.5));
+        let at_right = draw(middle);
+        assert!(at_middle.len() > 200, "{}", at_middle.len());
+        assert_eq!(at_middle.len(), at_right.len());
+        let (mut moved, mut still) = (0, 0);
+        for (a, b) in at_middle.iter().zip(&at_right) {
+            // Lights and pools lie where they are seen from the vanishing point.
+            match (a, b) {
+                (Command::Glow { x: xa, y: ya, .. }, Command::Glow { x: xb, y: yb, .. })
+                | (Command::Pool { x: xa, y: ya, .. }, Command::Pool { x: xb, y: yb, .. })
+                | (Command::Dot { x: xa, y: ya, .. }, Command::Dot { x: xb, y: yb, .. }) => {
+                    assert!((xb - xa - 960.0).abs() < 0.01, "{a:?} {b:?}");
+                    assert_eq!(ya, yb, "{a:?} {b:?}");
+                    moved += 1;
+                }
+                _ => still += 1,
+            }
+        }
+        assert!(moved > 100, "{moved} {still}");
+        // The size of what is drawn follows the focal length of the whole
+        // picture, which does not change with the vanishing point.
+        let radii = |commands: &[Command]| -> Vec<f32> {
+            commands
+                .iter()
+                .filter_map(|c| match *c {
+                    Command::Glow { radius, .. } => Some(radius),
+                    _ => None,
+                })
+                .collect()
+        };
+        assert_eq!(radii(&at_middle), radii(&at_right));
+        // A picture twice as wide has a longer focal length, so the same
+        // lights are drawn larger than on one monitor.
+        let one = Viewport {
+            width: 1920.0,
+            ..screen
+        };
+        let largest = |commands: &[Command]| radii(commands).into_iter().fold(0.0, f32::max);
+        assert!(largest(&at_middle) >= largest(&record(&scene, one)));
+    }
+
+    #[test]
+    fn a_window_in_the_middle_of_nowhere_draws_nothing_wrong() {
+        let (screen, center) = two_monitors();
+        let scene = spanned_scene(2, 10);
+        // Part of the picture that has no monitor: nothing to draw but the
+        // sky bands that cross the whole width.
+        let nowhere = Span {
+            screen,
+            center,
+            part: Clip {
+                left: 100_000.0,
+                top: 100_000.0,
+                right: 100_100.0,
+                bottom: 100_100.0,
+            },
+        };
+        let commands = record_span(&scene, nowhere);
+        assert!(
+            commands
+                .iter()
+                .all(|c| matches!(c, Command::Band { .. } | Command::Silhouette { .. })),
+            "{commands:?}"
+        );
     }
 
     fn ufo_config(seed: u64) -> SceneConfig {
@@ -2044,6 +2275,7 @@ mod tests {
                     side,
                     heading: scene.heading(),
                     time: 0.0,
+                    span: None,
                 };
                 let before = view(&scene).screen_x(0.0);
                 scene.update(0.05);
@@ -4574,6 +4806,7 @@ mod lane_change_tests {
                 side,
                 heading,
                 time: 0.0,
+                span: None,
             };
             let backdrop = sky(MAX_YAW as f64).screen_x(0.0) - sky(0.0).screen_x(0.0);
             let road = shifted.x - far.x;
