@@ -50,20 +50,22 @@ const BLACK: D2D1_COLOR_F = D2D1_COLOR_F {
     a: 1.0,
 };
 
-/// Opacities.
-const PANEL_ALPHA: f32 = 0.45;
+/// Opacities. The lit parts are dimmed by `NIGHT_LEVEL`, like the
+/// instruments of a car at night, which must not dazzle the driver.
+const NIGHT_LEVEL: f32 = 0.6;
+const PANEL_ALPHA: f32 = 0.6;
 /// The arc behind the value, and the red end of the tachometer.
-const TRACK_ALPHA: f32 = 0.25;
-const RED_TRACK_ALPHA: f32 = 0.55;
-const VALUE_ALPHA: f32 = 0.9;
-const MAJOR_TICK_ALPHA: f32 = 0.85;
-const MINOR_TICK_ALPHA: f32 = 0.5;
-const LABEL_ALPHA: f32 = 0.7;
-const NEEDLE_ALPHA: f32 = 0.95;
-const NUMBER_ALPHA: f32 = 0.9;
-const UNIT_ALPHA: f32 = 0.6;
-const CAPTION_ALPHA: f32 = 0.5;
-const INFO_ALPHA: f32 = 0.7;
+const TRACK_ALPHA: f32 = 0.25 * NIGHT_LEVEL;
+const RED_TRACK_ALPHA: f32 = 0.55 * NIGHT_LEVEL;
+const VALUE_ALPHA: f32 = 0.9 * NIGHT_LEVEL;
+const MAJOR_TICK_ALPHA: f32 = 0.85 * NIGHT_LEVEL;
+const MINOR_TICK_ALPHA: f32 = 0.5 * NIGHT_LEVEL;
+const LABEL_ALPHA: f32 = 0.7 * NIGHT_LEVEL;
+const NEEDLE_ALPHA: f32 = 0.95 * NIGHT_LEVEL;
+const NUMBER_ALPHA: f32 = 0.9 * NIGHT_LEVEL;
+const UNIT_ALPHA: f32 = 0.6 * NIGHT_LEVEL;
+const CAPTION_ALPHA: f32 = 0.5 * NIGHT_LEVEL;
+const INFO_ALPHA: f32 = 0.7 * NIGHT_LEVEL;
 
 /// Widths of the ticks, at a scale of 1.
 const MAJOR_TICK_WIDTH: f32 = 2.0;
