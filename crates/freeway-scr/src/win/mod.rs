@@ -907,7 +907,10 @@ mod tests {
             span_monitors: true,
             ..Settings::default()
         };
-        let off = Settings::default();
+        let off = Settings {
+            span_monitors: false,
+            ..Settings::default()
+        };
         // The preview and the window are never spanned.
         assert!(!Spanning::Never.resolve(&on));
         assert!(Spanning::of(None).resolve(&on));
