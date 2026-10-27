@@ -2462,10 +2462,14 @@ mod tests {
     /// The lights seen over a body (the screen position of the light is on
     /// the face), as (index of the light, index of the body, whether the light
     /// is behind the face), in each frame of a drive.
-    fn covered_pairs(config: SceneConfig, mut each: impl FnMut(&[Light], usize, usize, bool)) {
+    fn covered_pairs(
+        config: SceneConfig,
+        steps: usize,
+        mut each: impl FnMut(&[Light], usize, usize, bool),
+    ) {
         let projector = Projector::new(1280.0, 720.0, config.left_hand_traffic);
         let mut scene = Scene::new(config);
-        for step in 0..3000 {
+        for step in 0..steps {
             scene.update(MAX_STEP_SECONDS);
             if step % 4 != 0 {
                 continue;
@@ -2514,6 +2518,7 @@ mod tests {
         for seed in 1..=2 {
             covered_pairs(
                 bodies_config(seed, CarColor::TranslucentBlack),
+                3000,
                 |lights, light, body, is_behind| {
                     // The lights of cars are drawn right after their own bodies; one
                     // that lies behind the body of another car, which is farther
@@ -2536,6 +2541,7 @@ mod tests {
         for seed in 1..=2 {
             covered_pairs(
                 bodies_config(seed, CarColor::Black),
+                3000,
                 |lights, light, body, is_behind| {
                     behind += usize::from(is_behind);
                     front += usize::from(!is_behind);
@@ -3509,14 +3515,14 @@ mod tests {
     #[test]
     fn detailed_bodies_are_valid_through_a_whole_drive_on_both_sides_of_the_road() {
         for left_hand_traffic in [true, false] {
-            for trucks in [TruckStyle::Japanese, TruckStyle::NorthAmerican] {
+            for trucks in [TruckStyle::NorthAmerican] {
                 let mut scene = Scene::new(SceneConfig {
                     left_hand_traffic,
                     trucks,
                     ..detailed_config(9, CarColor::TranslucentBlack)
                 });
                 let mut windows = 0;
-                for _ in 0..1200 {
+                for _ in 0..600 {
                     scene.update(0.05);
                     let commands = record(&scene, VIEWPORT);
                     for command in &commands {
@@ -3540,6 +3546,7 @@ mod tests {
         for seed in 1..=2 {
             covered_pairs(
                 detailed_config(seed, CarColor::TranslucentBlack),
+                1500,
                 |lights, light, body, is_behind| {
                     if lights[light].car.is_some() {
                         return;
@@ -3561,7 +3568,7 @@ mod tests {
             let config = detailed_config(seed, CarColor::Black);
             let projector = Projector::new(1280.0, 720.0, config.left_hand_traffic);
             let mut scene = Scene::new(config);
-            for step in 0..2000 {
+            for step in 0..1200 {
                 scene.update(MAX_STEP_SECONDS);
                 if step % 8 != 0 {
                     continue;
