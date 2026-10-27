@@ -7,7 +7,7 @@ mod window;
 
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use freeway_core::{DisplayLanguage, Language, Scene, Settings, Text};
+use freeway_core::{DisplayLanguage, Language, Scene, Settings, SpeedometerStyle, Text};
 
 use windows::Win32::Foundation::HWND;
 use windows::Win32::Globalization::GetUserDefaultUILanguage;
@@ -22,7 +22,6 @@ use windows::Win32::UI::WindowsAndMessaging::{
 use windows::core::{HSTRING, Result, w};
 
 use crate::args::Mode;
-use crate::speedometer;
 use renderer::{Renderer, Target, is_device_lost};
 
 /// Runs the screensaver in the requested mode until it should exit.
@@ -114,12 +113,7 @@ fn animate(windows: &[HWND], preview_parent: Option<HWND>) -> Result<()> {
         for scene in &mut scenes {
             scene.update(dt);
         }
-        match draw_frame(
-            &mut renderer,
-            &mut targets,
-            &scenes,
-            settings.show_speedometer,
-        ) {
+        match draw_frame(&mut renderer, &mut targets, &scenes, settings.speedometer) {
             Ok(true) => {}
             // Nothing is visible (for example, the session is locked).
             Ok(false) => std::thread::sleep(Duration::from_millis(100)),
@@ -140,7 +134,7 @@ fn draw_frame(
     renderer: &mut Renderer,
     targets: &mut [Target],
     scenes: &[Scene],
-    show_speedometer: bool,
+    speedometer: SpeedometerStyle,
 ) -> Result<bool> {
     let last = targets.len().saturating_sub(1);
     let mut visible = false;
@@ -149,8 +143,7 @@ fn draw_frame(
         // loop once per frame; waiting on every window would divide the
         // frame rate by the number of monitors.
         // The speed of a scene drifts, so each frame shows its current speed.
-        let speed = show_speedometer.then(|| speedometer::displayed_speed(scene.speed_kmh()));
-        visible |= renderer.draw_scene(target, scene, speed, index == last)?;
+        visible |= renderer.draw_scene(target, scene, speedometer, index == last)?;
     }
     Ok(visible)
 }
@@ -215,6 +208,7 @@ mod tests {
     use windows::Win32::UI::WindowsAndMessaging::{SWP_NOMOVE, SWP_NOZORDER, SetWindowPos};
 
     use super::*;
+    use crate::speedometer;
 
     #[test]
     fn renders_and_resizes_a_hidden_window() -> Result<()> {
@@ -232,13 +226,33 @@ mod tests {
             assert!(steps < 2000, "no shooting star within 100 seconds");
         }
         for _ in 0..3 {
-            renderer.draw_scene(&mut target, &scene, None, true)?;
+            renderer.draw_scene(&mut target, &scene, SpeedometerStyle::None, true)?;
         }
-        // The speedometer needs the text to be laid out and drawn.
-        renderer.draw_scene(&mut target, &scene, Some(100), true)?;
+        // Every speedometer needs its text to be laid out and drawn.
+        for style in SpeedometerStyle::ALL {
+            renderer.draw_scene(&mut target, &scene, style, true)?;
+        }
 
         unsafe { SetWindowPos(hwnd, None, 0, 0, 800, 450, SWP_NOMOVE | SWP_NOZORDER)? };
-        renderer.draw_scene(&mut target, &scene, Some(160), true)?;
+        for style in SpeedometerStyle::ALL {
+            renderer.draw_scene(&mut target, &scene, style, true)?;
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn draws_every_speedometer_in_windows_of_any_size() -> Result<()> {
+        // The preview of the settings is the smallest window; the narrow one
+        // is too small for the detailed dashboard, which is then left out.
+        let mut renderer = Renderer::new()?;
+        let scene = create_scenes(1, &Settings::default()).remove(0);
+        for (width, height) in [(152, 112), (80, 600), (1920, 1080)] {
+            let hwnd = window::create_hidden_window(width, height)?;
+            let mut target = renderer.create_target(hwnd)?;
+            for style in SpeedometerStyle::ALL {
+                renderer.draw_scene(&mut target, &scene, style, false)?;
+            }
+        }
         Ok(())
     }
 
@@ -261,7 +275,9 @@ mod tests {
                 let speed = speedometer::displayed_speed(scene.speed_kmh());
                 assert!((80..=120).contains(&speed), "{speed}");
                 shown.insert(speed);
-                renderer.draw_scene(&mut target, &scene, Some(speed), false)?;
+                for style in SpeedometerStyle::ALL {
+                    renderer.draw_scene(&mut target, &scene, style, false)?;
+                }
             }
         }
         assert!(shown.len() > 1, "{shown:?}");
@@ -307,7 +323,7 @@ mod tests {
             for _ in 0..10 {
                 scene.update(0.05);
             }
-            renderer.draw_scene(&mut target, &scene, None, true)?;
+            renderer.draw_scene(&mut target, &scene, SpeedometerStyle::None, true)?;
         }
         Ok(())
     }
@@ -333,7 +349,7 @@ mod tests {
             assert!(steps < 40_000, "no tunnel within 2000 seconds");
             let near = scene.tunnel_entrance_ahead().is_some_and(|d| d < 400.0);
             if (near && drawn.0 < 20 && steps % 4 == 0) || (scene.in_tunnel() && drawn.1 < 20) {
-                renderer.draw_scene(&mut target, &scene, None, true)?;
+                renderer.draw_scene(&mut target, &scene, SpeedometerStyle::None, true)?;
                 if scene.in_tunnel() {
                     drawn.1 += 1;
                 } else {
@@ -364,7 +380,7 @@ mod tests {
         for step in 0..150 {
             scene.update(0.05);
             if step % 50 == 49 {
-                renderer.draw_scene(&mut target, &scene, None, true)?;
+                renderer.draw_scene(&mut target, &scene, SpeedometerStyle::None, true)?;
             }
         }
         Ok(())
@@ -389,7 +405,7 @@ mod tests {
                 for _ in 0..10 {
                     scene.update(0.05);
                 }
-                renderer.draw_scene(&mut target, &scene, None, true)?;
+                renderer.draw_scene(&mut target, &scene, SpeedometerStyle::None, true)?;
             }
         }
         Ok(())

@@ -49,12 +49,56 @@ impl Language {
     }
 }
 
+/// How the speedometer is shown.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SpeedometerStyle {
+    #[default]
+    None,
+    /// The speed as a number in the lower left corner.
+    Digits,
+    /// A gauge with the speed in its middle.
+    SimpleDashboard,
+    /// A dashboard with a speedometer, a tachometer and a row of information.
+    DetailedDashboard,
+}
+
+impl SpeedometerStyle {
+    /// Every choice, in the order of the stored values 0, 1, 2, 3.
+    pub const ALL: [SpeedometerStyle; 4] = [
+        SpeedometerStyle::None,
+        SpeedometerStyle::Digits,
+        SpeedometerStyle::SimpleDashboard,
+        SpeedometerStyle::DetailedDashboard,
+    ];
+
+    /// The choice for a stored value; `None` when the value is not valid.
+    pub fn from_raw(raw: Option<u32>) -> Option<Self> {
+        Self::ALL.get(usize::try_from(raw?).ok()?).copied()
+    }
+
+    /// The value to store; `from_raw` reads it back.
+    pub fn to_raw(self) -> u32 {
+        match self {
+            SpeedometerStyle::None => 0,
+            SpeedometerStyle::Digits => 1,
+            SpeedometerStyle::SimpleDashboard => 2,
+            SpeedometerStyle::DetailedDashboard => 3,
+        }
+    }
+
+    /// The value of the setting of versions before 1.10, which only said
+    /// whether to show the speedometer; `ShowSpeedometer` is stored for them.
+    pub fn to_legacy_flag(self) -> bool {
+        self != SpeedometerStyle::None
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Settings {
     /// Cruising speed in km/h, a multiple of `SPEED_STEP_KMH` within the range.
     pub speed_kmh: u32,
     pub left_hand_traffic: bool,
-    pub show_speedometer: bool,
+    pub speedometer: SpeedometerStyle,
     /// Whether a UFO now and then crosses the sky.
     pub show_ufo: bool,
     /// Whether mountains stand on the horizon.
@@ -79,7 +123,7 @@ impl Default for Settings {
         Self {
             speed_kmh: DEFAULT_SPEED_KMH,
             left_hand_traffic: true,
-            show_speedometer: false,
+            speedometer: SpeedometerStyle::None,
             show_ufo: false,
             show_mountains: true,
             trucks: TruckStyle::Japanese,
@@ -99,12 +143,17 @@ impl Settings {
     /// A speed outside the range or off the step is not rounded to a nearby
     /// choice: it is a sign of a damaged or hand-edited value, so the default
     /// is used. A flag is valid only as 0 or 1, a truck style or language only as 0, 1 or 2,
-    /// a tunnel choice only as 0, 1, 2 or 3, a car body choice only as 0, 1 or 2.
+    /// a tunnel choice only as 0, 1, 2 or 3, a car body choice only as 0, 1 or 2,
+    /// a speedometer choice only as 0, 1, 2 or 3.
+    ///
+    /// Versions before 1.10 stored only whether to show the speedometer
+    /// (`legacy_show_speedometer`). It is used when `speedometer` is not
+    /// stored: 1 means the number only, anything else no speedometer.
     #[allow(clippy::too_many_arguments)]
     pub fn from_raw(
         speed_kmh: Option<u32>,
         left_hand_traffic: Option<u32>,
-        show_speedometer: Option<u32>,
+        legacy_show_speedometer: Option<u32>,
         show_ufo: Option<u32>,
         show_mountains: Option<u32>,
         trucks: Option<u32>,
@@ -114,6 +163,7 @@ impl Settings {
         traffic_by_time: Option<u32>,
         scenery_zones: Option<u32>,
         car_bodies: Option<u32>,
+        speedometer: Option<u32>,
     ) -> Self {
         let defaults = Self::default();
         Self {
@@ -121,7 +171,11 @@ impl Settings {
                 .filter(|&speed| is_valid_speed(speed))
                 .unwrap_or(defaults.speed_kmh),
             left_hand_traffic: flag(left_hand_traffic).unwrap_or(defaults.left_hand_traffic),
-            show_speedometer: flag(show_speedometer).unwrap_or(defaults.show_speedometer),
+            speedometer: match speedometer {
+                Some(_) => SpeedometerStyle::from_raw(speedometer).unwrap_or(defaults.speedometer),
+                None if flag(legacy_show_speedometer) == Some(true) => SpeedometerStyle::Digits,
+                None => defaults.speedometer,
+            },
             show_ufo: flag(show_ufo).unwrap_or(defaults.show_ufo),
             show_mountains: flag(show_mountains).unwrap_or(defaults.show_mountains),
             trucks: TruckStyle::from_raw(trucks).unwrap_or(defaults.trucks),
@@ -193,10 +247,10 @@ mod tests {
         let settings = Settings::default();
         assert_eq!(settings.speed_kmh, 100);
         assert!(settings.left_hand_traffic);
-        assert!(!settings.show_speedometer);
+        assert_eq!(settings.speedometer, SpeedometerStyle::None);
         assert_eq!(
             Settings::from_raw(
-                None, None, None, None, None, None, None, None, None, None, None, None
+                None, None, None, None, None, None, None, None, None, None, None, None, None
             ),
             settings
         );
@@ -207,7 +261,7 @@ mod tests {
         let settings = Settings::from_raw(
             Some(160),
             Some(0),
-            Some(1),
+            Some(0),
             Some(1),
             Some(0),
             Some(2),
@@ -217,13 +271,14 @@ mod tests {
             None,
             None,
             Some(2),
+            Some(3),
         );
         assert_eq!(
             settings,
             Settings {
                 speed_kmh: 160,
                 left_hand_traffic: false,
-                show_speedometer: true,
+                speedometer: SpeedometerStyle::DetailedDashboard,
                 show_ufo: true,
                 show_mountains: false,
                 trucks: TruckStyle::NorthAmerican,
@@ -248,6 +303,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
                 None
             )
             .speed_kmh,
@@ -261,6 +317,7 @@ mod tests {
             assert_eq!(
                 Settings::from_raw(
                     Some(speed),
+                    None,
                     None,
                     None,
                     None,
@@ -296,6 +353,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
             );
             assert_eq!(settings, Settings::default(), "{raw}");
         }
@@ -316,10 +374,11 @@ mod tests {
             None,
             None,
             None,
+            None,
         );
         assert_eq!(settings.speed_kmh, DEFAULT_SPEED_KMH);
         assert!(!settings.left_hand_traffic);
-        assert!(!settings.show_speedometer);
+        assert_eq!(settings.speedometer, SpeedometerStyle::None);
         assert!(settings.show_ufo);
         assert!(settings.show_mountains);
         assert_eq!(settings.language, Language::English);
@@ -330,7 +389,7 @@ mod tests {
         let settings = Settings {
             speed_kmh: 60,
             left_hand_traffic: false,
-            show_speedometer: true,
+            speedometer: SpeedometerStyle::SimpleDashboard,
             show_ufo: false,
             show_mountains: false,
             trucks: TruckStyle::None,
@@ -364,6 +423,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
                 None
             )
             .show_ufo
@@ -374,6 +434,7 @@ mod tests {
                 None,
                 None,
                 Some(0),
+                None,
                 None,
                 None,
                 None,
@@ -392,6 +453,7 @@ mod tests {
                     None,
                     None,
                     Some(raw),
+                    None,
                     None,
                     None,
                     None,
@@ -434,6 +496,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
                 None
             )
             .show_mountains
@@ -445,6 +508,7 @@ mod tests {
                 None,
                 None,
                 Some(0),
+                None,
                 None,
                 None,
                 None,
@@ -469,6 +533,7 @@ mod tests {
                     None,
                     None,
                     None,
+                    None,
                     None
                 )
                 .show_mountains,
@@ -482,7 +547,7 @@ mod tests {
         let settings = Settings::default();
         assert!(settings.vary_speed && settings.traffic_by_time && settings.scenery_zones);
         let none = Settings::from_raw(
-            None, None, None, None, None, None, None, None, None, None, None, None,
+            None, None, None, None, None, None, None, None, None, None, None, None, None,
         );
         assert!(none.vary_speed && none.traffic_by_time && none.scenery_zones);
     }
@@ -491,7 +556,7 @@ mod tests {
     fn the_variation_flags_are_read_and_checked_one_by_one() {
         let read = |vary, traffic, zones| {
             let s = Settings::from_raw(
-                None, None, None, None, None, None, None, None, vary, traffic, zones, None,
+                None, None, None, None, None, None, None, None, vary, traffic, zones, None, None,
             );
             (s.vary_speed, s.traffic_by_time, s.scenery_zones)
         };
@@ -533,6 +598,7 @@ mod tests {
             Some(0),
             Some(0),
             None,
+            None,
         );
         assert_eq!(settings.speed_kmh, 60);
         assert_eq!(settings.language, Language::English);
@@ -568,7 +634,7 @@ mod tests {
     fn trucks_are_japanese_style_by_default() {
         assert_eq!(Settings::default().trucks, TruckStyle::Japanese);
         let settings = Settings::from_raw(
-            None, None, None, None, None, None, None, None, None, None, None, None,
+            None, None, None, None, None, None, None, None, None, None, None, None, None,
         );
         assert_eq!(settings.trucks, TruckStyle::Japanese);
     }
@@ -604,6 +670,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
             );
             assert_eq!(settings.trucks, TruckStyle::Japanese, "{raw}");
         }
@@ -617,6 +684,7 @@ mod tests {
             Some(9),
             None,
             Some(1),
+            None,
             None,
             None,
             None,
@@ -641,7 +709,7 @@ mod tests {
     fn tunnels_are_mixed_by_default() {
         assert_eq!(Settings::default().tunnels, TunnelLighting::Mixed);
         let settings = Settings::from_raw(
-            None, None, None, None, None, None, None, None, None, None, None, None,
+            None, None, None, None, None, None, None, None, None, None, None, None, None,
         );
         assert_eq!(settings.tunnels, TunnelLighting::Mixed);
         assert_eq!(
@@ -691,6 +759,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
             );
             assert_eq!(settings.tunnels, TunnelLighting::Mixed, "{raw}");
         }
@@ -704,6 +773,7 @@ mod tests {
             None,
             Some(9),
             Some(1),
+            None,
             None,
             None,
             None,
@@ -729,7 +799,7 @@ mod tests {
         assert_eq!(Settings::default().car_bodies, CarBodies::Transparent);
         assert_eq!(SceneConfig::default().car_bodies, CarBodies::Transparent);
         let settings = Settings::from_raw(
-            None, None, None, None, None, None, None, None, None, None, None, None,
+            None, None, None, None, None, None, None, None, None, None, None, None, None,
         );
         assert_eq!(settings.car_bodies, CarBodies::Transparent);
         assert_eq!(
@@ -769,6 +839,7 @@ mod tests {
                 None,
                 None,
                 Some(raw),
+                None,
             );
             assert_eq!(settings.car_bodies, CarBodies::Transparent, "{raw}");
             // The other settings are not affected.
@@ -854,6 +925,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
             );
             assert_eq!(settings.language, Language::Auto, "{raw}");
         }
@@ -879,6 +951,99 @@ mod tests {
         assert_eq!(
             english.display_language(japanese_windows),
             DisplayLanguage::English
+        );
+    }
+
+    /// `Settings::from_raw` with only the speedometer values.
+    fn speedometer_from_raw(legacy: Option<u32>, speedometer: Option<u32>) -> SpeedometerStyle {
+        Settings::from_raw(
+            None,
+            None,
+            legacy,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            speedometer,
+        )
+        .speedometer
+    }
+
+    #[test]
+    fn the_speedometer_style_maps_to_stored_values_0_to_3() {
+        assert_eq!(SpeedometerStyle::default(), SpeedometerStyle::None);
+        assert_eq!(
+            SpeedometerStyle::ALL.map(SpeedometerStyle::to_raw),
+            [0, 1, 2, 3]
+        );
+        for style in SpeedometerStyle::ALL {
+            assert_eq!(
+                SpeedometerStyle::from_raw(Some(style.to_raw())),
+                Some(style)
+            );
+            assert_eq!(speedometer_from_raw(None, Some(style.to_raw())), style);
+        }
+        assert_eq!(SpeedometerStyle::from_raw(None), None);
+    }
+
+    #[test]
+    fn a_speedometer_value_out_of_range_gives_the_default() {
+        for raw in [4, 5, 100, u32::MAX] {
+            assert_eq!(
+                speedometer_from_raw(None, Some(raw)),
+                SpeedometerStyle::None,
+                "{raw}"
+            );
+            // The stored value is wrong, not missing, so the old flag does
+            // not apply.
+            assert_eq!(
+                speedometer_from_raw(Some(1), Some(raw)),
+                SpeedometerStyle::None,
+                "{raw}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_old_flag_carries_over_as_digits_only() {
+        // A version before 1.10 stored only ShowSpeedometer.
+        assert_eq!(
+            speedometer_from_raw(Some(1), None),
+            SpeedometerStyle::Digits
+        );
+        assert_eq!(speedometer_from_raw(Some(0), None), SpeedometerStyle::None);
+        assert_eq!(speedometer_from_raw(None, None), SpeedometerStyle::None);
+        for raw in [2, 3, u32::MAX] {
+            assert_eq!(
+                speedometer_from_raw(Some(raw), None),
+                SpeedometerStyle::None,
+                "{raw}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_new_value_wins_over_the_old_flag() {
+        assert_eq!(
+            speedometer_from_raw(Some(1), Some(0)),
+            SpeedometerStyle::None
+        );
+        assert_eq!(
+            speedometer_from_raw(Some(0), Some(2)),
+            SpeedometerStyle::SimpleDashboard
+        );
+    }
+
+    #[test]
+    fn the_legacy_flag_is_on_for_every_style_but_none() {
+        assert_eq!(
+            SpeedometerStyle::ALL.map(SpeedometerStyle::to_legacy_flag),
+            [false, true, true, true]
         );
     }
 }

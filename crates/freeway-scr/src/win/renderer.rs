@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::mem::ManuallyDrop;
 
 use freeway_core::canvas::GLOW_HALO_RATIO;
-use freeway_core::{Canvas, Rgb, Scene, Viewport};
+use freeway_core::{Canvas, Rgb, Scene, SpeedometerStyle, Viewport};
 
 use crate::speedometer;
 
@@ -229,8 +229,9 @@ impl Renderer {
         })
     }
 
-    /// Draws `scene` into the window of `target` and presents it. With
-    /// `speedometer_kmh` the speed is drawn in the lower left corner.
+    /// Draws `scene` into the window of `target` and presents it. With a
+    /// `speedometer` other than none, the speed is drawn in the lower left
+    /// corner.
     ///
     /// With `wait_for_vsync` the call blocks until the frame can be shown,
     /// which paces the render loop. Returns `false` when the window is not
@@ -239,7 +240,7 @@ impl Renderer {
         &mut self,
         target: &mut Target,
         scene: &Scene,
-        speedometer_kmh: Option<u32>,
+        speedometer: SpeedometerStyle,
         wait_for_vsync: bool,
     ) -> Result<bool> {
         self.resize_if_needed(target)?;
@@ -275,9 +276,7 @@ impl Renderer {
             context.SetTransform(&Matrix3x2::identity());
             context.SetPrimitiveBlend(D2D1_PRIMITIVE_BLEND_SOURCE_OVER);
         }
-        if let Some(speed) = speedometer_kmh
-            && let Err(error) = self.draw_speedometer(speed, viewport)
-        {
+        if let Err(error) = self.draw_speedometer(speedometer, scene, viewport) {
             brush_error.get_or_insert(error);
         }
         let context = &self.context;
@@ -296,9 +295,26 @@ impl Renderer {
         }
     }
 
-    /// Draws the speed over the scene with normal blending. Errors are
+    /// Draws the speedometer over the scene with normal blending. Errors are
     /// returned for the caller to report after `EndDraw`.
-    fn draw_speedometer(&mut self, speed_kmh: u32, viewport: Viewport) -> Result<()> {
+    fn draw_speedometer(
+        &mut self,
+        style: SpeedometerStyle,
+        scene: &Scene,
+        viewport: Viewport,
+    ) -> Result<()> {
+        match style {
+            SpeedometerStyle::None => Ok(()),
+            SpeedometerStyle::Digits => {
+                self.draw_digits(speedometer::displayed_speed(scene.speed_kmh()), viewport)
+            }
+            // Why: the dashboards are drawn from a later commit on.
+            SpeedometerStyle::SimpleDashboard | SpeedometerStyle::DetailedDashboard => Ok(()),
+        }
+    }
+
+    /// Draws the speed as a number in the lower left corner.
+    fn draw_digits(&mut self, speed_kmh: u32, viewport: Viewport) -> Result<()> {
         let scale = speedometer::scale(viewport.height, viewport.pixel_scale);
         if scale <= 0.0 {
             return Ok(());

@@ -13,7 +13,11 @@ use windows::core::{PCWSTR, Result, w};
 const KEY: PCWSTR = w!(r"Software\NightFreewaySS");
 const SPEED: PCWSTR = w!("SpeedKmh");
 const LEFT_HAND_TRAFFIC: PCWSTR = w!("LeftHandTraffic");
+/// Written by versions before 1.10, which only said whether to show the
+/// speedometer. It is still written, so that going back to such a version
+/// keeps the speedometer on or off, and read when `Speedometer` is missing.
 const SHOW_SPEEDOMETER: PCWSTR = w!("ShowSpeedometer");
+const SPEEDOMETER: PCWSTR = w!("Speedometer");
 const SHOW_UFO: PCWSTR = w!("ShowUfo");
 const SHOW_MOUNTAINS: PCWSTR = w!("ShowMountains");
 const TRUCKS: PCWSTR = w!("Trucks");
@@ -48,6 +52,7 @@ fn load_from(root: HKEY, key: PCWSTR) -> Settings {
         read_dword(root, key, TRAFFIC_BY_TIME),
         read_dword(root, key, SCENERY_ZONES),
         read_dword(root, key, CAR_BODIES),
+        read_dword(root, key, SPEEDOMETER),
     )
 }
 
@@ -63,8 +68,9 @@ fn save_to(root: HKEY, key: PCWSTR, settings: &Settings) -> Result<()> {
         root,
         key,
         SHOW_SPEEDOMETER,
-        u32::from(settings.show_speedometer),
+        u32::from(settings.speedometer.to_legacy_flag()),
     )?;
+    write_dword(root, key, SPEEDOMETER, settings.speedometer.to_raw())?;
     write_dword(root, key, SHOW_UFO, u32::from(settings.show_ufo))?;
     write_dword(
         root,
@@ -124,7 +130,7 @@ fn write_dword(root: HKEY, key: PCWSTR, name: PCWSTR, value: u32) -> Result<()> 
 #[cfg(test)]
 mod tests {
     use freeway_core::settings::DEFAULT_SPEED_KMH;
-    use freeway_core::{CarBodies, Language, TruckStyle, TunnelLighting};
+    use freeway_core::{CarBodies, Language, SpeedometerStyle, TruckStyle, TunnelLighting};
     use windows::Win32::System::Registry::{REG_SZ, RegDeleteTreeW};
     use windows::core::HSTRING;
 
@@ -175,7 +181,7 @@ mod tests {
         let settings = Settings {
             speed_kmh: 60,
             left_hand_traffic: false,
-            show_speedometer: true,
+            speedometer: SpeedometerStyle::DetailedDashboard,
             show_ufo: true,
             show_mountains: false,
             trucks: TruckStyle::NorthAmerican,
@@ -201,6 +207,7 @@ mod tests {
         write_dword(HKEY_CURRENT_USER, test.key(), SPEED, 12345)?;
         write_dword(HKEY_CURRENT_USER, test.key(), LEFT_HAND_TRAFFIC, 0)?;
         write_dword(HKEY_CURRENT_USER, test.key(), SHOW_SPEEDOMETER, 9)?;
+        write_dword(HKEY_CURRENT_USER, test.key(), SPEEDOMETER, 4)?;
         write_dword(HKEY_CURRENT_USER, test.key(), SHOW_UFO, 2)?;
         write_dword(HKEY_CURRENT_USER, test.key(), SHOW_MOUNTAINS, 2)?;
         write_dword(HKEY_CURRENT_USER, test.key(), TRUCKS, 3)?;
@@ -213,7 +220,7 @@ mod tests {
         let settings = test.load();
         assert_eq!(settings.speed_kmh, DEFAULT_SPEED_KMH);
         assert!(!settings.left_hand_traffic);
-        assert!(!settings.show_speedometer);
+        assert_eq!(settings.speedometer, SpeedometerStyle::None);
         assert!(!settings.show_ufo);
         assert!(settings.show_mountains);
         assert_eq!(settings.trucks, TruckStyle::Japanese);
@@ -221,6 +228,71 @@ mod tests {
         assert_eq!(settings.car_bodies, CarBodies::Transparent);
         assert_eq!(settings.language, Language::Auto);
         assert!(settings.vary_speed && settings.traffic_by_time && settings.scenery_zones);
+        Ok(())
+    }
+
+    #[test]
+    fn every_speedometer_style_is_read_back() -> Result<()> {
+        let test = TestKey::new("speedometer");
+        for speedometer in SpeedometerStyle::ALL {
+            let settings = Settings {
+                speedometer,
+                ..Settings::default()
+            };
+            save_to(HKEY_CURRENT_USER, test.key(), &settings)?;
+            assert_eq!(test.load().speedometer, speedometer);
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn the_old_flag_is_written_for_earlier_versions() -> Result<()> {
+        let test = TestKey::new("speedometer-flag");
+        for (speedometer, flag) in SpeedometerStyle::ALL.into_iter().zip([0, 1, 1, 1]) {
+            let settings = Settings {
+                speedometer,
+                ..Settings::default()
+            };
+            save_to(HKEY_CURRENT_USER, test.key(), &settings)?;
+            assert_eq!(
+                read_dword(HKEY_CURRENT_USER, test.key(), SHOW_SPEEDOMETER),
+                Some(flag),
+                "{speedometer:?}"
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn the_old_flag_alone_carries_over_as_digits_only() -> Result<()> {
+        // Settings saved by a version before 1.10 have ShowSpeedometer only.
+        let on = TestKey::new("speedometer-old-on");
+        write_dword(HKEY_CURRENT_USER, on.key(), SHOW_SPEEDOMETER, 1)?;
+        assert_eq!(on.load().speedometer, SpeedometerStyle::Digits);
+
+        let off = TestKey::new("speedometer-old-off");
+        write_dword(HKEY_CURRENT_USER, off.key(), SHOW_SPEEDOMETER, 0)?;
+        assert_eq!(off.load().speedometer, SpeedometerStyle::None);
+
+        let invalid = TestKey::new("speedometer-old-invalid");
+        write_dword(HKEY_CURRENT_USER, invalid.key(), SHOW_SPEEDOMETER, 2)?;
+        assert_eq!(invalid.load().speedometer, SpeedometerStyle::None);
+
+        // The new value wins when both are stored.
+        let both = TestKey::new("speedometer-both");
+        write_dword(HKEY_CURRENT_USER, both.key(), SHOW_SPEEDOMETER, 1)?;
+        write_dword(HKEY_CURRENT_USER, both.key(), SPEEDOMETER, 0)?;
+        assert_eq!(both.load().speedometer, SpeedometerStyle::None);
+        write_dword(HKEY_CURRENT_USER, both.key(), SPEEDOMETER, 2)?;
+        assert_eq!(both.load().speedometer, SpeedometerStyle::SimpleDashboard);
+
+        // A value out of range gives the default, whatever the old flag says.
+        let out_of_range = TestKey::new("speedometer-out-of-range");
+        write_dword(HKEY_CURRENT_USER, out_of_range.key(), SHOW_SPEEDOMETER, 1)?;
+        for raw in [4, u32::MAX] {
+            write_dword(HKEY_CURRENT_USER, out_of_range.key(), SPEEDOMETER, raw)?;
+            assert_eq!(out_of_range.load().speedometer, SpeedometerStyle::None);
+        }
         Ok(())
     }
 
