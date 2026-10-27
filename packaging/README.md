@@ -56,7 +56,7 @@ Windowsの「インストール」はファイルをコピーせず、展開し�
 
 スクリーンセーバーとしてではなく、しばらく流しておく方法が2つあります。入力(マウスやキー)では終わりません。
 
-- 設定画面の「流しておく」の欄で、「ウィンドウで」か「全画面で」を選び、閉じるまでの分数(0は閉じない)を入れて「開始」を押します。設定画面の今の値を保存してから設定画面が閉じ、続けて選んだ形で始まります。この選択は保存されません
+- 設定画面の「流しておく...」のボタンを押すと開くダイアログで、「ウィンドウで」か「全画面で」を選び、閉じるまでの分数(0は閉じない)を入れて「開始」を押します。設定画面の今の値を保存してから、両方のダイアログが閉じ、続けて選んだ形で始まります。この選択は保存されません
 - `NightFreewaySS.scr`に引数を付けて起動します。ショートカットの「リンク先」の末尾に引数を足す方法などがあります
 
 | 引数 | 動き |
@@ -147,7 +147,7 @@ The settings are saved in the registry under `HKEY_CURRENT_USER\Software\NightFr
 
 There are two ways to keep the road running as something other than a screensaver. Keyboard and mouse input does not end it.
 
-- In the "Keep it running" part of the settings dialog, choose "In a window" or "Full screen", enter the minutes after which it closes (0 means it does not close) and click "Start". The current values of the dialog are saved, the dialog closes and the road starts in the chosen form. This choice is not saved
+- Click "Keep running..." in the settings dialog. In the dialog that opens, choose "In a window" or "Full screen", enter the minutes after which it closes (0 means it does not close) and click "Start". The current values of the settings dialog are saved, both dialogs close and the road starts in the chosen form. This choice is not saved
 - Start `NightFreewaySS.scr` with an argument, for example by adding it to the end of the "Target" of a shortcut
 
 | Argument | Behavior |

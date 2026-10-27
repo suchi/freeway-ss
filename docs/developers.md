@@ -52,7 +52,7 @@ ARM64向けは`cargo xtask dist --target aarch64-pc-windows-msvc`で作る。`.s
 - `NightFreewaySS.scr /c`(または`.scr`のダブルクリック): 設定画面を開く
 - `NightFreewaySS.scr /window`: 大きさを変えられるウィンドウで流す(既定は1280×720、作業領域の中央)。入力では終わらず、閉じるボタン・Alt+F4・Escで終わる
 - `NightFreewaySS.scr /play`: すべてのモニターで全画面で流す。EscかAlt+F4だけで終わる。カーソルは、マウスを動かしてから2秒だけ見せる
-- `/minutes:<n>`: `/window`か`/play`と一緒に使い、n分(1〜1440)で閉じる。例: `NightFreewaySS.scr /window /minutes:30`。流しているあいだは`SetThreadExecutionState`でスリープを止める。設定画面の「流しておく」の欄の「開始」は、設定を保存してから、自分自身をこの引数で別のプロセスとして起動する(この選択は保存しない)
+- `/minutes:<n>`: `/window`か`/play`と一緒に使い、n分(1〜1440)で閉じる。例: `NightFreewaySS.scr /window /minutes:30`。流しているあいだは`SetThreadExecutionState`でスリープを止める。設定画面の「流しておく...」のボタンで開くダイアログの「開始」は、設定を保存し、両方のダイアログを閉じてから、自分自身をこの引数で別のプロセスとして起動する(この選択は保存しない)
 - `.scr`を右クリックして「インストール」: スクリーンセーバーの設定画面に加わり、プレビューと、待機時間の後の起動を確かめられる。Windowsの「インストール」はファイルをコピーせず、展開した場所の`.scr`をそのまま登録する(`HKEY_CURRENT_USER\Control Panel\Desktop`の`SCRNSAVE.EXE`)
 
 UFOは、設定をオンにしても平均10分に1回しか現れない。実機で確かめるときは、Cargoのフィーチャー`ufo-demo`を付けてビルドする(`cargo build --release -p freeway-scr --features ufo-demo`)。平均の間隔が20秒になる。配布物(`cargo xtask dist`)とリリースには使わない。

@@ -79,8 +79,10 @@ pub enum Text {
     LanguageJapanese,
     Ok,
     Cancel,
-    /// The caption of the part of the dialog that starts a run that input
-    /// does not end.
+    /// The button of the settings dialog that opens the dialog of the run.
+    RunOpen,
+    /// The title of the dialog of the run, which starts a run that input does
+    /// not end.
     RunLabel,
     RunInWindow,
     RunFullscreen,
@@ -96,7 +98,7 @@ pub enum Text {
 
 impl Text {
     /// Every key, so that tests can check all of them.
-    pub const ALL: [Text; 46] = [
+    pub const ALL: [Text; 47] = [
         Text::DialogTitle,
         Text::SpeedLabel,
         Text::DrivingSideLabel,
@@ -135,6 +137,7 @@ impl Text {
         Text::LanguageJapanese,
         Text::Ok,
         Text::Cancel,
+        Text::RunOpen,
         Text::RunLabel,
         Text::RunInWindow,
         Text::RunFullscreen,
@@ -209,6 +212,7 @@ impl Text {
             Text::LanguageJapanese => ("日本語", "日本語"),
             Text::Ok => ("OK", "OK"),
             Text::Cancel => ("Cancel", "キャンセル"),
+            Text::RunOpen => ("Keep running...", "流しておく..."),
             Text::RunLabel => ("Keep it running", "流しておく"),
             Text::RunInWindow => ("In a window", "ウィンドウで"),
             Text::RunFullscreen => ("Full screen", "全画面で"),

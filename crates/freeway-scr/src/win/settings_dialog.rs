@@ -23,7 +23,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 use windows::core::{BOOL, Error, HSTRING, PCWSTR, Result};
 
-use crate::args::{MINUTES_RANGE, Mode};
+use crate::args::{Mode, limit_minutes};
 
 const DIALOG: usize = 100;
 const SPEED_SLIDER: i32 = 101;
@@ -49,7 +49,10 @@ const CAR_SHAPES: i32 = 120;
 const SPEEDOMETER_LABEL: i32 = 121;
 const CAR_COLOR_LABEL: i32 = 122;
 const CAR_COLOR: i32 = 123;
-const RUN_GROUP: i32 = 124;
+/// The button that opens the dialog of the run, and the controls of that dialog
+/// (`RUN_DIALOG` in the resource).
+const RUN_OPEN: i32 = 124;
+const RUN_DIALOG: usize = 200;
 const RUN_WINDOW: i32 = 125;
 const RUN_FULLSCREEN: i32 = 126;
 const RUN_MINUTES_LABEL: i32 = 127;
@@ -60,7 +63,7 @@ const RUN_START: i32 = 129;
 const MINUTES_DIGITS: usize = 4;
 
 /// The texts of the controls that are set from the string table, by ID.
-const CONTROL_TEXTS: [(i32, Text); 22] = [
+const CONTROL_TEXTS: [(i32, Text); 18] = [
     (SPEED_LABEL, Text::SpeedLabel),
     (SIDE_LABEL, Text::DrivingSideLabel),
     (LEFT_HAND, Text::LeftHandTraffic),
@@ -76,11 +79,7 @@ const CONTROL_TEXTS: [(i32, Text); 22] = [
     (CAR_SHAPES_LABEL, Text::CarShapesLabel),
     (CAR_COLOR_LABEL, Text::CarColorLabel),
     (LANGUAGE_LABEL, Text::LanguageLabel),
-    (RUN_GROUP, Text::RunLabel),
-    (RUN_WINDOW, Text::RunInWindow),
-    (RUN_FULLSCREEN, Text::RunFullscreen),
-    (RUN_MINUTES_LABEL, Text::RunMinutesLabel),
-    (RUN_START, Text::RunStart),
+    (RUN_OPEN, Text::RunOpen),
     // OK and Cancel use the IDs of the standard buttons.
     (IDOK.0, Text::Ok),
     (IDCANCEL.0, Text::Cancel),
@@ -126,6 +125,15 @@ const CAR_SHAPE_TEXTS: [Text; 4] = [
 
 /// The items of the car color drop-down, in the order of `CarColor::ALL`.
 const CAR_COLOR_TEXTS: [Text; 2] = [Text::CarColorTranslucent, Text::CarColorBlack];
+
+/// The texts of the controls of the dialog of the run, by ID.
+const RUN_CONTROL_TEXTS: [(i32, Text); 5] = [
+    (RUN_WINDOW, Text::RunInWindow),
+    (RUN_FULLSCREEN, Text::RunFullscreen),
+    (RUN_MINUTES_LABEL, Text::RunMinutesLabel),
+    (RUN_START, Text::RunStart),
+    (IDCANCEL.0, Text::Cancel),
+];
 
 /// `WM_USER`; the windows crate does not define this message.
 const TBM_GETPOS: u32 = 0x0400;
@@ -203,7 +211,6 @@ unsafe extern "system" fn dialog_proc(
                 select_car_color(hwnd, state.settings.car_color);
                 update_car_color_enabled(hwnd);
                 select_speedometer(hwnd, state.settings.speedometer);
-                init_run_controls(hwnd);
             }
             // Let the dialog manager give the focus to the first control.
             1
@@ -234,12 +241,16 @@ unsafe extern "system" fn dialog_proc(
                     end(hwnd, 1);
                     1
                 }
-                RUN_START => {
-                    if let Some(state) = unsafe { state_of(hwnd) } {
+                RUN_OPEN => {
+                    let language = super::resolve_language(selected_language(hwnd));
+                    if let Some(state) = unsafe { state_of(hwnd) }
+                        && let Some(mode) = run_dialog(hwnd, language)
+                    {
+                        // Both dialogs close: the settings are saved and the run starts.
                         state.settings = read_controls(hwnd);
-                        state.outcome = Some(Some(read_run_mode(hwnd)));
+                        state.outcome = Some(Some(mode));
+                        end(hwnd, 1);
                     }
-                    end(hwnd, 1);
                     1
                 }
                 id if id == IDCANCEL.0 => {
@@ -505,10 +516,89 @@ fn init_controls(hwnd: HWND, settings: &Settings) {
     update_speed_label(hwnd);
 }
 
-/// Chooses the window and no time limit to begin with. The choice is not
-/// saved: the part of the dialog starts a run, and is not a setting.
-fn init_run_controls(hwnd: HWND) {
+/// Shows the dialog of the run, over `owner`, with the texts in `language`.
+/// The dialog begins with the window and no time limit. Returns the mode to
+/// run, or `None` for Cancel. The choice is not saved: Start runs, it does not
+/// set.
+fn run_dialog(owner: HWND, language: DisplayLanguage) -> Option<Mode> {
+    let mut state = RunState {
+        language,
+        mode: None,
+    };
+    let instance = unsafe { GetModuleHandleW(None) }.ok()?;
+    let result = unsafe {
+        DialogBoxParamW(
+            Some(instance.into()),
+            PCWSTR(RUN_DIALOG as *const u16),
+            Some(owner),
+            Some(run_dialog_proc),
+            LPARAM((&raw mut state) as isize),
+        )
+    };
+    // -1 is a failure to show the dialog: nothing starts.
+    if result == -1 {
+        return None;
+    }
+    state.mode
+}
+
+/// What the procedure of the dialog of the run reads and writes; it lives on
+/// the stack of `run_dialog`.
+struct RunState {
+    language: DisplayLanguage,
+    mode: Option<Mode>,
+}
+
+unsafe extern "system" fn run_dialog_proc(
+    hwnd: HWND,
+    message: u32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+) -> isize {
+    match message {
+        WM_INITDIALOG => {
+            unsafe { SetWindowLongPtrW(hwnd, GWLP_USERDATA, lparam.0) };
+            if let Some(state) = unsafe { run_state_of(hwnd) } {
+                init_run_controls(hwnd, state.language);
+            }
+            1
+        }
+        WM_COMMAND => match (wparam.0 & 0xFFFF) as i32 {
+            RUN_START => {
+                if let Some(state) = unsafe { run_state_of(hwnd) } {
+                    state.mode = Some(read_run_mode(hwnd));
+                }
+                end(hwnd, 1);
+                1
+            }
+            id if id == IDCANCEL.0 => {
+                end(hwnd, 0);
+                1
+            }
+            _ => 0,
+        },
+        _ => 0,
+    }
+}
+
+/// The state stored by `WM_INITDIALOG` of the dialog of the run.
+///
+/// # Safety
+///
+/// Only valid while `run_dialog` is running, that is, inside its procedure.
+unsafe fn run_state_of<'a>(hwnd: HWND) -> Option<&'a mut RunState> {
+    let pointer = unsafe { GetWindowLongPtrW(hwnd, GWLP_USERDATA) } as *mut RunState;
+    unsafe { pointer.as_mut() }
+}
+
+/// Sets the texts of the dialog of the run, and chooses the window and no time
+/// limit to begin with.
+fn init_run_controls(hwnd: HWND, language: DisplayLanguage) {
     unsafe {
+        let _ = SetWindowTextW(hwnd, &HSTRING::from(Text::RunLabel.get(language)));
+        for (id, text) in RUN_CONTROL_TEXTS {
+            let _ = SetDlgItemTextW(hwnd, id, &HSTRING::from(text.get(language)));
+        }
         let _ = CheckRadioButton(hwnd, RUN_WINDOW, RUN_FULLSCREEN, RUN_WINDOW);
         SendDlgItemMessageW(
             hwnd,
@@ -522,12 +612,11 @@ fn init_run_controls(hwnd: HWND) {
 }
 
 /// The mode that Start runs: the window or the full screen, which ends after
-/// the minutes of the box; 0, or nothing, means that it does not end by
-/// itself, and more than a day is a day.
+/// the minutes of the box (see `args::limit_minutes`).
 fn read_run_mode(hwnd: HWND) -> Mode {
     let mut valid = BOOL(0);
     let value = unsafe { GetDlgItemInt(hwnd, RUN_MINUTES, Some(&mut valid), false) };
-    let minutes = (valid.as_bool() && value > 0).then(|| value.min(*MINUTES_RANGE.end()));
+    let minutes = limit_minutes(if valid.as_bool() { value } else { 0 });
     if unsafe { IsDlgButtonChecked(hwnd, RUN_FULLSCREEN) } == BST_CHECKED.0 {
         Mode::Play { minutes }
     } else {

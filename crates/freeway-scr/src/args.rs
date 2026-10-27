@@ -32,6 +32,12 @@ pub enum Mode {
 /// The fewest and the most minutes that `/minutes` accepts: a day.
 pub const MINUTES_RANGE: std::ops::RangeInclusive<u32> = 1..=1440;
 
+/// The minutes for a run from what was typed into a box: 0 means that the run
+/// does not end by itself, and more than a day is a day.
+pub fn limit_minutes(typed: u32) -> Option<u32> {
+    (typed > 0).then(|| typed.min(*MINUTES_RANGE.end()))
+}
+
 impl Mode {
     /// The command line that starts this mode, without the program name;
     /// `parse` reads it back. The modes that Windows starts have none.
@@ -354,6 +360,26 @@ mod tests {
         assert_eq!(
             Mode::Window { minutes: Some(30) }.arguments(),
             ["/window", "/minutes:30"]
+        );
+    }
+
+    #[test]
+    fn the_typed_minutes_are_limited_to_a_day_and_zero_is_no_limit() {
+        assert_eq!(limit_minutes(0), None);
+        assert_eq!(limit_minutes(1), Some(1));
+        assert_eq!(limit_minutes(1440), Some(1440));
+        assert_eq!(limit_minutes(1441), Some(1440));
+        assert_eq!(limit_minutes(u32::MAX), Some(1440));
+        // What it gives is what `/minutes` accepts.
+        let arguments = Mode::Window {
+            minutes: limit_minutes(5000),
+        }
+        .arguments();
+        assert_eq!(
+            parse(arguments),
+            Ok(Mode::Window {
+                minutes: Some(1440)
+            })
         );
     }
 
