@@ -9,6 +9,7 @@ use crate::cruise::Drift;
 use crate::projection::{CAMERA_HEIGHT, NEAR_DISTANCE, Projector, VIEW_DISTANCE};
 use crate::road::{RoadShape, RoadView};
 use crate::scenery::Zones;
+use crate::settings::{MAX_SPEED_KMH, MIN_SPEED_KMH};
 use crate::sky::{Sky, SkyView};
 use crate::traffic::{
     BodyBox, CarColor, CarShapes, FacePart, MINUTES_PER_DAY, Traffic, TrafficLevel, TruckStyle,
@@ -381,6 +382,16 @@ impl Light {
 
 pub struct Scene {
     config: SceneConfig,
+    /// The speed the user chose, in km/h, which the drift is around. It starts
+    /// as `config.speed_kmh` and the speed keys of a run change it.
+    base_kmh: f32,
+    /// Whether time stands still (the pause key of a run).
+    paused: bool,
+    /// Which side the traffic keeps to: `1.0` for left-hand traffic, `-1.0`
+    /// for right-hand traffic, and in between while the picture turns over.
+    side: f32,
+    /// Whether the picture is turning over to left-hand traffic or has done so.
+    left_hand_traffic: bool,
     road: RoadShape,
     /// Distance travelled. `f64` so that hours of driving keep sub-meter precision.
     track_s: f64,
@@ -397,6 +408,18 @@ pub struct Scene {
     /// How tall the mountains stand at the current position, `0..1`.
     mountain_level: f32,
 }
+
+/// `1.0` for left-hand traffic, `-1.0` for right-hand traffic.
+fn side_of(left_hand_traffic: bool) -> f32 {
+    if left_hand_traffic { 1.0 } else { -1.0 }
+}
+
+/// How fast the speed keys change the chosen speed, in km/h per second: 8 m/s²,
+/// as in the original.
+pub const SPEED_KEY_KMH_PER_S: f32 = 8.0 * 3.6;
+/// The time constant of the turn-over of the picture when the side of the
+/// traffic changes, in seconds: a third of a second, as in the original.
+const SIDE_TURN_SECONDS: f32 = 1.0 / 3.0;
 
 /// The local time after `time` seconds of driving, in minutes after
 /// midnight (`0..1440`).
@@ -423,6 +446,10 @@ impl Scene {
         sky.set_mountain_level(mountain_level);
         Self {
             config,
+            base_kmh: config.speed_kmh,
+            paused: false,
+            side: side_of(config.left_hand_traffic),
+            left_hand_traffic: config.left_hand_traffic,
             road: RoadShape::new(config.seed),
             track_s: 0.0,
             heading: 0.0,
@@ -445,7 +472,44 @@ impl Scene {
 
     /// The speed now, in km/h: the chosen one, plus the drift if it is on.
     pub fn speed_kmh(&self) -> f32 {
-        self.config.speed_kmh + self.drift.offset()
+        self.base_kmh + self.drift.offset()
+    }
+
+    /// Raises (`direction` above 0) or lowers (below 0) the chosen speed for
+    /// `dt` seconds at 8 m/s², within the range of the settings. The drift
+    /// goes on around the new speed.
+    pub fn change_speed(&mut self, direction: f32, dt: f32) {
+        if !(direction.is_finite() && dt.is_finite() && dt > 0.0) {
+            return;
+        }
+        let dt = dt.min(MAX_STEP_SECONDS);
+        let change = direction.clamp(-1.0, 1.0) * SPEED_KEY_KMH_PER_S * dt;
+        self.base_kmh = (self.base_kmh + change).clamp(MIN_SPEED_KMH as f32, MAX_SPEED_KMH as f32);
+        self.drift.rebase(self.base_kmh);
+    }
+
+    /// Stops time (the road, the cars and the sky) or lets it run again.
+    pub fn set_paused(&mut self, paused: bool) {
+        self.paused = paused;
+    }
+
+    pub fn is_paused(&self) -> bool {
+        self.paused
+    }
+
+    /// Changes the side the traffic keeps to. The picture turns over to the
+    /// other side in about a second (see `update`).
+    pub fn set_left_hand_traffic(&mut self, left_hand_traffic: bool) {
+        self.left_hand_traffic = left_hand_traffic;
+    }
+
+    pub fn left_hand_traffic(&self) -> bool {
+        self.left_hand_traffic
+    }
+
+    /// Brings a UFO now, also when the settings have none.
+    pub fn call_ufo(&mut self) {
+        self.ufo.call();
     }
 
     /// The local time now, in minutes after midnight (`0..1440`): the start
@@ -501,6 +565,15 @@ impl Scene {
         } else {
             0.0
         };
+        // The picture turns over also while time stands still.
+        let target = side_of(self.left_hand_traffic);
+        self.side += (target - self.side) * (dt / SIDE_TURN_SECONDS).min(1.0);
+        if (target - self.side).abs() < 0.001 {
+            self.side = target;
+        }
+        if self.paused {
+            return;
+        }
         self.drift.update(dt);
         let speed_kmh = self.speed_kmh();
         let step = f64::from(speed_kmh / 3.6 * dt);
@@ -531,11 +604,7 @@ impl Scene {
             pixel_scale,
             ..viewport
         };
-        let projector = Projector::new(
-            viewport.width,
-            viewport.height,
-            self.config.left_hand_traffic,
-        );
+        let projector = Projector::with_side(viewport.width, viewport.height, self.side);
         let view = RoadView::new(&self.road, self.track_s);
 
         let sky_view = SkyView {
@@ -623,13 +692,10 @@ impl Scene {
         }
     }
 
-    /// `1.0` for left-hand traffic, `-1.0` for right-hand traffic.
+    /// `1.0` for left-hand traffic, `-1.0` for right-hand traffic, and in
+    /// between while the picture turns over.
     fn side(&self) -> f32 {
-        if self.config.left_hand_traffic {
-            1.0
-        } else {
-            -1.0
-        }
+        self.side
     }
 
     /// How much the bodies of the other cars hide; `None` where they have none.
@@ -642,7 +708,7 @@ impl Scene {
 
     #[cfg(test)]
     fn lights(&self) -> Vec<Light> {
-        let projector = Projector::new(1280.0, 720.0, self.config.left_hand_traffic);
+        let projector = Projector::with_side(1280.0, 720.0, self.side);
         self.lights_on(&RoadView::new(&self.road, self.track_s), &projector)
     }
 
@@ -2718,6 +2784,214 @@ mod tests {
             }
             assert!(travelled > 0.0);
             assert!(highest - lowest > 5.0, "{base}: {lowest} {highest}");
+        }
+    }
+
+    #[test]
+    fn the_speed_keys_change_the_speed_at_eight_meters_per_second_squared() {
+        let mut scene = Scene::new(SceneConfig {
+            speed_kmh: 100.0,
+            ..Default::default()
+        });
+        for _ in 0..20 {
+            scene.change_speed(1.0, 0.05);
+        }
+        // One second at 8 m/s2 is 28.8 km/h.
+        assert!(
+            (scene.speed_kmh() - 128.8).abs() < 1e-3,
+            "{}",
+            scene.speed_kmh()
+        );
+        for _ in 0..40 {
+            scene.change_speed(-1.0, 0.05);
+        }
+        assert!(
+            (scene.speed_kmh() - 71.2).abs() < 1e-3,
+            "{}",
+            scene.speed_kmh()
+        );
+        // No key, or nonsense, changes nothing.
+        let before = scene.speed_kmh();
+        for (direction, dt) in [(0.0, 0.05), (1.0, f32::NAN), (f32::NAN, 0.05), (1.0, -1.0)] {
+            scene.change_speed(direction, dt);
+        }
+        assert_eq!(scene.speed_kmh(), before);
+    }
+
+    #[test]
+    fn the_speed_keys_stay_within_the_range_of_the_settings() {
+        for vary_speed in [false, true] {
+            let mut scene = Scene::new(SceneConfig {
+                speed_kmh: 100.0,
+                ..if vary_speed {
+                    varying(4)
+                } else {
+                    SceneConfig::default()
+                }
+            });
+            for _ in 0..400 {
+                scene.change_speed(1.0, 0.05);
+                scene.update(0.05);
+                assert!(scene.speed_kmh() <= 160.0 + 1e-3);
+            }
+            assert!(scene.speed_kmh() > 139.0);
+            for _ in 0..800 {
+                scene.change_speed(-1.0, 0.05);
+                scene.update(0.05);
+                assert!(scene.speed_kmh() >= 30.0 - 1e-3);
+            }
+            assert!(scene.speed_kmh() < 51.0);
+        }
+    }
+
+    #[test]
+    fn the_drift_goes_on_around_the_speed_the_keys_chose() {
+        let mut scene = Scene::new(varying(2));
+        for _ in 0..(10.0 / 0.05) as usize {
+            scene.change_speed(1.0, 0.05);
+        }
+        let (mut lowest, mut highest) = (f32::MAX, f32::MIN);
+        for _ in 0..(1800.0 / 0.05) as usize {
+            scene.update(0.05);
+            lowest = lowest.min(scene.speed_kmh());
+            highest = highest.max(scene.speed_kmh());
+        }
+        // The base is at the top of the range, so the drift can only go below.
+        assert!(highest <= 160.0 + 1e-3);
+        assert!(lowest < 150.0 && lowest >= 140.0 - 1e-3, "{lowest}");
+    }
+
+    #[test]
+    fn nothing_moves_while_time_stands_still() {
+        let mut scene = Scene::new(SceneConfig {
+            seed: 5,
+            ufo_mean_interval: Some(5.0),
+            ..varying(5)
+        });
+        for _ in 0..200 {
+            scene.update(0.05);
+        }
+        scene.set_paused(true);
+        assert!(scene.is_paused());
+        let still = |scene: &Scene| {
+            (
+                scene.track_s(),
+                scene.heading(),
+                scene.minute_of_day(),
+                scene.speed_kmh(),
+                scene.ufo_visible(),
+                scene.meteors_visible(),
+                record(scene, VIEWPORT).len(),
+            )
+        };
+        let before = still(&scene);
+        let commands = format!("{:?}", record(&scene, VIEWPORT));
+        for _ in 0..1000 {
+            scene.update(0.05);
+        }
+        assert_eq!(still(&scene), before);
+        assert_eq!(format!("{:?}", record(&scene, VIEWPORT)), commands);
+        scene.set_paused(false);
+        for _ in 0..20 {
+            scene.update(0.05);
+        }
+        assert!(scene.track_s() > before.0);
+    }
+
+    #[test]
+    fn the_side_turns_over_smoothly_and_ends_as_the_other_side() {
+        for from_left in [true, false] {
+            let config = SceneConfig {
+                left_hand_traffic: from_left,
+                seed: 6,
+                ..Default::default()
+            };
+            let mut turned = Scene::new(config);
+            turned.set_left_hand_traffic(!from_left);
+            assert_eq!(turned.left_hand_traffic(), !from_left);
+            let target = side_of(!from_left);
+            let mut previous = turned.side();
+            let mut sides = vec![previous];
+            for _ in 0..60 {
+                turned.update(0.05);
+                // Each step goes toward the other side, and by less than all of it.
+                assert!((turned.side() - previous) * target >= 0.0);
+                assert!((turned.side() - previous).abs() < 1.0);
+                previous = turned.side();
+                sides.push(previous);
+            }
+            // It passes through the middle on its way: a turn over, not a jump.
+            assert!(sides.iter().any(|side| side.abs() < 0.5), "{sides:?}");
+            // Three seconds later it is the other side exactly, and the
+            // picture is that of a scene that started on that side.
+            let mut fresh = Scene::new(SceneConfig {
+                left_hand_traffic: !from_left,
+                ..config
+            });
+            for _ in 0..60 {
+                fresh.update(0.05);
+            }
+            assert_eq!(turned.side(), target);
+            assert_eq!(
+                format!("{:?}", record(&turned, VIEWPORT)),
+                format!("{:?}", record(&fresh, VIEWPORT))
+            );
+        }
+    }
+
+    #[test]
+    fn the_side_turns_over_while_time_stands_still() {
+        let mut scene = Scene::new(SceneConfig::default());
+        scene.set_paused(true);
+        scene.set_left_hand_traffic(false);
+        for _ in 0..60 {
+            scene.update(0.05);
+        }
+        assert_eq!(scene.side(), -1.0);
+        assert_eq!(scene.track_s(), 0.0);
+    }
+
+    #[test]
+    fn a_called_ufo_comes_also_when_the_settings_have_none() {
+        let mut scene = Scene::new(SceneConfig::default());
+        for _ in 0..100 {
+            scene.update(0.05);
+        }
+        assert!(!scene.ufo_visible());
+        scene.call_ufo();
+        scene.update(0.05);
+        assert!(scene.ufo_visible());
+        // Calling again while it is there changes nothing, and it leaves.
+        scene.call_ufo();
+        scene.call_ufo();
+        let mut seconds = 0.0;
+        while scene.ufo_visible() {
+            scene.update(0.05);
+            seconds += 0.05;
+            assert!(seconds < 60.0);
+        }
+        // No other visit follows by itself.
+        for _ in 0..(600.0 / 0.05) as usize {
+            scene.update(0.05);
+            assert!(!scene.ufo_visible());
+        }
+    }
+
+    #[test]
+    fn a_called_ufo_replaces_the_planned_one_and_the_plan_goes_on() {
+        let mut scene = Scene::new(ufo_config(3));
+        scene.update(0.05);
+        scene.call_ufo();
+        scene.update(0.05);
+        assert!(scene.ufo_visible());
+        while scene.ufo_visible() {
+            scene.update(0.05);
+        }
+        let mut steps = 0;
+        while !scene.ufo_visible() {
+            scene.update(0.05);
+            steps += 1;
+            assert!(steps < 40_000, "no planned visit after the called one");
         }
     }
 

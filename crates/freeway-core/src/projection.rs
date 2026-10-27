@@ -23,24 +23,33 @@ pub struct Projector {
     focal: f32,
     center_x: f32,
     center_y: f32,
-    left_hand_traffic: bool,
+    /// `1.0` for left-hand traffic, `-1.0` for right-hand traffic, and in
+    /// between while the picture turns over from one to the other.
+    side: f32,
 }
 
 impl Projector {
     /// The vanishing point is the center of the screen.
     pub fn new(width: f32, height: f32, left_hand_traffic: bool) -> Self {
+        Self::with_side(width, height, if left_hand_traffic { 1.0 } else { -1.0 })
+    }
+
+    /// Like `new`, with the side given as a number from `-1.0` (right-hand
+    /// traffic) to `1.0` (left-hand traffic); the values in between are the
+    /// picture while it turns over.
+    pub fn with_side(width: f32, height: f32, side: f32) -> Self {
         Self {
             focal: (width * 0.5).max(height * 0.55),
             center_x: width * 0.5,
             center_y: height * 0.5,
-            left_hand_traffic,
+            side,
         }
     }
 
     /// `1.0` where the screen's x grows with the lateral position (left-hand
     /// traffic), `-1.0` where it shrinks (right-hand traffic).
     pub fn side(&self) -> f32 {
-        if self.left_hand_traffic { 1.0 } else { -1.0 }
+        self.side
     }
 
     pub fn focal(&self) -> f32 {
@@ -102,6 +111,17 @@ mod tests {
         let b = right.project(30.0, 3.0, 0.0).unwrap();
         assert!((a.x - 400.0 + (b.x - 400.0)).abs() < 1e-3);
         assert_eq!(a.y, b.y);
+    }
+
+    #[test]
+    fn the_side_in_between_squeezes_the_picture_toward_the_camera() {
+        let half = Projector::with_side(800.0, 600.0, 0.5);
+        let full = Projector::with_side(800.0, 600.0, 1.0);
+        let a = half.project(30.0, 3.0, 0.0).unwrap();
+        let b = full.project(30.0, 3.0, 0.0).unwrap();
+        assert!(((a.x - 400.0) * 2.0 - (b.x - 400.0)).abs() < 1e-3);
+        assert_eq!(a.y, b.y);
+        assert_eq!(half.side(), 0.5);
     }
 
     #[test]

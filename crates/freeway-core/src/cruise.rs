@@ -45,19 +45,18 @@ pub struct Drift {
 impl Drift {
     /// A drift around `base_kmh`; without `enabled` the offset stays 0.
     pub fn new(seed: u64, base_kmh: f32, enabled: bool) -> Self {
-        let lowest = (MIN_SPEED_KMH as f32 - base_kmh).clamp(-MAX_OFFSET_KMH, 0.0);
-        let highest = (MAX_SPEED_KMH as f32 - base_kmh).clamp(0.0, MAX_OFFSET_KMH);
         let mut drift = Self {
             seed,
             enabled,
-            lowest,
-            highest,
+            lowest: 0.0,
+            highest: 0.0,
             offset: 0.0,
             rate: 0.0,
             target: 0.0,
             index: 0,
             until_retarget: 0.0,
         };
+        drift.rebase(base_kmh);
         if enabled {
             drift.target = drift.pick_target(0);
             drift.until_retarget = drift.interval(0);
@@ -68,6 +67,19 @@ impl Drift {
     /// The offset now, in km/h.
     pub fn offset(&self) -> f32 {
         self.offset
+    }
+
+    /// Moves the speed that the drift is around to `base_kmh`. The offset
+    /// is kept within the new range, so that the speed stays in the range of
+    /// the settings and does not jump.
+    pub fn rebase(&mut self, base_kmh: f32) {
+        self.lowest = (MIN_SPEED_KMH as f32 - base_kmh).clamp(-MAX_OFFSET_KMH, 0.0);
+        self.highest = (MAX_SPEED_KMH as f32 - base_kmh).clamp(0.0, MAX_OFFSET_KMH);
+        self.target = self.target.clamp(self.lowest, self.highest);
+        if !(self.lowest..=self.highest).contains(&self.offset) {
+            self.offset = self.offset.clamp(self.lowest, self.highest);
+            self.rate = 0.0;
+        }
     }
 
     fn roll(&self, part: i64, index: i64) -> f32 {
@@ -193,6 +205,30 @@ mod tests {
             drift.update(dt);
             assert_eq!(drift.offset(), 0.0);
         }
+    }
+
+    #[test]
+    fn a_new_base_keeps_the_speed_in_range_and_continuous() {
+        // The user raises the speed by 28.8 km/h a second while the drift is
+        // at its highest: the speed never jumps and never passes 160.
+        let mut drift = Drift::new(3, 100.0, true);
+        offsets(&mut drift, 30.0);
+        let mut base = 100.0f32;
+        let mut previous = base + drift.offset();
+        for _ in 0..((70.0 / 28.8 / DT) as usize) {
+            base = (base + 28.8 * DT).min(160.0);
+            drift.rebase(base);
+            drift.update(DT);
+            let speed = base + drift.offset();
+            assert!(speed <= 160.0 + 1e-3, "{speed}");
+            assert!((speed - previous).abs() < 28.8 * DT + 0.3 * 3.6 * DT + 1e-3);
+            previous = speed;
+        }
+        // Near the ends of the range the drift has less room.
+        drift.rebase(150.0);
+        assert!(drift.offset() <= 10.0 + 1e-3);
+        drift.rebase(30.0);
+        assert!(drift.offset() >= 0.0);
     }
 
     #[test]
