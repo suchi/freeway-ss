@@ -145,6 +145,21 @@ impl RoadView {
         }
     }
 
+    /// A road whose bend and height grow with the square of the distance:
+    /// `bend` and `rise` are the offsets 100 meters ahead.
+    #[cfg(test)]
+    pub(crate) fn curved(bend: f32, rise: f32) -> Self {
+        let at = |per_square: f32| -> Vec<f32> {
+            (0..=STEPS)
+                .map(|d| per_square * (d * d) as f32 / 10_000.0)
+                .collect()
+        };
+        Self {
+            lateral: at(bend),
+            height: at(rise),
+        }
+    }
+
     #[cfg(test)]
     fn lateral(&self) -> &[f32] {
         &self.lateral

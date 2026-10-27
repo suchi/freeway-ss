@@ -37,6 +37,12 @@ impl Projector {
         }
     }
 
+    /// `1.0` where the screen's x grows with the lateral position (left-hand
+    /// traffic), `-1.0` where it shrinks (right-hand traffic).
+    pub fn side(&self) -> f32 {
+        if self.left_hand_traffic { 1.0 } else { -1.0 }
+    }
+
     pub fn focal(&self) -> f32 {
         self.focal
     }
@@ -51,9 +57,8 @@ impl Projector {
         }
         let scale = self.focal / d;
         // Right-hand traffic mirrors the whole layout around the camera.
-        let side = if self.left_hand_traffic { 1.0 } else { -1.0 };
         Some(Projected {
-            x: self.center_x + side * (lateral - CAMERA_LATERAL) * scale,
+            x: self.center_x + self.side() * (lateral - CAMERA_LATERAL) * scale,
             y: self.center_y - (height - CAMERA_HEIGHT) * scale,
             scale,
         })

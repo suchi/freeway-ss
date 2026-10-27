@@ -222,6 +222,16 @@ struct BodySize {
     length: f32,
 }
 
+/// Which face of the box of a body a `BodyFace` is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FacePart {
+    /// The end that faces the camera.
+    End,
+    /// One of the two sides.
+    Side,
+    Roof,
+}
+
 /// A flat face of the body of a car: a quadrilateral whose corners are
 /// positioned like the lights of the road, as (distance ahead of the camera,
 /// lateral position, height above the road).
@@ -229,6 +239,7 @@ struct BodySize {
 pub struct BodyFace {
     /// The car the face belongs to, which is also that of its lights.
     pub car: u32,
+    pub part: FacePart,
     /// Lateral position of the car, which tells whether a tunnel hides it.
     pub lateral: f32,
     pub corners: [(f32, f32, f32); 4],
@@ -524,11 +535,14 @@ impl Car {
 }
 
 impl Car {
-    /// The faces of the body that the camera can see: the end that faces
-    /// it, and for a car in another lane the side that faces it. `rel` is
-    /// the end that faces the camera, and the body reaches the length of the
-    /// car farther away. A body that has partly passed the camera is cut off
-    /// at `NEAR_DISTANCE`, so that it does not vanish all at once.
+    /// The faces of the box that is the body: the end that faces the camera,
+    /// both sides and the roof. Which of them the camera can see depends on
+    /// the bends and hills of the road, so they are all given (the end only
+    /// where the car is in front of the camera) and the scene keeps those
+    /// that turn toward it. `rel` is the end that faces the camera, and the
+    /// body reaches the length of the car farther away. A body that has
+    /// partly passed the camera is cut off at `NEAR_DISTANCE`, so that it does
+    /// not vanish all at once.
     fn push_body(&self, out: &mut Vec<BodyFace>) {
         let size = if self.truck { TRUCK_BODY } else { CAR_BODY };
         let far = (self.rel + size.length).min(VIEW_DISTANCE - VIEW_MARGIN);
@@ -536,35 +550,57 @@ impl Car {
             return;
         }
         let half = size.width * 0.5;
-        let (left, right) = (self.lateral - half, self.lateral + half);
+        let (left, right, top) = (self.lateral - half, self.lateral + half, size.height);
+        let near = self.rel.max(NEAR_DISTANCE);
+        let mut face = |part: FacePart, corners: [(f32, f32, f32); 4]| {
+            out.push(BodyFace {
+                car: self.id,
+                part,
+                lateral: self.lateral,
+                corners,
+            });
+        };
         if self.rel >= NEAR_DISTANCE {
             let d = self.rel;
-            out.push(BodyFace {
-                car: self.id,
-                lateral: self.lateral,
-                corners: [
+            face(
+                FacePart::End,
+                [
                     (d, left, 0.0),
                     (d, right, 0.0),
-                    (d, right, size.height),
-                    (d, left, size.height),
+                    (d, right, top),
+                    (d, left, top),
                 ],
-            });
+            );
         }
-        // The camera is in the own lane: a car in that lane shows no side,
-        // and a car in another lane shows the side toward the own lane.
-        if self.lateral > OWN_LANE {
-            let near = self.rel.max(NEAR_DISTANCE);
-            out.push(BodyFace {
-                car: self.id,
-                lateral: self.lateral,
-                corners: [
-                    (near, left, 0.0),
-                    (far, left, 0.0),
-                    (far, left, size.height),
-                    (near, left, size.height),
-                ],
-            });
-        }
+        // Each runs the way that makes the face turn toward the camera, as seen
+        // from the outside, with the corners in the same sense.
+        face(
+            FacePart::Side,
+            [
+                (near, left, 0.0),
+                (near, left, top),
+                (far, left, top),
+                (far, left, 0.0),
+            ],
+        );
+        face(
+            FacePart::Side,
+            [
+                (near, right, 0.0),
+                (far, right, 0.0),
+                (far, right, top),
+                (near, right, top),
+            ],
+        );
+        face(
+            FacePart::Roof,
+            [
+                (near, left, top),
+                (near, right, top),
+                (far, right, top),
+                (far, left, top),
+            ],
+        );
     }
 }
 
@@ -1491,27 +1527,47 @@ mod tests {
     }
 
     #[test]
-    fn a_car_in_another_lane_shows_the_side_toward_the_own_lane() {
-        for (truck, length, half) in [(false, 4.5, 0.9), (true, 12.0, 1.25)] {
-            for id in [PASSING_ID, ONCOMING_ID] {
+    fn a_body_is_a_box_of_an_end_two_sides_and_a_roof() {
+        for (truck, size) in [(false, CAR_BODY), (true, TRUCK_BODY)] {
+            for id in [LEAD_ID, PASSING_ID, ONCOMING_ID] {
                 let faces = body_of(id, truck, 50.0);
-                assert_eq!(faces.len(), 2, "{id}");
-                let (end, side) = (faces[0], faces[1]);
-                let lateral = end.lateral;
-                assert!(lateral > OWN_LANE);
-                // The side reaches the length of the car away from the camera,
-                // along the edge of the body that is nearer to the own lane.
-                assert!(side.corners.iter().all(|c| c.1 == lateral - half), "{id}");
-                assert_eq!(span(&faces[1..], |c| c.0), length, "{id}");
-                assert_eq!(side.corners[0].0, 50.0, "{id}");
+                let parts: Vec<FacePart> = faces.iter().map(|f| f.part).collect();
+                assert_eq!(
+                    parts,
+                    [
+                        FacePart::End,
+                        FacePart::Side,
+                        FacePart::Side,
+                        FacePart::Roof
+                    ],
+                    "{id}"
+                );
+                let lateral = faces[0].lateral;
+                assert!(faces.iter().all(|f| f.lateral == lateral), "{id}");
+                // The sides stand at the edges of the width and reach the length of the car.
+                let (left, right) = (lateral - size.width * 0.5, lateral + size.width * 0.5);
+                assert!(faces[1].corners.iter().all(|c| c.1 == left), "{id}");
+                assert!(faces[2].corners.iter().all(|c| c.1 == right), "{id}");
+                assert!(
+                    (span(&faces[1..2], |c| c.0) - size.length).abs() < 1e-4,
+                    "{id}"
+                );
+                assert!(
+                    (span(&faces[1..2], |c| c.2) - size.height).abs() < 1e-4,
+                    "{id}"
+                );
+                assert_eq!(faces[1].corners[0].0, 50.0, "{id}");
+                // The roof is at the height of the body and covers its whole top.
+                assert!(faces[3].corners.iter().all(|c| c.2 == size.height), "{id}");
+                assert!(
+                    (span(&faces[3..], |c| c.0) - size.length).abs() < 1e-4,
+                    "{id}"
+                );
+                assert!(
+                    (span(&faces[3..], |c| c.1) - size.width).abs() < 1e-4,
+                    "{id}"
+                );
             }
-        }
-    }
-
-    #[test]
-    fn a_car_in_the_own_lane_shows_only_its_end() {
-        for truck in [false, true] {
-            assert_eq!(body_of(LEAD_ID, truck, 50.0).len(), 1);
         }
     }
 
@@ -1533,19 +1589,19 @@ mod tests {
 
     #[test]
     fn the_body_of_a_passing_car_is_cut_off_at_the_camera() {
-        // The rear is behind the camera: only the side that is ahead of it is left.
+        // The rear is behind the camera: the end is gone, and what is left of
+        // the sides and the roof starts at the nearest distance.
         let faces = body_of(PASSING_ID, false, -2.0);
-        assert_eq!(faces.len(), 1);
-        let near = faces[0]
-            .corners
-            .iter()
-            .map(|c| c.0)
-            .fold(f32::MAX, f32::min);
-        assert_eq!(near, NEAR_DISTANCE);
-        assert_eq!(faces[0].corners[1].0, 2.5);
+        let parts: Vec<FacePart> = faces.iter().map(|f| f.part).collect();
+        assert_eq!(parts, [FacePart::Side, FacePart::Side, FacePart::Roof]);
+        for face in &faces {
+            let near = face.corners.iter().map(|c| c.0).fold(f32::MAX, f32::min);
+            let far = face.corners.iter().map(|c| c.0).fold(f32::MIN, f32::max);
+            assert_eq!((near, far), (NEAR_DISTANCE, 2.5));
+        }
         // Once the whole car is behind the camera nothing is left.
         assert!(body_of(PASSING_ID, false, -3.6).is_empty());
-        assert_eq!(body_of(PASSING_ID, true, -10.0).len(), 1);
+        assert_eq!(body_of(PASSING_ID, true, -10.0).len(), 3);
         assert!(body_of(PASSING_ID, true, -12.0).is_empty());
     }
 

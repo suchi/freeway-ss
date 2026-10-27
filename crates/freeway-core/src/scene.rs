@@ -2,14 +2,14 @@
 
 use std::f64::consts::TAU;
 
-use crate::body::{Corners, depth_at};
+use crate::body::{Corners, depth_at, faces_camera};
 use crate::canvas::{Canvas, GLOW_HALO_RATIO, Rgb};
 use crate::cruise::Drift;
 use crate::projection::{CAMERA_HEIGHT, NEAR_DISTANCE, Projector, VIEW_DISTANCE};
 use crate::road::{RoadShape, RoadView};
 use crate::scenery::Zones;
 use crate::sky::{Sky, SkyView};
-use crate::traffic::{CarBodies, MINUTES_PER_DAY, Traffic, TrafficLevel, TruckStyle};
+use crate::traffic::{CarBodies, FacePart, MINUTES_PER_DAY, Traffic, TrafficLevel, TruckStyle};
 use crate::tunnel::{Tunnel, TunnelLighting, Tunnels, draw_entrance};
 use crate::ufo::Ufo;
 
@@ -117,7 +117,10 @@ const ORANGE: Rgb = Rgb::new(255, 140, 30);
 const SODIUM: Rgb = Rgb::new(255, 165, 70);
 /// A light of a car is drawn this much nearer than the body, that is, after it.
 const OWN_LIGHT_LEAD: f32 = 0.001;
-const BODY_BLACK: Rgb = Rgb::new(0, 0, 0);
+/// The faces of a car body, a little lighter the more they face the sky.
+const BODY_END: Rgb = Rgb::new(0, 0, 0);
+const BODY_SIDE: Rgb = Rgb::new(14, 15, 18);
+const BODY_ROOF: Rgb = Rgb::new(22, 23, 27);
 
 /// Dashed lines repeat every `DASH_PERIOD` meters, painted for the first
 /// `DASH_LENGTH` meters. Lights on them are spaced so that a dash gets a few.
@@ -615,7 +618,11 @@ impl Scene {
                     car: Some(face.car),
                     lateral: face.lateral,
                     height: 0.0,
-                    color: BODY_BLACK,
+                    color: match face.part {
+                        FacePart::End => BODY_END,
+                        FacePart::Side => BODY_SIDE,
+                        FacePart::Roof => BODY_ROOF,
+                    },
                     alpha: opacity,
                     kind: Kind::Body {
                         corners: face.corners,
@@ -623,6 +630,11 @@ impl Scene {
                 }
             }));
         }
+        // Of the box of a body only the faces that turn toward the camera are seen.
+        lights.retain(|l| match l.kind {
+            Kind::Body { corners } => faces_camera(&corners, projector, view),
+            _ => true,
+        });
         // Only what fits through a tunnel is seen along it.
         let sight = self.tunnels.sight(self.track_s, view);
         lights.retain(|l| {
@@ -2324,7 +2336,7 @@ mod tests {
     }
 
     #[test]
-    fn black_bodies_are_black_and_opaque_and_translucent_ones_let_a_tenth_through() {
+    fn black_bodies_are_opaque_and_translucent_ones_let_a_tenth_through() {
         for (car_bodies, expected) in [(CarBodies::Black, 1.0), (CarBodies::TranslucentBlack, 0.9)]
         {
             let mut drawn = 0;
@@ -2332,7 +2344,10 @@ mod tests {
                 let scene = driven(bodies_config(seed, car_bodies), 20);
                 for (points, color, alpha) in body_shapes(&record(&scene, VIEWPORT)) {
                     drawn += 1;
-                    assert_eq!(color, Rgb::new(0, 0, 0));
+                    assert!(
+                        [BODY_END, BODY_SIDE, BODY_ROOF].contains(&color),
+                        "{color:?}"
+                    );
                     assert_eq!(alpha, expected);
                     assert_eq!(points.len(), 4);
                     assert!(points.iter().all(|(x, y)| x.is_finite() && y.is_finite()));
@@ -2340,6 +2355,52 @@ mod tests {
             }
             assert!(drawn > 10, "{car_bodies:?}");
         }
+    }
+
+    #[test]
+    fn the_faces_of_a_body_differ_in_shade_and_only_those_facing_the_camera_are_drawn() {
+        let mut counts = [0usize; 3];
+        for (seed, left_hand_traffic) in [(1, true), (2, false), (3, true)] {
+            let mut scene = Scene::new(SceneConfig {
+                left_hand_traffic,
+                ..bodies_config(seed, CarBodies::Black)
+            });
+            for step in 0..4000 {
+                scene.update(MAX_STEP_SECONDS);
+                if step % 5 != 0 {
+                    continue;
+                }
+                let faces = scene.traffic.bodies().len();
+                let commands = record(&scene, VIEWPORT);
+                let drawn = body_shapes(&commands);
+                // The box has four candidate faces, and at most three can be seen at once.
+                assert!(
+                    drawn.len() <= faces * 3 / 4 + 1,
+                    "{} of {faces}",
+                    drawn.len()
+                );
+                for (_, color, _) in drawn {
+                    counts[[BODY_END, BODY_SIDE, BODY_ROOF]
+                        .iter()
+                        .position(|&c| c == color)
+                        .unwrap()] += 1;
+                }
+            }
+        }
+        // The ends and the sides are seen all the time, a roof only now and then.
+        assert!(counts[0] > 200 && counts[1] > 200, "{counts:?}");
+        assert_eq!(BODY_END, Rgb::new(0, 0, 0));
+        assert_eq!(BODY_SIDE, Rgb::new(14, 15, 18));
+        assert_eq!(BODY_ROOF, Rgb::new(22, 23, 27));
+    }
+
+    #[test]
+    fn translucent_faces_have_the_same_shades_at_nine_tenths() {
+        let scene = driven(bodies_config(2, CarBodies::TranslucentBlack), 20);
+        let commands = record(&scene, VIEWPORT);
+        let shapes = body_shapes(&commands);
+        assert!(shapes.iter().any(|s| s.1 == BODY_SIDE));
+        assert!(shapes.iter().all(|s| s.2 == 0.9));
     }
 
     #[test]
