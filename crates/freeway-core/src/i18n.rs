@@ -56,6 +56,7 @@ pub enum Text {
     VarySpeed,
     TrafficByTime,
     SceneryZones,
+    SpanMonitors,
     TrucksLabel,
     TrucksNone,
     TrucksJapanese,
@@ -110,7 +111,7 @@ pub enum Text {
 
 impl Text {
     /// Every key, so that tests can check all of them.
-    pub const ALL: [Text; 55] = [
+    pub const ALL: [Text; 56] = [
         Text::DialogTitle,
         Text::SpeedLabel,
         Text::DrivingSideLabel,
@@ -126,6 +127,7 @@ impl Text {
         Text::VarySpeed,
         Text::TrafficByTime,
         Text::SceneryZones,
+        Text::SpanMonitors,
         Text::TrucksLabel,
         Text::TrucksNone,
         Text::TrucksJapanese,
@@ -204,6 +206,10 @@ impl Text {
                 "時刻に合わせて交通量を変える",
             ),
             Text::SceneryZones => ("Alternate mountains and plains", "山あいと平野を交互に走る"),
+            Text::SpanMonitors => (
+                "Span all monitors as one screen",
+                "複数のモニターを1つの画面として描く",
+            ),
             Text::TrucksLabel => ("Trucks:", "トラック:"),
             Text::TrucksNone => ("None", "なし"),
             Text::TrucksJapanese => ("Japanese style", "日本風"),

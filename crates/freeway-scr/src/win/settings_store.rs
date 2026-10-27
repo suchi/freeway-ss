@@ -33,6 +33,7 @@ const CAR_BODIES: PCWSTR = w!("CarBodies");
 const CAR_SHAPES: PCWSTR = w!("CarShapes");
 const CAR_COLOR: PCWSTR = w!("CarColor");
 const LANE_CHANGES: PCWSTR = w!("LaneChanges");
+const SPAN_MONITORS: PCWSTR = w!("SpanMonitors");
 
 /// Reads the saved settings; anything missing or invalid is the default.
 pub fn load() -> Settings {
@@ -63,6 +64,7 @@ fn load_from(root: HKEY, key: PCWSTR) -> Settings {
         read_dword(root, key, CAR_COLOR),
         read_dword(root, key, LANE_CHANGES),
     )
+    .with_span_monitors_raw(read_dword(root, key, SPAN_MONITORS))
 }
 
 fn save_to(root: HKEY, key: PCWSTR, settings: &Settings) -> Result<()> {
@@ -101,6 +103,7 @@ fn save_to(root: HKEY, key: PCWSTR, settings: &Settings) -> Result<()> {
     write_dword(root, key, CAR_SHAPES, settings.car_shapes.to_raw())?;
     write_dword(root, key, CAR_COLOR, settings.car_color.to_raw())?;
     write_dword(root, key, LANE_CHANGES, settings.lane_changes.to_raw())?;
+    write_dword(root, key, SPAN_MONITORS, u32::from(settings.span_monitors))?;
     write_dword(root, key, CAR_BODIES, settings.legacy_car_bodies())
 }
 
@@ -207,6 +210,7 @@ mod tests {
             vary_speed: false,
             traffic_by_time: false,
             scenery_zones: false,
+            span_monitors: true,
         };
         save_to(HKEY_CURRENT_USER, test.key(), &settings)?;
         assert_eq!(test.load(), settings);
@@ -235,6 +239,7 @@ mod tests {
         write_dword(HKEY_CURRENT_USER, test.key(), CAR_SHAPES, 4)?;
         write_dword(HKEY_CURRENT_USER, test.key(), CAR_COLOR, 2)?;
         write_dword(HKEY_CURRENT_USER, test.key(), LANE_CHANGES, 3)?;
+        write_dword(HKEY_CURRENT_USER, test.key(), SPAN_MONITORS, 2)?;
         let settings = test.load();
         assert_eq!(settings.speed_kmh, DEFAULT_SPEED_KMH);
         assert!(!settings.left_hand_traffic);
@@ -248,6 +253,27 @@ mod tests {
         assert_eq!(settings.lane_changes, LaneChanges::All);
         assert_eq!(settings.language, Language::Auto);
         assert!(settings.vary_speed && settings.traffic_by_time && settings.scenery_zones);
+        assert!(!settings.span_monitors);
+        Ok(())
+    }
+
+    #[test]
+    fn spanning_the_monitors_is_read_back_and_off_by_default() -> Result<()> {
+        let test = TestKey::new("span-monitors");
+        assert!(!test.load().span_monitors);
+        for span_monitors in [true, false] {
+            let settings = Settings {
+                span_monitors,
+                ..Settings::default()
+            };
+            save_to(HKEY_CURRENT_USER, test.key(), &settings)?;
+            assert_eq!(test.load().span_monitors, span_monitors);
+        }
+        // A value that is not 0 or 1 is the default.
+        for raw in [2, u32::MAX] {
+            write_dword(HKEY_CURRENT_USER, test.key(), SPAN_MONITORS, raw)?;
+            assert!(!test.load().span_monitors, "{raw}");
+        }
         Ok(())
     }
 
