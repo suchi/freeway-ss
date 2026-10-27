@@ -41,7 +41,7 @@ pub fn run(mode: Mode) -> Result<()> {
     let _ = unsafe { SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) };
 
     match mode {
-        Mode::Fullscreen => animate(&window::create_fullscreen_windows()?, Run::default()),
+        Mode::Fullscreen { .. } => animate(&window::create_fullscreen_windows()?, Run::default()),
         Mode::Preview { parent } => {
             let parent = window::hwnd_from_handle(parent);
             match window::create_preview_window(parent)? {
@@ -57,7 +57,7 @@ pub fn run(mode: Mode) -> Result<()> {
         }
         Mode::Configure { parent } => configure(parent.map(window::hwnd_from_handle)),
         Mode::Window { minutes } => animate(&[window::create_normal_window()?], Run::keep(minutes)),
-        Mode::Play { minutes } => animate(&window::create_play_windows()?, Run::keep(minutes)),
+        Mode::Play { minutes, .. } => animate(&window::create_play_windows()?, Run::keep(minutes)),
     }
 }
 
