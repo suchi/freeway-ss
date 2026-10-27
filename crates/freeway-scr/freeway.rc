@@ -108,7 +108,7 @@ END
 // The dialog that the "Keep running..." button of the settings dialog opens: how
 // to run the road as something other than a screensaver. The strings are set
 // from freeway-core's string table when it opens.
-200 DIALOGEX 0, 0, 200, 84
+200 DIALOGEX 0, 0, 200, 98
 STYLE DIALOG_STYLE
 CAPTION "Keep it running"
 FONT 9, "Segoe UI"
@@ -117,6 +117,7 @@ BEGIN
     AUTORADIOBUTTON "Full screen", 126, 106, 12, 82, 10
     LTEXT           "Close after (min, 0 = never):", 127, 12, 32, 120, 8
     CONTROL         "", 128, "EDIT", MINUTES_STYLE, 136, 29, 28, 12, MINUTES_EXSTYLE
-    DEFPUSHBUTTON   "Start", 129, 88, 58, 50, 14
-    PUSHBUTTON      "Cancel", 2, 142, 58, 50, 14
+    LTEXT           "Esc ends the run.", 130, 12, 50, 176, 8
+    DEFPUSHBUTTON   "Start", 129, 88, 72, 50, 14
+    PUSHBUTTON      "Cancel", 2, 142, 72, 50, 14
 END
