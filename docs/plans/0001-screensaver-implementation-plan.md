@@ -219,8 +219,8 @@ MVPの項目は、本家の実行中の操作と表示(速度・通行方向・H
 | Phase 7: 任意機能 | 完了(7.1〜7.7) | [0007](0007-phase7-optional-features.md)、[0008](0008-phase7-1-ufo.md)、[0009](0009-phase7-2-localization.md)、[0010](0010-phase7-3-mountains.md)、[0011](0011-phase7-4-trucks.md)、[0012](0012-phase7-5-tunnels.md)、[0013](0013-phase7-6-time-variation.md)、[0014](0014-phase7-7-car-bodies.md) | [#16](https://github.com/suchi/freeway-ss/pull/16)(7.1)、[#17](https://github.com/suchi/freeway-ss/pull/17)(7.2)、[#18](https://github.com/suchi/freeway-ss/pull/18)(7.3)、[#19](https://github.com/suchi/freeway-ss/pull/19)(7.4)、[#20](https://github.com/suchi/freeway-ss/pull/20)(7.5)、[#21](https://github.com/suchi/freeway-ss/pull/21)(7.6)、[#22](https://github.com/suchi/freeway-ss/pull/22)(7.7) | 機能ごとに`v1.N.0`。7.1は[v1.1.0](https://github.com/suchi/freeway-ss/releases/tag/v1.1.0)、7.2は[v1.2.0](https://github.com/suchi/freeway-ss/releases/tag/v1.2.0)、7.3は[v1.3.0](https://github.com/suchi/freeway-ss/releases/tag/v1.3.0)、7.4は[v1.4.0](https://github.com/suchi/freeway-ss/releases/tag/v1.4.0)、7.5は[v1.5.0](https://github.com/suchi/freeway-ss/releases/tag/v1.5.0)、7.6は[v1.6.0](https://github.com/suchi/freeway-ss/releases/tag/v1.6.0)、7.7は[v1.7.0](https://github.com/suchi/freeway-ss/releases/tag/v1.7.0) |
 | v1.8.0: 見え方の不具合の修正と立体の車体 | 完了(実機確認済み) | [0015](0015-v1-8-occlusion-and-car-boxes.md) | [#23](https://github.com/suchi/freeway-ss/pull/23) | [v1.8.0](https://github.com/suchi/freeway-ss/releases/tag/v1.8.0) |
 | v1.9.0: 他車の影とトラックらしい形 | 完了(実機確認済み) | [0016](0016-v1-9-shadows-and-truck-shapes.md) | [#24](https://github.com/suchi/freeway-ss/pull/24) | [v1.9.0](https://github.com/suchi/freeway-ss/releases/tag/v1.9.0) |
-| v1.10.0: ダッシュボード風の速度計 | 実装済み(実機確認待ち) | [0017](0017-v1-10-dashboard-speedometer.md) | [#26](https://github.com/suchi/freeway-ss/pull/26) | `v1.10.0`(未公開) |
-| v1.11.0: 他車の形と表示の選び方 | 計画中(v1.10.0の後) | - | - | - |
+| v1.10.0: ダッシュボード風の速度計 | 完了(実機確認済み) | [0017](0017-v1-10-dashboard-speedometer.md) | [#26](https://github.com/suchi/freeway-ss/pull/26) | [v1.10.0](https://github.com/suchi/freeway-ss/releases/tag/v1.10.0) |
+| v1.11.0: 他車の形と表示の選び方 | 計画中 | - | - | - |
 
 ```mermaid
 flowchart LR
