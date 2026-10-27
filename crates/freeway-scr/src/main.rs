@@ -10,6 +10,8 @@ mod args;
 #[cfg_attr(not(windows), allow(dead_code))]
 mod input;
 #[cfg_attr(not(windows), allow(dead_code))]
+mod placement;
+#[cfg_attr(not(windows), allow(dead_code))]
 mod speedometer;
 #[cfg(windows)]
 mod win;

@@ -18,6 +18,10 @@
 #define GROUP_START 0x00030000
 // WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_VSCROLL | CBS_DROPDOWNLIST
 #define DROPDOWN_STYLE 0x50210003
+// WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL | ES_NUMBER
+#define MINUTES_STYLE 0x50012080
+// WS_EX_CLIENTEDGE
+#define MINUTES_EXSTYLE 0x00000200
 
 // RT_MANIFEST (24) with the ID of a manifest for the executable (1)
 1 24 "resources/freeway.manifest"
@@ -66,6 +70,23 @@ BEGIN
     CONTROL         "", 123, "COMBOBOX", DROPDOWN_STYLE, 62, 228, 150, 60
     LTEXT           "Language:", 110, 12, 248, 48, 8
     CONTROL         "", 107, "COMBOBOX", DROPDOWN_STYLE, 62, 246, 150, 60
+    PUSHBUTTON      "Keep running...", 124, 12, 268, 72, 14
     DEFPUSHBUTTON   "OK", 1, 108, 268, 50, 14
     PUSHBUTTON      "Cancel", 2, 162, 268, 50, 14
+END
+
+// The dialog that the "Keep running..." button of the settings dialog opens: how
+// to run the road as something other than a screensaver. The strings are set
+// from freeway-core's string table when it opens.
+200 DIALOGEX 0, 0, 200, 84
+STYLE DIALOG_STYLE
+CAPTION "Keep it running"
+FONT 9, "Segoe UI"
+BEGIN
+    AUTORADIOBUTTON "In a window", 125, 12, 12, 90, 10, GROUP_START
+    AUTORADIOBUTTON "Full screen", 126, 106, 12, 82, 10
+    LTEXT           "Close after (min, 0 = never):", 127, 12, 32, 120, 8
+    CONTROL         "", 128, "EDIT", MINUTES_STYLE, 136, 29, 28, 12, MINUTES_EXSTYLE
+    DEFPUSHBUTTON   "Start", 129, 88, 58, 50, 14
+    PUSHBUTTON      "Cancel", 2, 142, 58, 50, 14
 END

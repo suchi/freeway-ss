@@ -79,15 +79,26 @@ pub enum Text {
     LanguageJapanese,
     Ok,
     Cancel,
+    /// The button of the settings dialog that opens the dialog of the run.
+    RunOpen,
+    /// The title of the dialog of the run, which starts a run that input does
+    /// not end.
+    RunLabel,
+    RunInWindow,
+    RunFullscreen,
+    RunMinutesLabel,
+    RunStart,
     /// Contains `{error}`; use `with_error`.
     SaveFailed,
     /// Contains `{error}`; use `with_error`.
     Stopped,
+    /// Contains `{error}`; use `with_error`.
+    RunFailed,
 }
 
 impl Text {
     /// Every key, so that tests can check all of them.
-    pub const ALL: [Text; 40] = [
+    pub const ALL: [Text; 47] = [
         Text::DialogTitle,
         Text::SpeedLabel,
         Text::DrivingSideLabel,
@@ -126,8 +137,15 @@ impl Text {
         Text::LanguageJapanese,
         Text::Ok,
         Text::Cancel,
+        Text::RunOpen,
+        Text::RunLabel,
+        Text::RunInWindow,
+        Text::RunFullscreen,
+        Text::RunMinutesLabel,
+        Text::RunStart,
         Text::SaveFailed,
         Text::Stopped,
+        Text::RunFailed,
     ];
 
     /// The string in `language`.
@@ -194,6 +212,15 @@ impl Text {
             Text::LanguageJapanese => ("日本語", "日本語"),
             Text::Ok => ("OK", "OK"),
             Text::Cancel => ("Cancel", "キャンセル"),
+            Text::RunOpen => ("Keep running...", "流しておく..."),
+            Text::RunLabel => ("Keep it running", "流しておく"),
+            Text::RunInWindow => ("In a window", "ウィンドウで"),
+            Text::RunFullscreen => ("Full screen", "全画面で"),
+            Text::RunMinutesLabel => (
+                "Close after (min, 0 = never):",
+                "閉じる時間(分、0 = 制限なし):",
+            ),
+            Text::RunStart => ("Start", "開始"),
             Text::SaveFailed => (
                 "The settings could not be saved: {error}",
                 "設定を保存できませんでした: {error}",
@@ -201,6 +228,10 @@ impl Text {
             Text::Stopped => (
                 "Night Freeway SS stopped: {error}",
                 "Night Freeway SS が停止しました: {error}",
+            ),
+            Text::RunFailed => (
+                "Night Freeway SS could not be started: {error}",
+                "Night Freeway SS を起動できませんでした: {error}",
             ),
         }
     }
@@ -268,7 +299,10 @@ mod tests {
         for text in Text::ALL {
             for language in LANGUAGES {
                 let count = text.get(language).matches(ERROR_PLACEHOLDER).count();
-                let expected = usize::from(matches!(text, Text::SaveFailed | Text::Stopped));
+                let expected = usize::from(matches!(
+                    text,
+                    Text::SaveFailed | Text::Stopped | Text::RunFailed
+                ));
                 assert_eq!(count, expected, "{text:?} {language:?}");
             }
         }
@@ -283,6 +317,18 @@ mod tests {
         assert_eq!(
             Text::Stopped.with_error(DisplayLanguage::Japanese, "denied"),
             "Night Freeway SS が停止しました: denied"
+        );
+    }
+
+    #[test]
+    fn the_failure_to_start_names_the_error_in_both_languages() {
+        assert_eq!(
+            Text::RunFailed.with_error(DisplayLanguage::English, "denied"),
+            "Night Freeway SS could not be started: denied"
+        );
+        assert_eq!(
+            Text::RunFailed.with_error(DisplayLanguage::Japanese, "denied"),
+            "Night Freeway SS を起動できませんでした: denied"
         );
     }
 
