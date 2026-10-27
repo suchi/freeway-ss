@@ -8,6 +8,7 @@
 mod body;
 pub mod canvas;
 pub mod cruise;
+pub mod ego;
 pub mod i18n;
 pub mod mountains;
 pub mod projection;
