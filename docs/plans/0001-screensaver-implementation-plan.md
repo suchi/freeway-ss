@@ -104,7 +104,7 @@ AGENTS.mdの方針「2026年10月現在で最も一般的かつオープンソ�
 
 ### 5.1 構成
 
-Cargoワークスペースを2クレートに分ける(計画時の構成。実際のモジュール構成はREADMEの構成表と各フェーズの詳細設計を参照。開発用の`xtask`クレートはPhase 6で追加した。[ADR-0006](../adr/0006-build-release-artifacts-with-cargo-xtask.md))。
+Cargoワークスペースを2クレートに分ける(計画時の構成。実際のモジュール構成は[開発者向けガイド](../developers.md)の構成表と各フェーズの詳細設計を参照。開発用の`xtask`クレートはPhase 6で追加した。[ADR-0006](../adr/0006-build-release-artifacts-with-cargo-xtask.md))。
 
 - `crates/freeway-core`: OS非依存のシーン計算と描画命令の生成。外部依存なしを目標にする
 - `crates/freeway-scr`: Windows固有部分(引数解析、ウィンドウ、Direct2D描画、設定画面、設定の保存)。成果物は`.exe`を`.scr`にリネームして配布する
