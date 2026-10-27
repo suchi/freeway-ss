@@ -125,7 +125,7 @@ flowchart LR
   - 手動実行は既存のタグの再公開だけにした(タグとビルドするコミットがずれないため)。タグが`main`に含まれることと、`Cargo.toml`のバージョンとタグの一致を確かめる
   - リリースのランナーを`windows-2025`・`ubuntu-24.04`に固定した。CIは`-latest`のまま
   - `ci.yml`のWindowsジョブで、x64とARM64の`cargo xtask dist`を実行する
-- リポジトリの設定(ユーザーが行う推奨事項): `main`の保護(PR必須・CI必須・force pushと削除の禁止)と、リリースの改ざん防止(release immutability)。リポジトリはprivateのまま公開する(2026-10-26のユーザー判断)
+- リポジトリの設定(ユーザーが行う推奨事項): `main`の保護(PR必須・CI必須・force pushと削除の禁止)と、リリースの改ざん防止(release immutability)。リポジトリはprivateのまま公開する(2026-10-26のユーザー判断)。その後、リポジトリはpublicになった(2026-10-27にGitHubのAPIで確認)
 
 ## 4. テスト
 
