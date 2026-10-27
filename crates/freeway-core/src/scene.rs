@@ -286,6 +286,22 @@ struct Light {
     kind: Kind,
 }
 
+impl Light {
+    /// The point whose view through a tunnel decides whether the light is
+    /// seen, as (distance, lateral position, height). The point of a face of
+    /// a car body is the middle of its end that faces the camera.
+    fn sight_point(&self) -> (f32, f32, f32) {
+        match self.kind {
+            Kind::Body { corners } => {
+                let near = corners.iter().map(|c| c.0).fold(f32::MAX, f32::min);
+                let top = corners.iter().map(|c| c.2).fold(0.0, f32::max);
+                (near, self.lateral, top * 0.5)
+            }
+            _ => (self.d, self.lateral, self.height),
+        }
+    }
+}
+
 pub struct Scene {
     config: SceneConfig,
     road: RoadShape,
@@ -460,7 +476,7 @@ impl Scene {
             draw_entrance(tunnel, d, &projector, &view, canvas);
         }
 
-        for light in &self.lights() {
+        for light in &self.lights_on(&view) {
             if let Kind::Body { corners } = light.kind {
                 draw_body(&corners, light, viewport, &projector, &view, canvas);
                 continue;
@@ -513,7 +529,12 @@ impl Scene {
         }
     }
 
+    #[cfg(test)]
     fn lights(&self) -> Vec<Light> {
+        self.lights_on(&RoadView::new(&self.road, self.track_s))
+    }
+
+    fn lights_on(&self, view: &RoadView) -> Vec<Light> {
         let mut lights = Vec::new();
         for row in ROWS.iter() {
             // Rows are anchored to the road, so they slide toward the car.
@@ -575,10 +596,22 @@ impl Scene {
             }));
         }
         // Only what fits through a tunnel is seen along it.
-        lights.retain(|l| !self.tunnels.hides(self.track_s, l.d, l.lateral, l.height));
+        let sight = self.tunnels.sight(self.track_s, view);
+        lights.retain(|l| {
+            let (d, lateral, height) = l.sight_point();
+            !sight.hides(d, lateral, height)
+        });
+        let outside = lights.len();
         for tunnel in self.tunnels.ahead() {
             self.tunnel_lights(tunnel, &mut lights);
         }
+        // A wall or the hill may stand in the way of the tunnel's own lights too.
+        let mut index = 0;
+        lights.retain(|l| {
+            index += 1;
+            let (d, lateral, height) = l.sight_point();
+            index <= outside || !sight.blocked(d, lateral, height)
+        });
         lights.sort_by(|a, b| b.d.total_cmp(&a.d));
         lights
     }
@@ -1323,7 +1356,7 @@ mod tests {
         for _ in 0..600 {
             scene.traffic.update(0.05, 27.0);
             for light in scene.lights() {
-                if light.d > 300.0 {
+                if light.sight_point().0 > 300.0 {
                     assert!(light.lateral < 5.5, "{}", light.lateral);
                     same_direction |=
                         light.lateral == -1.75 && light.color == Rgb::new(255, 35, 20);
@@ -1673,6 +1706,135 @@ mod tests {
             let foot = VIEWPORT.height * 0.5 + (CAMERA_HEIGHT - rise) * focal / before as f32;
             assert!((lowest - foot).abs() < 0.5, "{before}: {lowest} {foot}");
         }
+    }
+
+    /// The part of the screen the opening of a tunnel `d` meters ahead takes.
+    fn opening_box(scene: &Scene, d: f32) -> (f32, f32, f32, f32) {
+        let projector = Projector::new(VIEWPORT.width, VIEWPORT.height, true);
+        let view = RoadView::new(&scene.road, scene.track_s);
+        let (bend, rise) = view.offset(d);
+        let mut found = (f32::MAX, f32::MIN, f32::MAX, f32::MIN);
+        for (lateral, height) in crate::tunnel::OPENING {
+            let p = projector
+                .project(d, lateral + bend, height + rise)
+                .expect("the opening is in view");
+            found = (
+                found.0.min(p.x),
+                found.1.max(p.x),
+                found.2.min(p.y),
+                found.3.max(p.y),
+            );
+        }
+        found
+    }
+
+    /// Counts the lights beyond the opening of the tunnel that the camera
+    /// looks into (or out of), and those of them that lie outside it by more
+    /// than `tolerance` pixels.
+    fn lights_outside_the_opening(scene: &Scene, tolerance: f32) -> (usize, usize) {
+        let Some(tunnel) = scene.tunnels.ahead().find(|t| t.end > scene.track_s) else {
+            return (0, 0);
+        };
+        // From a short way before the entrance on, the camera looks out of the exit.
+        let entrance = (tunnel.start - scene.track_s) as f32;
+        let at = if entrance >= NEAR_DISTANCE + 0.5 {
+            entrance
+        } else {
+            (tunnel.end - scene.track_s) as f32
+        };
+        if !(NEAR_DISTANCE..VIEW_DISTANCE - 1.0).contains(&at) {
+            return (0, 0);
+        }
+        let (left, right, top, bottom) = opening_box(scene, at);
+        let projector = Projector::new(VIEWPORT.width, VIEWPORT.height, true);
+        // The walls are checked a little wider than the opening.
+        let tolerance = tolerance + crate::tunnel::SIGHT_MARGIN * projector.focal() / at;
+        let view = RoadView::new(&scene.road, scene.track_s);
+        let (mut beyond, mut outside) = (0, 0);
+        for light in scene.lights() {
+            if light.d <= at + 0.5 || matches!(light.kind, Kind::Body { .. }) {
+                continue;
+            }
+            let (bend, rise) = view.offset(light.d);
+            let Some(p) = projector.project(light.d, light.lateral + bend, light.height + rise)
+            else {
+                continue;
+            };
+            beyond += 1;
+            outside += usize::from(
+                p.x < left - tolerance
+                    || p.x > right + tolerance
+                    || p.y < top - tolerance
+                    || p.y > bottom + tolerance,
+            );
+        }
+        (beyond, outside)
+    }
+
+    #[test]
+    fn nothing_beyond_the_opening_of_a_tunnel_is_seen_outside_the_opening() {
+        let (mut beyond, mut outside) = (0, 0);
+        for seed in 0..8 {
+            let mut scene = Scene::new(zoned_config(seed));
+            for step in 0..24_000 {
+                scene.update(MAX_STEP_SECONDS);
+                if step % 8 != 0 {
+                    continue;
+                }
+                let (b, o) = lights_outside_the_opening(&scene, 2.0);
+                beyond += b;
+                outside += o;
+            }
+        }
+        // Many lights were looked at, and none is seen through the wall.
+        assert!(beyond > 5000, "{beyond}");
+        assert_eq!(outside, 0, "{outside} of {beyond}");
+    }
+
+    #[test]
+    fn the_lamps_on_the_walls_do_not_flicker_as_the_car_drives_by() {
+        use std::collections::HashMap;
+        // A lamp seen from afar gets hidden by the wall of a bend and shows
+        // again as the car comes near: at most twice, not a flicker.
+        let mut most = 0;
+        let mut lamps_seen = 0;
+        for seed in 0..4 {
+            let mut scene = Scene::new(zoned_config(seed));
+            // The lamps by their place on the road (in half meters): whether
+            // they were drawn in the last frame, and how often that changed.
+            let mut states: HashMap<i64, (bool, u32)> = HashMap::new();
+            for step in 0..16_000 {
+                scene.update(MAX_STEP_SECONDS);
+                if step % 2 != 0 || !scene.tunnels.sky_hidden(scene.track_s) {
+                    continue;
+                }
+                let key = |d: f32| ((scene.track_s + f64::from(d)) * 2.0).round() as i64;
+                let drawn: Vec<i64> = scene
+                    .lights()
+                    .iter()
+                    .filter(|l| l.height == 5.0 && (l.lateral == -4.6 || l.lateral == 5.1))
+                    .map(|l| key(l.d))
+                    .collect();
+                for (&place, state) in states.iter_mut() {
+                    let d = place as f64 / 2.0 - scene.track_s;
+                    if (15.0..400.0).contains(&d) {
+                        let now = drawn.contains(&place);
+                        state.1 += u32::from(now != state.0);
+                        state.0 = now;
+                    }
+                }
+                for &place in &drawn {
+                    let d = place as f64 / 2.0 - scene.track_s;
+                    if (15.0..400.0).contains(&d) {
+                        states.entry(place).or_insert((true, 0));
+                    }
+                }
+            }
+            lamps_seen += states.len();
+            most = most.max(states.values().map(|s| s.1).max().unwrap_or(0));
+        }
+        assert!(lamps_seen > 1000, "{lamps_seen}");
+        assert!(most <= 2, "{most}");
     }
 
     fn varying(seed: u64) -> SceneConfig {
@@ -2056,7 +2218,7 @@ mod tests {
         for _ in 0..600 {
             scene.traffic.update(0.05, 27.0);
             for light in scene.lights() {
-                if light.d > 300.0 && matches!(light.kind, Kind::Body { .. }) {
+                if light.sight_point().0 > 300.0 && matches!(light.kind, Kind::Body { .. }) {
                     assert!(light.lateral < 5.5, "{}", light.lateral);
                     same_direction = true;
                 }

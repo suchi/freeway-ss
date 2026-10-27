@@ -136,6 +136,15 @@ impl RoadView {
         (lerp(&self.lateral), lerp(&self.height))
     }
 
+    /// A road without bends and hills.
+    #[cfg(test)]
+    pub(crate) fn flat() -> Self {
+        Self {
+            lateral: vec![0.0; STEPS + 1],
+            height: vec![0.0; STEPS + 1],
+        }
+    }
+
     #[cfg(test)]
     fn lateral(&self) -> &[f32] {
         &self.lateral
