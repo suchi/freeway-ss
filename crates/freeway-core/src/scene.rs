@@ -1612,6 +1612,69 @@ mod tests {
     }
 
     /// A scene with every kind of variation on.
+    fn zoned_config(seed: u64) -> SceneConfig {
+        SceneConfig {
+            seed,
+            scenery_zones: true,
+            car_bodies: CarBodies::Transparent,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn the_foot_of_an_entrance_hill_never_floats_above_the_glow_of_the_horizon() {
+        // The glow of the horizon reaches `BAND_BOTTOM` below the horizon (at
+        // the reference focal length); the hill must stand on or below it,
+        // also when the road climbs to the entrance.
+        let focal = Projector::new(VIEWPORT.width, VIEWPORT.height, true).focal();
+        let limit = VIEWPORT.height * 0.5 + crate::sky::BAND_BOTTOM * focal / crate::sky::REF_FOCAL;
+        let (mut frames, mut climbing) = (0, 0);
+        for seed in 0..12 {
+            let mut scene = Scene::new(zoned_config(seed));
+            for step in 0..12_000 {
+                scene.update(MAX_STEP_SECONDS);
+                if step % 4 != 0 || scene.tunnel_entrance_ahead().is_none() {
+                    continue;
+                }
+                let commands = record(&scene, VIEWPORT);
+                let shapes = silhouettes(&commands);
+                let hill = shapes[shapes.len() - 2].0;
+                let lowest = hill.iter().map(|p| p.1).fold(f32::MIN, f32::max);
+                frames += 1;
+                climbing += usize::from(lowest < VIEWPORT.height * 0.5 + 24.0);
+                assert!(lowest >= limit - 0.5, "seed {seed} step {step}: {lowest}");
+            }
+        }
+        assert!(frames > 500, "{frames}");
+        // Some of the frames have a road that climbs to the entrance.
+        assert!(climbing > 0, "{climbing}");
+    }
+
+    #[test]
+    fn a_hill_that_already_stands_below_the_glow_keeps_its_shape() {
+        // Close to the entrance the road level is below the glow of the
+        // horizon (flat road: nearer than camera height over the glow's
+        // depth, 48 meters), and the hill has its own width and a foot on
+        // the road.
+        let focal = Projector::new(VIEWPORT.width, VIEWPORT.height, true).focal();
+        for before in [30.0, 20.0, 10.0] {
+            let (scene, tunnel) = near_first_tunnel(TunnelLighting::Led, before);
+            let (_, rise) = RoadView::new(&scene.road, scene.track_s).offset(before as f32);
+            let commands = record(&scene, VIEWPORT);
+            let hill = silhouettes(&commands)[0].0;
+            let xs = hill.iter().map(|p| p.0);
+            let width = xs.clone().fold(f32::MIN, f32::max) - xs.fold(f32::MAX, f32::min);
+            let expected = 2.0 * tunnel.hill_half_width * focal / before as f32;
+            assert!(
+                (width - expected).abs() < 0.5,
+                "{before}: {width} {expected}"
+            );
+            let lowest = hill.iter().map(|p| p.1).fold(f32::MIN, f32::max);
+            let foot = VIEWPORT.height * 0.5 + (CAMERA_HEIGHT - rise) * focal / before as f32;
+            assert!((lowest - foot).abs() < 0.5, "{before}: {lowest} {foot}");
+        }
+    }
+
     fn varying(seed: u64) -> SceneConfig {
         SceneConfig {
             seed,

@@ -9,10 +9,11 @@
 use std::collections::VecDeque;
 
 use crate::canvas::{Canvas, Rgb};
-use crate::projection::{NEAR_DISTANCE, Projector, VIEW_DISTANCE};
+use crate::projection::{CAMERA_HEIGHT, NEAR_DISTANCE, Projector, VIEW_DISTANCE};
 use crate::rng::hash01;
 use crate::road::RoadView;
 use crate::scenery::{BLEND_HALF, ZoneKind, Zones};
+use crate::sky::{BAND_BOTTOM, REF_FOCAL};
 
 /// Length of a tunnel, in meters: 20 to 60 seconds at 100 km/h.
 const LENGTH: (f64, f64) = (550.0, 1650.0);
@@ -173,12 +174,19 @@ pub fn draw_entrance(
     };
     // Fades in from the dark of the night so that it does not pop up far away.
     let fade = ((FADE_FAR - d) / (FADE_FAR - FADE_NEAR)).clamp(0.0, 1.0);
+    // The foot of the hill reaches down to the bottom of the glow on the
+    // horizon (as far below the horizon as the mountains), so that no gap of
+    // sky shows under it where the road climbs to the entrance. Its height
+    // above the road is negative then, and the hill widens with it.
+    let foot = (CAMERA_HEIGHT - rise - BAND_BOTTOM / REF_FOCAL * d).min(0.0);
+    let height_above_foot = tunnel.hill_height - foot;
+    let half_width = tunnel.hill_half_width * height_above_foot / tunnel.hill_height;
     let hill: Option<Vec<(f32, f32)>> = (0..=2 * HILL_STEPS)
         .map(|step| {
             let across = step as f32 / HILL_STEPS as f32 - 1.0;
             // A bell that levels off at the foot of the hill on both sides.
-            let height = tunnel.hill_height * 0.5 * (1.0 + (across * std::f32::consts::PI).cos());
-            project(across * tunnel.hill_half_width, height)
+            let bell = 0.5 * (1.0 + (across * std::f32::consts::PI).cos());
+            project(across * half_width, foot + height_above_foot * bell)
         })
         .collect();
     let opening: Option<Vec<(f32, f32)>> = OPENING
