@@ -190,7 +190,7 @@
 - `build.rs`が`CARGO_PKG_VERSION_MAJOR`・`_MINOR`・`_PATCH`・`CARGO_PKG_VERSION`から`VERSION_MAJOR=1`・`VERSION_MINOR=14`・`VERSION_PATCH=0`・`VERSION_TEXT="1.14.0"`を作り、`embed_resource::compile`のマクロとして`rc.exe`に渡す。引用符を含む値の渡し方は、embed-resourceのREADMEの例(`VERSION="0.5.0"`)に倣った
 - `freeway.rc`の`1 VERSIONINFO`(`FILEVERSION`・`PRODUCTVERSION`は`MAJOR,MINOR,PATCH,0`)に、表の値(`FileDescription`・`FileVersion`・`InternalName`・`LegalCopyright`・`OriginalFilename`・`ProductName`・`ProductVersion`)を書いた。言語は`040904b0`、`Translation`は`0x0409, 1200`。表にない`CompanyName`は書いていない
 - 版を上げたときにリソースが作り直されることは、`build.rs`に`cargo:rerun-if-env-changed=CARGO_PKG_VERSION`を加えて保証した(Cargoは版が変わると`CARGO_PKG_VERSION`の値も変わるので、ビルドスクリプトが再び実行される)
-- テスト: `cargo test`が作るテスト用の実行ファイルには、`rustc-link-arg-bins`のリソースが入らない(埋め込まれるのは`bin`の実行ファイルだけ)。そこで設計が許した別の方法を選び、`cargo xtask dist`の`package`で、ビルドした実行ファイルのバイト列から`FileVersion`と`ProductVersion`の文字列(UTF-16。キーの後の0〜2バイトの詰め物の後に値が続く)を探し、`Cargo.toml`の版と一致しなければ配布物を作らない。CIは`cargo xtask dist`を両方のアーキテクチャで実行するので、版の不一致はCIで失敗する。検査の関数は、一致・不一致・片方だけ・詰め物の有無を`xtask`のテストで確かめた
+- テスト: `cargo test`が作る単体テスト用の実行ファイルには、`rustc-link-arg-bins`のリソースが入らない。そこで、ビルドした`bin`の実行ファイルを使う統合テスト`crates/freeway-scr/tests/resources.rs`(v1.13.0からある)に、`RT_VERSION`のリソースを読んで、`FileVersion`・`ProductVersion`が`CARGO_PKG_VERSION`と一致し、製品名・説明・内部名・元のファイル名・著作権が表の値であることを確かめるテストを加えた(文字列はUTF-16で、キーの後の0〜2バイトの詰め物の後に値が続くので、その並びで探す)。加えて、`cargo xtask dist`の`package`でも同じ並びで`FileVersion`と`ProductVersion`を確かめ、一致しなければ配布物を作らない(`xtask`のテストで、一致・不一致・片方だけ・詰め物の有無を確かめた)。どちらもCIで実行される
 - `llvm-rc`(LLVM)で`freeway.rc`を実際にコンパイルし、`.res`の中に`FileVersion`・`ProductVersion`が`1.14.0`として入り、検査の関数と同じ並び方(キー、詰め物、値)であることを確かめた。`rc.exe`での確認はCIの`cargo xtask dist`が行う
 
 ### 7.2 巡航速度のゆらぎ(3.5節)
@@ -252,7 +252,7 @@
 - 検証コマンド(すべて成功): `cargo fmt --all --check`、`cargo clippy --workspace --all-targets -- -D warnings`(Linux・`x86_64-pc-windows-msvc`・`ufo-demo`付き)、`cargo test --workspace`(`freeway-core` 326、`freeway-scr` 61、`xtask` 31)、`cargo check --workspace --all-targets`(`x86_64-pc-windows-msvc`と`aarch64-pc-windows-msvc`)。Windowsのテストはこの環境では実行できないので、CIで実行される(下記)
 - テスト(`freeway-core`): 選んだ速度の変更の速さ(8 m/s²)・範囲・ゆらぎとの組み合わせ、一時停止で何も動かないこと(描画命令も同じ)、通行方向の反転が滑らかで最後は始めからその側の場面と同じ描画になること、一時停止中も反転すること、UFOを呼ぶこと(設定オフでも来る・来訪中の呼び出し・計画した来訪の置き換えと続き)、ゆらぎの間隔(60〜150秒)と加速度の上限、中心を動かしたときの連続性、案内の文字列
 - テスト(`freeway-scr`、Linuxで実行): コナミコマンド(余分なキーの後でも成り立つ・繰り返しは数えない・途中で違うキーが入ると成り立たない・成り立つと履歴が空になる)、キーと操作の対応、押している↑↓の向き、案内の時間(4秒・0.5秒・入力で戻る・一時停止で保つ)
-- テスト(Windowsのみ、CIで実行): キーの対応、`/window`・`/play`でキーが入力になる(繰り返し・フォーカスを失ったときの解放)、マウスが入力になる、プレビューは操作のキーを無視する、意図して閉じた窓がプログラムを終えない、Fで窓と全画面が替わる(全画面はモニター全体、窓は作業領域の中)、Fを続けて押しても場面(走った距離)が続き描画できる、案内を英語・日本語・各強さ・狭い窓で描ける、既存のテスト(Esc以外では終わらない、`/s`はどのキーでも終わる)
+- テスト(Windowsのみ、CIで実行): 版の情報(7.1節)、キーの対応、`/window`・`/play`でキーが入力になる(繰り返し・フォーカスを失ったときの解放)、マウスが入力になる、プレビューは操作のキーを無視する、意図して閉じた窓がプログラムを終えない、Fで窓と全画面が替わる(全画面はモニター全体、窓は作業領域の中)、Fを続けて押しても場面(走った距離)が続き描画できる、案内を英語・日本語・各強さ・狭い窓で描ける、既存のテスト(Esc以外では終わらない、`/s`はどのキーでも終わる)
 - `llvm-rc`での`freeway.rc`のコンパイル(版の情報と、広げたダイアログ)。`rc.exe`でのコンパイルはCIで確認する
 - 描画の時間・実機での見た目・操作感は確かめていない。5章の項目をユーザーの実機確認に回す。特に、案内の板と速度計の重なり、日本語の字形(`Yu Gothic UI`)、急な加減速に見えないか(時定数20秒)、Fの切り替えのちらつき
 
