@@ -51,7 +51,7 @@
 | D | 左側/右側通行の切替 | 設定項目「通行方向」 |
 | Space | 一時停止 | 対象外(スクリーンセイバーでは不要) |
 | F | 全画面切替 | 対象外(常に全画面) |
-| HUD | 速度計と操作ボタン | 設定項目「速度計を表示」(既定はオフ)として速度計のみ |
+| HUD | 速度計と操作ボタン | 設定項目「速度計」(既定はなし)として速度計のみ。v1.10.0で、なし・数字だけ・ダッシュボード(シンプル)・ダッシュボード(作り込み)の4段階にした |
 | コナミコマンド | UFO出現 | 後続フェーズで設定項目として実装(11章 D7) |
 
 ### 2.3 本家READMEとコードの差異
@@ -187,7 +187,7 @@ sequenceDiagram
 | --- | --- | --- | --- |
 | 巡航速度 | 30〜160 km/h | 100 km/h | MVP |
 | 通行方向 | 左側 / 右側 | 左側 | MVP |
-| 速度計を表示 | オン / オフ | オフ | MVP |
+| 速度計 | なし / 数字だけ / ダッシュボード(シンプル) / ダッシュボード(作り込み) | なし | MVP(オン・オフ)、v1.10.0(4段階) |
 | UFOが時々現れる | オン / オフ | オフ | Phase 7.1(実装済み) |
 | 表示言語 | 自動 / English / 日本語 | 自動 | Phase 7.2(実装済み。実機確認待ち) |
 | 遠くの山並みを表示 | オン / オフ | オン | Phase 7.3(実装済み。実機確認待ち) |
@@ -219,7 +219,7 @@ MVPの項目は、本家の実行中の操作と表示(速度・通行方向・H
 | Phase 7: 任意機能 | 完了(7.1〜7.7) | [0007](0007-phase7-optional-features.md)、[0008](0008-phase7-1-ufo.md)、[0009](0009-phase7-2-localization.md)、[0010](0010-phase7-3-mountains.md)、[0011](0011-phase7-4-trucks.md)、[0012](0012-phase7-5-tunnels.md)、[0013](0013-phase7-6-time-variation.md)、[0014](0014-phase7-7-car-bodies.md) | [#16](https://github.com/suchi/freeway-ss/pull/16)(7.1)、[#17](https://github.com/suchi/freeway-ss/pull/17)(7.2)、[#18](https://github.com/suchi/freeway-ss/pull/18)(7.3)、[#19](https://github.com/suchi/freeway-ss/pull/19)(7.4)、[#20](https://github.com/suchi/freeway-ss/pull/20)(7.5)、[#21](https://github.com/suchi/freeway-ss/pull/21)(7.6)、[#22](https://github.com/suchi/freeway-ss/pull/22)(7.7) | 機能ごとに`v1.N.0`。7.1は[v1.1.0](https://github.com/suchi/freeway-ss/releases/tag/v1.1.0)、7.2は[v1.2.0](https://github.com/suchi/freeway-ss/releases/tag/v1.2.0)、7.3は[v1.3.0](https://github.com/suchi/freeway-ss/releases/tag/v1.3.0)、7.4は[v1.4.0](https://github.com/suchi/freeway-ss/releases/tag/v1.4.0)、7.5は[v1.5.0](https://github.com/suchi/freeway-ss/releases/tag/v1.5.0)、7.6は[v1.6.0](https://github.com/suchi/freeway-ss/releases/tag/v1.6.0)、7.7は[v1.7.0](https://github.com/suchi/freeway-ss/releases/tag/v1.7.0) |
 | v1.8.0: 見え方の不具合の修正と立体の車体 | 完了(実機確認済み) | [0015](0015-v1-8-occlusion-and-car-boxes.md) | [#23](https://github.com/suchi/freeway-ss/pull/23) | [v1.8.0](https://github.com/suchi/freeway-ss/releases/tag/v1.8.0) |
 | v1.9.0: 他車の影とトラックらしい形 | 完了(実機確認済み) | [0016](0016-v1-9-shadows-and-truck-shapes.md) | [#24](https://github.com/suchi/freeway-ss/pull/24) | [v1.9.0](https://github.com/suchi/freeway-ss/releases/tag/v1.9.0) |
-| v1.10.0: ダッシュボード風の速度計 | 実装待ち | [0017](0017-v1-10-dashboard-speedometer.md) | - | `v1.10.0`(未公開) |
+| v1.10.0: ダッシュボード風の速度計 | 実装済み(実機確認待ち) | [0017](0017-v1-10-dashboard-speedometer.md) | [#26](https://github.com/suchi/freeway-ss/pull/26) | `v1.10.0`(未公開) |
 | v1.11.0: 他車の形と表示の選び方 | 計画中(v1.10.0の後) | - | - | - |
 
 ```mermaid
