@@ -1,4 +1,4 @@
-# 実装計画: Night Freeway SS(Windowsスクリーンセイバー)
+# 実装計画: Night Freeway SS(Windowsスクリーンセーバー)
 
 - ステータス: 合意済み
 - 日付: 2026-10-26
@@ -8,13 +8,13 @@
 
 ## 1. 目的とスコープ
 
-目的は、mhatta氏の[nightfreeway](https://github.com/mhatta/nightfreeway)(光の点で描いた夜の高速道路をブラウザで表示するアニメーション)と似た挙動・見た目のWindowsスクリーンセイバーを作ることである。
+目的は、mhatta氏の[nightfreeway](https://github.com/mhatta/nightfreeway)(光の点で描いた夜の高速道路をブラウザで表示するアニメーション)と似た挙動・見た目のWindowsスクリーンセーバーを作ることである。
 
 スコープ内:
 
-- Windowsスクリーンセイバー(`.scr`)としての動作: 全画面表示、設定画面、コントロールパネルのプレビュー表示
+- Windowsスクリーンセーバー(`.scr`)としての動作: 全画面表示、設定画面、コントロールパネルのプレビュー表示
 - 本家masterに実装されている主要な描画要素の再現(後述の表で「MVP」としたもの)
-- 本家で実行中にキー操作で変更できる項目のうち、スクリーンセイバーで意味があるものを設定画面から設定できるようにする
+- 本家で実行中にキー操作で変更できる項目のうち、スクリーンセーバーで意味があるものを設定画面から設定できるようにする
 - 配布しやすいリリースバイナリの作成
 
 スコープ外(後続フェーズで扱う):
@@ -41,15 +41,15 @@
 | UFO | コナミコマンドまたは速度計の10回タップで出現するイースターエッグ | 後続フェーズで設定項目として実装(11章 D7) |
 | 通行方向 | 左側/右側通行の切替(左右反転をなめらかに補間) | MVP(設定項目) |
 
-### 2.2 実行中の操作とスクリーンセイバーでの扱い
+### 2.2 実行中の操作とスクリーンセーバーでの扱い
 
-スクリーンセイバーはキー入力・マウス操作で終了するため、本家の操作は実行中には使えない。AGENTS.mdの「実行中に変更できる項目はあらかじめスクリーンセイバー設定画面から設定できる」に従い、次のように対応させる。
+スクリーンセーバーはキー入力・マウス操作で終了するため、本家の操作は実行中には使えない。AGENTS.mdの「実行中に変更できる項目はあらかじめスクリーンセーバー設定画面から設定できる」に従い、次のように対応させる。
 
 | 本家の操作 | 内容 | 本計画での扱い |
 | --- | --- | --- |
 | ↑ / ↓ | 速度 8〜45 m/s(約29〜162 km/h)、初期値28 m/s(約101 km/h) | 設定項目「巡航速度」 |
 | D | 左側/右側通行の切替 | 設定項目「通行方向」 |
-| Space | 一時停止 | 対象外(スクリーンセイバーでは不要) |
+| Space | 一時停止 | 対象外(スクリーンセーバーでは不要) |
 | F | 全画面切替 | 対象外(常に全画面) |
 | HUD | 速度計と操作ボタン | 設定項目「速度計」(既定はなし)として速度計のみ。v1.10.0で、なし・数字だけ・ダッシュボード(シンプル)・ダッシュボード(作り込み)の4段階にした |
 | コナミコマンド | UFO出現 | 後続フェーズで設定項目として実装(11章 D7) |
@@ -62,7 +62,7 @@
 
 ### 3.1 機能要件
 
-- コマンドライン引数による動作モードの切替(Windowsのスクリーンセイバー規約)
+- コマンドライン引数による動作モードの切替(Windowsのスクリーンセーバー規約)
   - `/s`: 全画面で実行する
   - `/c`または`/c:<HWND>`: 設定画面を表示する(引数なしで起動した場合も設定画面)
   - `/p <HWND>`または`/p:<HWND>`: 指定ウィンドウの子ウィンドウとしてプレビューを描画する
@@ -89,7 +89,7 @@ AGENTS.mdの方針「2026年10月現在で最も一般的かつオープンソ�
 | --- | --- | --- | --- |
 | A(採用) | Rust + `windows`クレート(Microsoft公式) + Direct2D | 言語・ツールチェーン・バインディングがすべてOSSで無償。ランタイム不要の単一exeを小さく作れる(CRT静的リンク)。Direct2Dが加算合成・放射/線形グラデーションを備え、本家のCanvas 2D描画と対応付けやすい。ロジックをOS非依存クレートに分けてLinuxでもテストできる | 設定画面をWin32 APIで作る必要があり、GUIフレームワークに比べてコード量が増える。Win32/COMの`unsafe`呼び出しが増える |
 | B | C# / .NET 10(LTS) + Windows Forms(設定画面) + Direct2Dバインディング(Vortice.Windows等) | Windowsデスクトップ開発で最も一般的な構成の一つ。設定画面をWindows Formsで容易に作れる | ランタイム不要の単一ファイルは自己完結型の単一ファイル発行(`SelfContained`・`PublishSingleFile`・`IncludeNativeLibrariesForSelfExtract`)で作れる。ただしWindows FormsはNative AOT・トリミングに公式対応していないため、ランタイムとフレームワークライブラリを丸ごと含み配布サイズが大きくなる。またネイティブライブラリは初回起動時(または展開済みファイルの欠損時)に`%TEMP%\.net`配下へ展開され、以後は再利用される |
-| C | C++ + Win32 + Direct2D | スクリーンセイバーの古典的な作り方で、Microsoftのサンプル・ドキュメントが最も多い | 標準的なツールチェーン(MSVC)はOSSではない。メモリ安全性・ビルド構成の管理コストが高い |
+| C | C++ + Win32 + Direct2D | スクリーンセーバーの古典的な作り方で、Microsoftのサンプル・ドキュメントが最も多い | 標準的なツールチェーン(MSVC)はOSSではない。メモリ安全性・ビルド構成の管理コストが高い |
 | D | WebView2/Electron等で本家HTMLを包む | 見た目を最も忠実に再現できる | 本家の実装をそのまま使うことになり、「アルゴリズムや実装方法は言語やエコシステムに合わせて独自に作成する」方針に合わない。プレビュー(`/p`)の子ウィンドウ描画・配布サイズに難がある |
 
 採用理由(案A):
@@ -211,7 +211,7 @@ MVPの項目は、本家の実行中の操作と表示(速度・通行方向・H
 | フェーズ | 状態 | 詳細設計 | PR | リリース |
 | --- | --- | --- | --- | --- |
 | Phase 0: 開発基盤 | 完了 | - | [#2](https://github.com/suchi/freeway-ss/pull/2) | - |
-| Phase 1: スクリーンセイバーの骨格 | 完了(実機確認済み) | - | [#3](https://github.com/suchi/freeway-ss/pull/3) | [v0.1.0](https://github.com/suchi/freeway-ss/releases/tag/v0.1.0) |
+| Phase 1: スクリーンセーバーの骨格 | 完了(実機確認済み) | - | [#3](https://github.com/suchi/freeway-ss/pull/3) | [v0.1.0](https://github.com/suchi/freeway-ss/releases/tag/v0.1.0) |
 | Phase 2: 道路と投影 | 完了(実機確認済み) | [0002](0002-phase2-road-and-projection.md) | [#5](https://github.com/suchi/freeway-ss/pull/5)、[#7](https://github.com/suchi/freeway-ss/pull/7) | [v0.2.0](https://github.com/suchi/freeway-ss/releases/tag/v0.2.0) |
 | Phase 3: 背景 | 完了(実機確認済み) | [0003](0003-phase3-background.md) | [#8](https://github.com/suchi/freeway-ss/pull/8) | [v0.3.0](https://github.com/suchi/freeway-ss/releases/tag/v0.3.0) |
 | Phase 4: 他車 | 完了(実機確認済み) | [0004](0004-phase4-traffic.md) | [#11](https://github.com/suchi/freeway-ss/pull/11) | [v0.4.0](https://github.com/suchi/freeway-ss/releases/tag/v0.4.0) |
@@ -243,10 +243,10 @@ flowchart LR
 - ユーザー承認が必要な変更: GitHub Actionsのワークフロー追加、`.github/dependabot.yml`への`cargo`エコシステム追加(いずれもAGENTS.mdのセキュリティ設定に該当)
 - 完了条件: 空のワークスペースで検証コマンドがすべて成功し、CIがグリーン
 
-### Phase 1: スクリーンセイバーの骨格
+### Phase 1: スクリーンセーバーの骨格
 
 - 内容: 引数解析(`/s`・`/c`・`/p`、大文字小文字や`:`区切りの揺れを許容)、全画面ウィンドウ(モニタごと)、終了条件、プレビュー用子ウィンドウ、Direct2D初期化とデバイス喪失時の再作成、黒画面に簡単なテスト描画
-- 完了条件: Windowsのスクリーンセイバー設定画面で選択・プレビュー・実行・終了ができる。引数解析はユニットテスト済み
+- 完了条件: Windowsのスクリーンセーバー設定画面で選択・プレビュー・実行・終了ができる。引数解析はユニットテスト済み
 
 ### Phase 2: 道路と投影
 
@@ -293,7 +293,7 @@ flowchart LR
 
 手動テスト(PRごとに該当項目を実施し、PR本文に結果を記載):
 
-- スクリーンセイバー設定画面でのプレビュー、設定ボタン、プレビューボタン
+- スクリーンセーバー設定画面でのプレビュー、設定ボタン、プレビューボタン
 - 待機時間経過による起動と、キー・マウスでの終了
 - マルチモニタ(解像度・DPIが異なる組み合わせ)、DPI 100%/150%/200%
 - 「再開時にログオン画面に戻る」が有効な場合の動作
@@ -343,7 +343,7 @@ flowchart LR
 | --- | --- | --- | --- |
 | D1 | 言語・描画方式 | 案A(Rust + `windows`クレート + Direct2D) | [ADR-0001](../adr/0001-use-rust-windows-crate-and-direct2d.md) |
 | D2 | 本リポジトリのライセンス | MIT | [ADR-0002](../adr/0002-license-under-mit.md) |
-| D3 | スクリーンセイバーの表示名・ファイル名 | 表示名「Night Freeway SS」、ファイル名`NightFreewaySS.scr` | 本書 |
+| D3 | スクリーンセーバーの表示名・ファイル名 | 表示名「Night Freeway SS」、ファイル名`NightFreewaySS.scr` | 本書 |
 | D4 | マルチモニタ | モニタごとに独立した場面を描画する | [ADR-0003](../adr/0003-render-independent-scene-per-monitor.md) |
 | D5 | 設定の保存先 | レジストリ`HKCU\Software\NightFreewaySS` | [ADR-0004](../adr/0004-store-settings-in-registry.md) |
 | D6 | MVPの設定項目 | 巡航速度・通行方向・速度計の表示(5.4節) | 本書 |
@@ -378,7 +378,7 @@ D3の表示名は本家の名前を含むため、本家と別プロジェクト
 いずれも2026-10-26に確認した。
 
 - [mhatta/nightfreeway](https://github.com/mhatta/nightfreeway): コミット`7b98218`の`index.html`・README・LICENSE
-- [Handling Screen Savers (Microsoft Learn)](https://learn.microsoft.com/en-us/windows/win32/lwef/screen-saver-library): スクリーンセイバーの仕組みと終了条件(`WM_KEYDOWN`・`WM_MOUSEMOVE`・`WM_ACTIVATE`等)。ソースは[MicrosoftDocs/win32](https://github.com/MicrosoftDocs/win32/blob/docs/desktop-src/lwef/screen-saver-library.md)で確認
+- [Handling Screen Savers (Microsoft Learn)](https://learn.microsoft.com/en-us/windows/win32/lwef/screen-saver-library): スクリーンセーバーの仕組みと終了条件(`WM_KEYDOWN`・`WM_MOUSEMOVE`・`WM_ACTIVATE`等)。ソースは[MicrosoftDocs/win32](https://github.com/MicrosoftDocs/win32/blob/docs/desktop-src/lwef/screen-saver-library.md)で確認
 - [D2D1_PRIMITIVE_BLEND enumeration (Microsoft Learn)](https://learn.microsoft.com/en-us/windows/win32/api/d2d1_1/ne-d2d1_1-d2d1_primitive_blend): `D2D1_PRIMITIVE_BLEND_ADD`は「ソースとデスティネーションの和」、Windows 8以降。ソースは[MicrosoftDocs/sdk-api](https://github.com/MicrosoftDocs/sdk-api/blob/docs/sdk-api-src/content/d2d1_1/ne-d2d1_1-d2d1_primitive_blend.md)で確認
 - [Rust stable channel manifest](https://static.rust-lang.org/dist/channel-rust-stable.toml): 安定版1.99.1(2026-10-13)
 - [crates.io: windows](https://crates.io/crates/windows): 最新安定版0.62.2(2025-10-06公開)、MIT OR Apache-2.0、リポジトリ`microsoft/windows-rs`
@@ -387,4 +387,4 @@ D3の表示名は本家の名前を含むため、本家と別プロジェクト
 - [dotnet/runtime v10.0.0 `src/native/corehost/bundle/extractor.cpp`](https://github.com/dotnet/runtime/blob/v10.0.0/src/native/corehost/bundle/extractor.cpp): ディスクへの展開は初回起動時に行われ、以後の起動では展開済みファイルが再利用される(欠損したファイルは再展開される)
 - [Known trimming incompatibilities (Microsoft Learn)](https://learn.microsoft.com/en-us/dotnet/core/deploying/trimming/incompatibilities)および[dotnet/winforms#9911](https://github.com/dotnet/winforms/issues/9911): Windows Formsはトリミング(Native AOTの前提)に公式対応していない。Microsoft Learnのページは本環境から直接取得できず検索結果の要約で確認したため、案B採用時は再確認が必要
 
-スクリーンセイバーの引数(`/s`・`/c`・`/p`)の形式は、上記Microsoft Learnのページには明記がなく、古いサポート技術情報と広く知られた慣例に基づく。Phase 1で実機のスクリーンセイバー設定画面から渡される引数を記録して確認する。
+スクリーンセーバーの引数(`/s`・`/c`・`/p`)の形式は、上記Microsoft Learnのページには明記がなく、古いサポート技術情報と広く知られた慣例に基づく。Phase 1で実機のスクリーンセーバー設定画面から渡される引数を記録して確認する。

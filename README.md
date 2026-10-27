@@ -1,6 +1,6 @@
 # Night Freeway SS
 
-夜の高速道路を光の点で描く、Windows用のスクリーンセイバー。mhatta氏の[nightfreeway](https://github.com/mhatta/nightfreeway)(ブラウザで動くアニメーション)を参考に、挙動と見た目を似せてRustで独自に実装している。本家とは別のプロジェクトである。
+夜の高速道路を光の点で描く、Windows用のスクリーンセーバー。mhatta氏の[nightfreeway](https://github.com/mhatta/nightfreeway)(ブラウザで動くアニメーション)を参考に、挙動と見た目を似せてRustで独自に実装している。本家とは別のプロジェクトである。
 
 ## 特徴
 

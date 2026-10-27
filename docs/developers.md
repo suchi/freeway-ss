@@ -50,7 +50,7 @@ ARM64向けは`cargo xtask dist --target aarch64-pc-windows-msvc`で作る。`.s
 
 - `NightFreewaySS.scr /s`: 全画面で実行する。キー入力・クリック・マウスの移動で終了する
 - `NightFreewaySS.scr /c`(または`.scr`のダブルクリック): 設定画面を開く
-- `.scr`を右クリックして「インストール」: スクリーンセイバーの設定画面に加わり、プレビューと、待機時間の後の起動を確かめられる。Windowsの「インストール」はファイルをコピーせず、展開した場所の`.scr`をそのまま登録する(`HKEY_CURRENT_USER\Control Panel\Desktop`の`SCRNSAVE.EXE`)
+- `.scr`を右クリックして「インストール」: スクリーンセーバーの設定画面に加わり、プレビューと、待機時間の後の起動を確かめられる。Windowsの「インストール」はファイルをコピーせず、展開した場所の`.scr`をそのまま登録する(`HKEY_CURRENT_USER\Control Panel\Desktop`の`SCRNSAVE.EXE`)
 
 UFOは、設定をオンにしても平均10分に1回しか現れない。実機で確かめるときは、Cargoのフィーチャー`ufo-demo`を付けてビルドする(`cargo build --release -p freeway-scr --features ufo-demo`)。平均の間隔が20秒になる。配布物(`cargo xtask dist`)とリリースには使わない。
 
