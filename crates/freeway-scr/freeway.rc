@@ -61,7 +61,7 @@ BEGIN
     LTEXT           "Tunnels:", 114, 12, 194, 48, 8
     CONTROL         "", 115, "COMBOBOX", DROPDOWN_STYLE, 62, 192, 150, 60
     LTEXT           "Car bodies:", 119, 12, 212, 48, 8
-    CONTROL         "", 120, "COMBOBOX", DROPDOWN_STYLE, 62, 210, 150, 60
+    CONTROL         "", 120, "COMBOBOX", DROPDOWN_STYLE, 62, 210, 150, 70
     LTEXT           "Body color:", 122, 12, 230, 48, 8
     CONTROL         "", 123, "COMBOBOX", DROPDOWN_STYLE, 62, 228, 150, 60
     LTEXT           "Language:", 110, 12, 248, 48, 8

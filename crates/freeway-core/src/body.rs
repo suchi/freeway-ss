@@ -87,13 +87,15 @@ pub fn depth_at(
     // A side or a roof that is a rectangle in its plane has the distance
     // found by halving; other faces, slanted or cut, are found by their
     // corners on the screen.
-    if constant(|c| c.1) && kinds(|c| c.0) <= 2 && kinds(|c| c.2) <= 2 {
+    // Four different corners: a triangle, with two corners the same, is not one.
+    let four = (0..4).all(|i| (0..i).all(|j| corners[i] != corners[j]));
+    if four && constant(|c| c.1) && kinds(|c| c.0) <= 2 && kinds(|c| c.2) <= 2 {
         // The side stands at one lateral position: the screen x tells the distance.
         let d = solve(near, far, |d| Some(project(d, left, 0.0)?.x - x))?;
         let (low, high) = (project(d, left, bottom)?.y, project(d, left, top)?.y);
         return (low.min(high)..=low.max(high)).contains(&y).then_some(d);
     }
-    if constant(|c| c.2) && kinds(|c| c.0) <= 2 && kinds(|c| c.1) <= 2 {
+    if four && constant(|c| c.2) && kinds(|c| c.0) <= 2 && kinds(|c| c.1) <= 2 {
         // The roof lies at one height: the screen y tells the distance.
         let d = solve(near, far, |d| Some(project(d, left, bottom)?.y - y))?;
         let (a, b) = (project(d, left, bottom)?.x, project(d, right, bottom)?.x);
@@ -281,6 +283,21 @@ mod tests {
         assert!((found - 20.4).abs() < 2e-2, "{found}");
         // Over the high end, the same height is covered.
         assert!(at(&side, 23.8, 0.85, 0.9, (0.0, 0.0)).is_some());
+    }
+
+    #[test]
+    fn a_triangle_of_a_side_covers_only_the_triangle() {
+        // The upper part of the side of a cab at the front window: a triangle
+        // with two of its corners the same.
+        let triangle = [
+            (20.0, 0.85, 0.9),
+            (20.0, 0.85, 0.9),
+            (21.0, 0.85, 1.5),
+            (21.0, 0.85, 0.9),
+        ];
+        // The corner of the rectangle that it is not part of, above its slope.
+        assert_eq!(at(&triangle, 20.2, 0.85, 1.4, (0.0, 0.0)), None);
+        assert!(at(&triangle, 20.8, 0.85, 1.0, (0.0, 0.0)).is_some());
     }
 
     #[test]

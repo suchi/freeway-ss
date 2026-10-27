@@ -21,8 +21,7 @@ use windows::Win32::Graphics::Direct2D::{
     D2D1_BUFFER_PRECISION_8BPC_UNORM, D2D1_CAP_STYLE_ROUND, D2D1_COLOR_INTERPOLATION_MODE_STRAIGHT,
     D2D1_COLOR_SPACE_SRGB, D2D1_COMBINE_MODE_EXCLUDE, D2D1_DASH_STYLE_SOLID,
     D2D1_DEVICE_CONTEXT_OPTIONS_NONE, D2D1_DRAW_TEXT_OPTIONS_NONE, D2D1_ELLIPSE,
-    D2D1_EXTEND_MODE_CLAMP, D2D1_FACTORY_TYPE_SINGLE_THREADED,
-    D2D1_GEOMETRY_SIMPLIFICATION_OPTION_CUBICS_AND_LINES, D2D1_LINE_JOIN_ROUND,
+    D2D1_EXTEND_MODE_CLAMP, D2D1_FACTORY_TYPE_SINGLE_THREADED, D2D1_LINE_JOIN_ROUND,
     D2D1_LINEAR_GRADIENT_BRUSH_PROPERTIES, D2D1_PRIMITIVE_BLEND_ADD,
     D2D1_PRIMITIVE_BLEND_SOURCE_OVER, D2D1_RADIAL_GRADIENT_BRUSH_PROPERTIES,
     D2D1_STROKE_STYLE_PROPERTIES1, D2D1_UNIT_MODE_PIXELS, D2D1CreateFactory, ID2D1Bitmap1,
@@ -582,36 +581,25 @@ impl D2dCanvas<'_> {
             })
             .collect::<Result<_>>()?;
         unsafe {
-            let ellipse = self.factory.CreateEllipseGeometry(&D2D1_ELLIPSE {
-                point: Vector2 { X: x, Y: y },
-                radiusX: rx,
-                radiusY: ry,
+            // Why: the pool is the gradient of the brush, which fades to nothing
+            // at the edge of its ellipse, so filling the rectangle around the
+            // ellipse draws the same; the rectangle has four corners where the
+            // ellipse has many segments, which makes the cut cheaper.
+            let around = self.factory.CreateRectangleGeometry(&D2D_RECT_F {
+                left: x - rx,
+                top: y - ry,
+                right: x + rx,
+                bottom: y + ry,
             })?;
             // Why: the brush is a unit circle that the transform of the
             // context scales into place; the cut shape is in pixels, so the
             // brush carries the transform instead.
             let cut = self.factory.CreatePathGeometry()?;
             let sink = cut.Open()?;
-            if shapes.is_empty() {
-                // Nothing to cut out: the whole ellipse.
-                ellipse.Simplify(
-                    D2D1_GEOMETRY_SIMPLIFICATION_OPTION_CUBICS_AND_LINES,
-                    None,
-                    0.25,
-                    &sink,
-                )?;
-            } else {
-                let group = self
-                    .factory
-                    .CreateGeometryGroup(D2D1_FILL_MODE_WINDING, &shapes)?;
-                ellipse.CombineWithGeometry(
-                    &group,
-                    D2D1_COMBINE_MODE_EXCLUDE,
-                    None,
-                    0.25,
-                    &sink,
-                )?;
-            }
+            let group = self
+                .factory
+                .CreateGeometryGroup(D2D1_FILL_MODE_WINDING, &shapes)?;
+            around.CombineWithGeometry(&group, D2D1_COMBINE_MODE_EXCLUDE, None, 0.25, &sink)?;
             sink.Close()?;
             brush.SetOpacity(alpha);
             brush.SetTransform(&Matrix3x2 {
@@ -731,7 +719,7 @@ impl Canvas for D2dCanvas<'_> {
         alpha: f32,
         shadows: &[Vec<(f32, f32)>],
     ) {
-        if !alpha.is_finite() || shadows.is_empty() {
+        if !alpha.is_finite() || shadows.iter().all(|points| points.len() < 3) {
             self.light_pool(x, y, radius_x, radius_y, color, alpha);
             return;
         }

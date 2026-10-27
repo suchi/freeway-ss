@@ -1042,7 +1042,13 @@ impl Shadow {
         let spread = 2.0 * (index as f32 + 0.5) / SHADOW_LAYERS as f32 - 1.0;
         let polygon = offset_polygon(self.points(), self.soft * spread);
         let polygon = clip_distance(polygon, |d| d - NEAR_DISTANCE);
-        clip_distance(polygon, |d| VIEW_DISTANCE - 0.01 - d)
+        let polygon = clip_distance(polygon, |d| VIEW_DISTANCE - 0.01 - d);
+        // Rounding in the cut may leave a point a hair outside what can be
+        // projected, which would lose the whole shadow.
+        polygon
+            .into_iter()
+            .map(|(d, lateral)| (d.clamp(NEAR_DISTANCE, VIEW_DISTANCE - 0.01), lateral))
+            .collect()
     }
 }
 
@@ -3213,6 +3219,24 @@ mod tests {
                         turns.iter().all(|&t| t >= -1e-3) || turns.iter().all(|&t| t <= 1e-3),
                         "{turns:?}"
                     );
+                }
+            }
+        }
+        // Every point of every layer can be projected, however the box is cut.
+        for lamp in [1.0, 2.5, 50.0, 349.0] {
+            for step in 0..200 {
+                let ahead = -40.0 + step as f32 * 0.37;
+                let body = box_beside_a_lamp(ahead, lamp);
+                let Some(shadow) = cast(&body, lamp) else {
+                    continue;
+                };
+                for index in 0..SHADOW_LAYERS {
+                    for (d, lateral) in shadow.layer(index) {
+                        assert!(
+                            (NEAR_DISTANCE..VIEW_DISTANCE).contains(&d) && lateral.is_finite(),
+                            "{lamp} {ahead} {index}: {d}"
+                        );
+                    }
                 }
             }
         }
