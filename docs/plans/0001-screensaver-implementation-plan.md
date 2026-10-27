@@ -217,6 +217,7 @@ MVPの項目は、本家の実行中の操作と表示(速度・通行方向・H
 | Phase 5: 設定画面と保存 | 完了(実機確認済み) | [0005](0005-phase5-settings.md) | [#12](https://github.com/suchi/freeway-ss/pull/12) | [v0.5.0](https://github.com/suchi/freeway-ss/releases/tag/v0.5.0) |
 | Phase 6: リリース | 完了(実機確認済み) | [0006](0006-phase6-release.md) | [#14](https://github.com/suchi/freeway-ss/pull/14) | [v1.0.0](https://github.com/suchi/freeway-ss/releases/tag/v1.0.0)(正式版) |
 | Phase 7: 任意機能 | 完了(7.1〜7.7) | [0007](0007-phase7-optional-features.md)、[0008](0008-phase7-1-ufo.md)、[0009](0009-phase7-2-localization.md)、[0010](0010-phase7-3-mountains.md)、[0011](0011-phase7-4-trucks.md)、[0012](0012-phase7-5-tunnels.md)、[0013](0013-phase7-6-time-variation.md)、[0014](0014-phase7-7-car-bodies.md) | [#16](https://github.com/suchi/freeway-ss/pull/16)(7.1)、[#17](https://github.com/suchi/freeway-ss/pull/17)(7.2)、[#18](https://github.com/suchi/freeway-ss/pull/18)(7.3)、[#19](https://github.com/suchi/freeway-ss/pull/19)(7.4)、[#20](https://github.com/suchi/freeway-ss/pull/20)(7.5)、[#21](https://github.com/suchi/freeway-ss/pull/21)(7.6)、[#22](https://github.com/suchi/freeway-ss/pull/22)(7.7) | 機能ごとに`v1.N.0`。7.1は[v1.1.0](https://github.com/suchi/freeway-ss/releases/tag/v1.1.0)、7.2は[v1.2.0](https://github.com/suchi/freeway-ss/releases/tag/v1.2.0)、7.3は[v1.3.0](https://github.com/suchi/freeway-ss/releases/tag/v1.3.0)、7.4は[v1.4.0](https://github.com/suchi/freeway-ss/releases/tag/v1.4.0)、7.5は[v1.5.0](https://github.com/suchi/freeway-ss/releases/tag/v1.5.0)、7.6は[v1.6.0](https://github.com/suchi/freeway-ss/releases/tag/v1.6.0)、7.7は[v1.7.0](https://github.com/suchi/freeway-ss/releases/tag/v1.7.0) |
+| v1.8.0: 見え方の不具合の修正と立体の車体 | 実装待ち | [0015](0015-v1-8-occlusion-and-car-boxes.md) | - | `v1.8.0`(未公開) |
 
 ```mermaid
 flowchart LR
@@ -353,6 +354,7 @@ flowchart LR
 | D16 | トンネル | 100 km/hで平均3分に1本、通り抜けるのに20秒〜1分。照明の色は設定で選べる(混在・ナトリウム灯・LED)。「なし」も選べ、既定は混在。2026-10-26のユーザー判断 | [0012](0012-phase7-5-tunnels.md) |
 | D17 | 設定値の時間的な変化 | 巡航速度のゆらぎ(±20 km/h)・時刻に応じた交通量・景色の区間(100 km/hで10〜20分ごとに山あいと平野)。それぞれ設定でオン・オフでき、既定はすべてオン。2026-10-26のユーザー判断 | [0013](0013-phase7-6-time-variation.md) |
 | D18 | 他車の車体 | 車の大きさを想定した単純な四角で車体を不透明に描き、奥の光を隠す。不透明か透明(灯火だけ)かは設定で選べる。7.7として7.6の次に行う。既定は透明で、色は半透明の黒(不透明度90%)と黒から選べる。2026-10-26のユーザー依頼と判断 | [0007](0007-phase7-optional-features.md)、[0014](0014-phase7-7-car-bodies.md) |
+| D19 | 見え方の不具合の修正と立体の車体 | 坑口の丘の浮き・トンネルの壁の向こうの光・車体と光のちらつきを直し、車体を面ごとに濃さの違う箱にする。4点を1つのPRにしてv1.8.0とする。丘の浮きは裾を広げて直す。2026-10-27のユーザー報告と判断 | [0015](0015-v1-8-occlusion-and-car-boxes.md) |
 
 検討時の選択肢:
 
