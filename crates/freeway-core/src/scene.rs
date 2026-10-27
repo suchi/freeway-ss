@@ -132,6 +132,8 @@ const OWN_LIGHT_LEAD: f32 = 0.001;
 const BODY_END: Rgb = Rgb::new(0, 0, 0);
 const BODY_SIDE: Rgb = Rgb::new(14, 15, 18);
 const BODY_ROOF: Rgb = Rgb::new(22, 23, 27);
+/// Windows are darker and bluer than the paint.
+const BODY_GLASS: Rgb = Rgb::new(12, 14, 20);
 
 /// The street lamps on the median: where they stand across the road, how
 /// high, how far apart along it, and how far their pools of light on the
@@ -761,6 +763,7 @@ impl Scene {
                     FacePart::End => BODY_END,
                     FacePart::Side => BODY_SIDE,
                     FacePart::Roof => BODY_ROOF,
+                    FacePart::Glass => BODY_GLASS,
                 },
                 alpha: opacity,
                 kind: Kind::Body {
@@ -969,26 +972,40 @@ impl Shadow {
     /// Each corner of the box is projected from the lamp onto the road, and
     /// the shadow is the convex hull of the projections.
     fn of(body: &BodyBox, heights: (f32, f32), lamp: f32) -> Option<Self> {
-        let mut cast = Vec::with_capacity(8);
-        for height in [heights.0, heights.1] {
+        // The corners of a box at its lowest and highest height, or the points
+        // of the outline of a car.
+        let corners: Vec<(f32, f32, f32)> = match &body.solid {
+            Some(solid) => solid.casts(),
+            None => [heights.0, heights.1]
+                .into_iter()
+                .flat_map(|height| {
+                    [
+                        (body.near, body.left),
+                        (body.near, body.right),
+                        (body.far, body.right),
+                        (body.far, body.left),
+                    ]
+                    .map(|(d, lateral)| (d, lateral, height))
+                })
+                .collect(),
+        };
+        let mut cast = Vec::with_capacity(corners.len());
+        for (d, lateral, height) in corners {
             if height >= LAMP_HEIGHT {
                 return None;
             }
             // The line from the lamp through the corner meets the road
             // this many times as far from the lamp as the corner is.
             let stretch = LAMP_HEIGHT / (LAMP_HEIGHT - height);
-            for (d, lateral) in [
-                (body.near, body.left),
-                (body.near, body.right),
-                (body.far, body.right),
-                (body.far, body.left),
-            ] {
-                cast.push((
-                    lamp + (d - lamp) * stretch,
-                    LAMP_LATERAL + (lateral - LAMP_LATERAL) * stretch,
-                ));
-            }
+            cast.push((
+                lamp + (d - lamp) * stretch,
+                LAMP_LATERAL + (lateral - LAMP_LATERAL) * stretch,
+            ));
         }
+        let heights = (
+            heights.0,
+            body.solid.as_ref().map_or(heights.1, |s| s.top()),
+        );
         let hull = convex_hull(cast);
         let hull = clip_distance(hull, |d| d - NEAR_DISTANCE);
         let hull = clip_distance(hull, |d| VIEW_DISTANCE - 0.01 - d);
@@ -2783,6 +2800,14 @@ mod tests {
         }
     }
 
+    /// A scene whose cars have bodies with the outlines of cars.
+    fn detailed_config(seed: u64, car_color: CarColor) -> SceneConfig {
+        SceneConfig {
+            car_shapes: CarShapes::Detailed,
+            ..bodies_config(seed, car_color)
+        }
+    }
+
     /// A scene whose cars have no bodies.
     fn plain_config(seed: u64) -> SceneConfig {
         SceneConfig {
@@ -3095,6 +3120,7 @@ mod tests {
             half_length: 2.25,
             shadow: Some((0.0, 1.45)),
             covered: None,
+            solid: None,
         }
     }
 
@@ -3479,6 +3505,101 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn detailed_bodies_are_valid_through_a_whole_drive_on_both_sides_of_the_road() {
+        for left_hand_traffic in [true, false] {
+            for trucks in [TruckStyle::Japanese, TruckStyle::NorthAmerican] {
+                let mut scene = Scene::new(SceneConfig {
+                    left_hand_traffic,
+                    trucks,
+                    ..detailed_config(9, CarColor::TranslucentBlack)
+                });
+                let mut windows = 0;
+                for _ in 0..1200 {
+                    scene.update(0.05);
+                    let commands = record(&scene, VIEWPORT);
+                    for command in &commands {
+                        assert_valid(command);
+                    }
+                    // Windows are bluer than the paint.
+                    windows += scene
+                        .lights()
+                        .iter()
+                        .filter(|l| matches!(l.kind, Kind::Body { .. }) && l.color == BODY_GLASS)
+                        .count();
+                }
+                assert!(windows > 100, "{windows}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_light_is_drawn_before_the_detailed_bodies_in_front_of_it_and_after_those_behind_it() {
+        let (mut behind, mut front) = (0, 0);
+        for seed in 1..=2 {
+            covered_pairs(
+                detailed_config(seed, CarColor::TranslucentBlack),
+                |lights, light, body, is_behind| {
+                    if lights[light].car.is_some() {
+                        return;
+                    }
+                    assert_eq!(light < body, is_behind, "{seed}");
+                    behind += usize::from(is_behind);
+                    front += usize::from(!is_behind);
+                },
+            );
+        }
+        assert!(behind > 200 && front > 200, "{behind} {front}");
+    }
+
+    #[test]
+    fn an_opaque_detailed_body_hides_the_lights_behind_it() {
+        // No light that is seen over a body, and farther than it, is drawn.
+        let mut hidden = 0;
+        for seed in 1..=2 {
+            let config = detailed_config(seed, CarColor::Black);
+            let projector = Projector::new(1280.0, 720.0, config.left_hand_traffic);
+            let mut scene = Scene::new(config);
+            for step in 0..2000 {
+                scene.update(MAX_STEP_SECONDS);
+                if step % 8 != 0 {
+                    continue;
+                }
+                let view = RoadView::new(&scene.road, scene.track_s);
+                let lights = scene.lights_on(&view, &projector);
+                let faces: Vec<(Option<u32>, Corners)> = lights
+                    .iter()
+                    .filter_map(|l| match l.kind {
+                        Kind::Body { corners, .. } => Some((l.car, corners)),
+                        _ => None,
+                    })
+                    .collect();
+                for light in &lights {
+                    if light.on_road()
+                        || !matches!(light.kind, Kind::Glow { .. } | Kind::Glare { .. })
+                        || light.car.is_some()
+                    {
+                        continue;
+                    }
+                    let (bend, rise) = view.offset(light.d);
+                    let Some(p) =
+                        projector.project(light.d, light.lateral + bend, light.height + rise)
+                    else {
+                        continue;
+                    };
+                    for (_, corners) in &faces {
+                        if let Some(depth) = depth_at(corners, &projector, &view, (p.x, p.y)) {
+                            assert!(light.d <= depth + 1e-3, "{seed}: {} {depth}", light.d);
+                            hidden += 1;
+                        }
+                    }
+                }
+            }
+        }
+        assert!(hidden > 50, "{hidden}");
+    }
+
     /// A hash of the commands drawn over a drive, which tests that a picture
     /// without car bodies is that of v1.10.0. With `exact`, the numbers of the
     /// commands count; otherwise only which commands are drawn in which order.
@@ -3598,7 +3719,7 @@ mod tests {
     fn the_shapes_of_car_bodies_draw_what_they_should() {
         for seed in [1, 2, 3] {
             // Trucks are made of several boxes that cast shadows when they are
-            // detailed, so there are none: cars cast one shadow in both.
+            // blocks, so there are none: cars cast one shadow in all.
             let config = |car_shapes| SceneConfig {
                 car_shapes,
                 trucks: TruckStyle::None,
@@ -3612,12 +3733,16 @@ mod tests {
             let (none_bodies, none_shadows) = drawn(CarShapes::None);
             assert_eq!((none_bodies, none_shadows), (0, 0), "{seed}");
             let (boxes_bodies, boxes_shadows) = drawn(CarShapes::Boxes);
-            let (detailed_bodies, detailed_shadows) = drawn(CarShapes::Blocks);
+            let (blocks_bodies, blocks_shadows) = drawn(CarShapes::Blocks);
+            let (detailed_bodies, detailed_shadows) = drawn(CarShapes::Detailed);
             assert!(boxes_bodies > 5, "{seed}");
-            // The same cars in the same places: a detailed car is made of more
+            // The same cars in the same places: a block car is made of more
             // faces, and casts one shadow, as the box of a simple car does.
-            assert!(detailed_bodies > boxes_bodies, "{seed}");
-            assert_eq!(detailed_shadows, boxes_shadows, "{seed}");
+            assert!(blocks_bodies > boxes_bodies, "{seed}");
+            assert_eq!(blocks_shadows, boxes_shadows, "{seed}");
+            // A detailed car is made of more faces still, with the same shadows.
+            assert!(detailed_bodies > blocks_bodies, "{seed}");
+            assert!(detailed_shadows > 0, "{seed}");
         }
     }
 }

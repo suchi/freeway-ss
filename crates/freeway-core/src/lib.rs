@@ -17,6 +17,7 @@ pub mod scene;
 pub mod scenery;
 pub mod settings;
 pub mod sky;
+pub mod solid;
 pub mod traffic;
 pub mod tunnel;
 pub mod ufo;
