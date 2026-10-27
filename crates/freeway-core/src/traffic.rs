@@ -2625,3 +2625,54 @@ mod tests {
         assert_eq!(CarBodies::Black.opacity(), Some(1.0));
     }
 }
+
+#[cfg(test)]
+mod golden {
+    use super::*;
+
+    /// A hash of where the cars of the traffic are, over a drive. The traffic
+    /// of cars that do not keep apart is that of v1.8.0, which the hash below was
+    /// taken from; if this fails, a transparent picture is no longer the old one.
+    fn positions_hash(style: TruckStyle, seed: u64) -> u64 {
+        let mut traffic = Traffic::new(seed, style);
+        let mut hash = 0xcbf2_9ce4_8422_2325u64;
+        for step in 0..6000 {
+            traffic.update(0.05, 100.0 / 3.6);
+            if step % 100 == 99 {
+                for car in &traffic.cars {
+                    hash = (hash ^ u64::from(car.rel.to_bits())).wrapping_mul(0x100_0000_01b3);
+                    hash = (hash ^ u64::from(car.lateral.to_bits())).wrapping_mul(0x100_0000_01b3);
+                    hash = (hash ^ u64::from(car.braking())).wrapping_mul(0x100_0000_01b3);
+                }
+            }
+        }
+        hash
+    }
+
+    #[test]
+    fn the_traffic_of_cars_that_do_not_keep_apart_is_that_of_v1_8_0() {
+        for (style, golden) in [
+            (TruckStyle::None, GOLDEN_NONE),
+            (TruckStyle::Japanese, GOLDEN_JAPANESE),
+            (TruckStyle::NorthAmerican, GOLDEN_NORTH_AMERICAN),
+        ] {
+            let hashes: Vec<u64> = (0..4).map(|seed| positions_hash(style, seed)).collect();
+            assert_eq!(hashes, golden, "{style:?}");
+        }
+    }
+
+    const GOLDEN_NONE: [u64; 4] = [
+        6_172_463_116_687_344_504,
+        12_380_605_061_641_358_935,
+        3_654_283_632_733_167_293,
+        8_442_962_960_027_808_954,
+    ];
+    // The shape of a truck does not change where it is: the two styles agree.
+    const GOLDEN_JAPANESE: [u64; 4] = [
+        5_058_894_947_907_202_109,
+        1_888_216_671_477_799_124,
+        11_186_385_611_266_846_748,
+        2_237_644_391_015_639_066,
+    ];
+    const GOLDEN_NORTH_AMERICAN: [u64; 4] = GOLDEN_JAPANESE;
+}
