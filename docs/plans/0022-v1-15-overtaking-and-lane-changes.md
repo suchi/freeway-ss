@@ -1,6 +1,6 @@
 # v1.15.0 詳細設計: 自車の追い越しと他車の車線変更
 
-- ステータス: 実装中
+- ステータス: 完了(実機確認済み。[#31](https://github.com/suchi/freeway-ss/pull/31))
 - 日付: 2026-10-27
 - 親計画: [実装計画](0001-screensaver-implementation-plan.md)の6章
 
