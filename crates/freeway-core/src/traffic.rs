@@ -77,6 +77,21 @@ const WHEEL_WIDTH: f32 = 0.6;
 const TANDEM_GAP: f32 = 0.5;
 /// Cars of one lane keep at least this far apart where bodies are drawn.
 const LANE_GAP: f32 = 10.0;
+/// A car that closes in on the one ahead of it in its lane eases off at this
+/// rate, in meters per second squared, so that it has the speed of the other
+/// when the gap is `LANE_GAP`.
+const LANE_DECEL: f32 = 3.0;
+/// Where cars keep clear of each other, no car changes its speed faster than
+/// this, in meters per second squared. A car that is let go (the one ahead of it
+/// has left) speeds up to its own speed as slowly as it slowed down.
+const LANE_SLEW: f32 = 2.0 * LANE_DECEL;
+/// Speeds are matched to settle this far beyond `LANE_GAP`, so that rounding
+/// in the steps never leaves a car closer than `LANE_GAP`.
+const LANE_CUSHION: f32 = 1.0;
+/// A car that is placed keeps this far from the others of its lane: enough to
+/// ease off from the largest difference of speeds, 8 meters per second, to
+/// the speed of the car ahead before the gap is `LANE_GAP`.
+const PLACE_GAP: f32 = LANE_GAP + 8.0 * 8.0 / (2.0 * LANE_DECEL);
 /// Free places for a car that is placed are searched at this interval.
 const SLOT_STEP: f32 = 5.0;
 /// The far end of a body is cut off this far before the view ends, where the
@@ -531,6 +546,10 @@ struct Car {
     /// The shape of the car if it is a truck; decided each time the car is
     /// placed.
     truck: Option<TruckShape>,
+    /// Where cars keep clear of each other: the velocity the car drives at,
+    /// which follows what it should be at a limited rate. `None` after the car
+    /// has been placed, when it takes up the velocity it should have at once.
+    drive: Option<f32>,
     /// How often the car has braked.
     brakes: u32,
     until_brake: f32,
@@ -571,6 +590,7 @@ impl Car {
             generation: 0,
             active: true,
             truck: None,
+            drive: None,
             brakes: 0,
             until_brake: 0.0,
             braking_left: 0.0,
@@ -613,6 +633,7 @@ impl Car {
             None
         };
         self.age = 0.0;
+        self.drive = None;
         self.phase = self.roll(seed, STREAM_PHASE) * std::f32::consts::TAU;
         self.escape_after = 40.0 + 80.0 * self.roll(seed, STREAM_ESCAPE);
         match self.kind {
@@ -668,7 +689,7 @@ impl Car {
             others
                 .iter()
                 .filter(lane)
-                .all(|o| at >= o.rel + o.length + LANE_GAP || at + length + LANE_GAP <= o.rel)
+                .all(|o| at >= o.rel + o.length + PLACE_GAP || at + length + PLACE_GAP <= o.rel)
         };
         let start = self.rel;
         let tries = (span / SLOT_STEP) as usize;
@@ -730,10 +751,10 @@ impl Car {
         }
     }
 
-    /// Moves the car for `dt` seconds.
-    fn advance(&mut self, seed: u64, dt: f32, own_speed: f32) {
-        self.age += dt;
-        self.rel += self.rel_velocity(own_speed) * dt;
+    /// Moves the car for `dt` seconds at `velocity`, meters per second ahead
+    /// of the camera.
+    fn advance(&mut self, seed: u64, dt: f32, velocity: f32) {
+        self.rel += velocity * dt;
         if self.kind != Kind::Oncoming {
             self.step_brake(seed, dt);
         }
@@ -1127,8 +1148,20 @@ impl Traffic {
         } else {
             0.0
         };
+        // A car's speed depends on how long it has been placed, which counts this step.
         for car in &mut self.cars {
-            car.advance(self.seed, dt, own_speed);
+            car.age += dt;
+        }
+        let mut velocity: Vec<f32> = self
+            .cars
+            .iter()
+            .map(|c| c.rel_velocity(own_speed))
+            .collect();
+        if self.keep_apart {
+            self.match_speeds(&mut velocity, dt);
+        }
+        for (car, &velocity) in self.cars.iter_mut().zip(&velocity) {
+            car.advance(self.seed, dt, velocity);
         }
         if self.keep_apart {
             self.push_apart();
@@ -1156,8 +1189,88 @@ impl Traffic {
         }
     }
 
-    /// A car that catches up with the one ahead of it in its lane pushes it on:
-    /// no car passes another or comes closer than `LANE_GAP`.
+    /// Matches the speeds of the cars of a lane so that they keep `LANE_GAP`
+    /// apart without sudden changes. `velocity` is how fast each car would move
+    /// ahead of the camera; it is changed to how fast it does.
+    ///
+    /// A car may be faster than the one ahead only by as much as it can lose
+    /// at `LANE_DECEL` before the gap is `LANE_GAP`. In the lane of the camera
+    /// this is done the other way round, with the car ahead speeding up and
+    /// not the one behind slowing down: the nearest car must stay ahead of the
+    /// camera, which would otherwise run into the queue. No speed changes
+    /// faster than `LANE_SLEW`.
+    fn match_speeds(&mut self, velocity: &mut [f32], dt: f32) {
+        let allowed =
+            |gap: f32| (2.0 * LANE_DECEL * (gap - LANE_GAP - LANE_CUSHION).max(0.0)).sqrt();
+        let mut order: Vec<usize> = (0..self.cars.len()).collect();
+        order.sort_by(|&a, &b| self.cars[a].rel.total_cmp(&self.cars[b].rel));
+        // The speed a car drives at, going from what it did to the target. It
+        // changes faster to keep clear of another car than on its own.
+        let follow = |cars: &[Car], index: usize, target: f32| match cars[index].drive {
+            Some(drive) => {
+                let rate = if target == velocity[index] {
+                    LANE_DECEL
+                } else {
+                    LANE_SLEW
+                };
+                drive + (target - drive).clamp(-rate * dt, rate * dt)
+            }
+            None => target,
+        };
+        let mut driven = velocity.to_vec();
+        for lane in [OWN_LANE, PASSING_LANE, ONCOMING_LANES[0], ONCOMING_LANES[1]] {
+            let in_lane: Vec<usize> = order
+                .iter()
+                .copied()
+                .filter(|&i| self.cars[i].lateral == lane)
+                .collect();
+            // The space between a car and the one farther from the camera.
+            let gap = |near: usize, far: usize| {
+                self.cars[far].rel - (self.cars[near].rel + self.cars[near].length())
+            };
+            if lane == OWN_LANE {
+                // From the nearest car on, the one ahead keeps up with the one behind.
+                for (index, &car) in in_lane.iter().enumerate() {
+                    let mut target = velocity[car];
+                    if index > 0 {
+                        let behind = in_lane[index - 1];
+                        target = target.max(driven[behind] - allowed(gap(behind, car)));
+                    }
+                    driven[car] = follow(&self.cars, car, target);
+                }
+            } else if lane == PASSING_LANE {
+                // From the farthest car on, the one behind keeps to the one ahead.
+                for (index, &car) in in_lane.iter().enumerate().rev() {
+                    let mut target = velocity[car];
+                    if let Some(&ahead) = in_lane.get(index + 1) {
+                        target = target.min(driven[ahead] + allowed(gap(car, ahead)));
+                    }
+                    driven[car] = follow(&self.cars, car, target);
+                }
+            } else {
+                // Oncoming cars drive toward the camera: the one ahead is the
+                // nearer one, and the one behind it is faster toward the
+                // camera if its velocity is lower.
+                for (index, &car) in in_lane.iter().enumerate() {
+                    let mut target = velocity[car];
+                    if index > 0 {
+                        let ahead = in_lane[index - 1];
+                        target = target.max(driven[ahead] - allowed(gap(ahead, car)));
+                    }
+                    driven[car] = follow(&self.cars, car, target);
+                }
+            }
+        }
+        for (car, &drive) in self.cars.iter_mut().zip(&driven) {
+            car.drive = Some(drive);
+        }
+        velocity.copy_from_slice(&driven);
+    }
+
+    /// Where speeds were not matched in time (a car that is placed close
+    /// behind another, or a step that is long), a car that has caught up with
+    /// the one ahead of it in its lane pushes it on: no car passes another or
+    /// comes closer than `LANE_GAP`.
     fn push_apart(&mut self) {
         let mut order: Vec<usize> = (0..self.cars.len()).collect();
         order.sort_by(|&a, &b| self.cars[a].rel.total_cmp(&self.cars[b].rel));
@@ -2380,6 +2493,51 @@ mod tests {
                 assert!(worst >= LANE_GAP - 1e-3, "{style:?} {seed}: {worst}");
             }
         }
+    }
+
+    #[test]
+    fn cars_that_keep_apart_neither_jump_nor_change_speed_suddenly_in_view() {
+        // Seen from the camera, a car moves by its speed times the step, and
+        // its speed changes by `LANE_SLEW` per second at most. (A car that is
+        // placed again is not seen to jump: it was not in view, or it is the
+        // lead car that is placed in the distance, as ever.) The limit allows
+        // for the rounding of positions of hundreds of meters.
+        let limit = LANE_SLEW * DT * 1.05 + 0.02;
+        let (mut checked, mut steepest) = (0, 0.0f32);
+        for style in [TruckStyle::None, TruckStyle::Japanese] {
+            for seed in 0..3 {
+                let mut traffic = Traffic::with_spacing(seed, style, TrafficLevel::FULL, true);
+                // The position, the speed (0 if not known) and the generation of each car.
+                let mut last: Vec<(f32, f32, u32)> = traffic
+                    .cars
+                    .iter()
+                    .map(|c| (c.rel, 0.0, c.generation))
+                    .collect();
+                run(&mut traffic, 72_000, |t| {
+                    for (car, last) in t.cars.iter().zip(&mut last) {
+                        let velocity = (car.rel - last.0) / DT;
+                        let in_view =
+                            car.rel + car.length() > NEAR_DISTANCE && car.rel < VIEW_DISTANCE;
+                        let same = car.generation == last.2;
+                        if same && in_view && last.1 != 0.0 {
+                            let change = (velocity - last.1).abs();
+                            steepest = steepest.max(change);
+                            assert!(
+                                change <= limit,
+                                "{style:?} {seed}: car {} {change} at {}",
+                                car.id,
+                                car.rel
+                            );
+                            checked += 1;
+                        }
+                        // A car that has been placed again has no speed to compare with.
+                        *last = (car.rel, if same { velocity } else { 0.0 }, car.generation);
+                    }
+                });
+            }
+        }
+        assert!(checked > 100_000, "{checked}");
+        assert!(steepest > 0.0);
     }
 
     #[test]
