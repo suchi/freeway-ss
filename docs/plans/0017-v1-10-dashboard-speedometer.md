@@ -126,6 +126,10 @@
 
 寸法はscale 1(論理ピクセル)での値である。実装の定数は`crates/freeway-scr/src/speedometer.rs`(寸法・配置・計算)と`crates/freeway-scr/src/win/dashboard.rs`(色・不透明度)にある。実機での見た目に合わせて調整してよい。
 
+下の図は、3つの速度計の見た目を説明するための図である(画面のキャプチャではない)。実装の配置と計算(`speedometer.rs`)から、1080p・表示倍率100%・100 km/hの場合を描いた。書体は実機(Bahnschrift)と異なる。図を作ったスクリプトは、一時的なもので、リポジトリには含めていない。
+
+![速度計の3つの見た目: 数字だけ、ダッシュボード(シンプル)、ダッシュボード(作り込み)](../images/speedometer-styles.svg)
+
 ### 設定
 
 - 保存: 3.1節のとおり。`Speedometer`が範囲外(4以上)のときは、`ShowSpeedometer`の値によらず既定値(なし)。引き継ぎは`Speedometer`がない(または`REG_DWORD`でない)ときだけ
