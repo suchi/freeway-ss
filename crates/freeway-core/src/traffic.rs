@@ -478,6 +478,37 @@ impl CarShapes {
     }
 }
 
+/// Who changes lanes.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum LaneChanges {
+    /// Nobody: the road is as it was before lane changes.
+    None,
+    /// The car of the camera overtakes slower cars; the others keep their lanes.
+    OwnCar,
+    /// The car of the camera and the other cars change lanes.
+    #[default]
+    All,
+}
+
+impl LaneChanges {
+    /// Every choice, in the order of the stored values 0, 1, 2.
+    pub const ALL: [LaneChanges; 3] = [LaneChanges::None, LaneChanges::OwnCar, LaneChanges::All];
+
+    /// The choice for a stored value; `None` when the value is not valid.
+    pub fn from_raw(raw: Option<u32>) -> Option<Self> {
+        Self::ALL.get(usize::try_from(raw?).ok()?).copied()
+    }
+
+    /// The value to store; `from_raw` reads it back.
+    pub fn to_raw(self) -> u32 {
+        match self {
+            LaneChanges::None => 0,
+            LaneChanges::OwnCar => 1,
+            LaneChanges::All => 2,
+        }
+    }
+}
+
 /// The color of the bodies of the other cars.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum CarColor {

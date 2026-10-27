@@ -12,7 +12,8 @@ use crate::scenery::Zones;
 use crate::settings::{MAX_SPEED_KMH, MIN_SPEED_KMH};
 use crate::sky::{Sky, SkyView};
 use crate::traffic::{
-    BodyBox, CarColor, CarShapes, FacePart, MINUTES_PER_DAY, Traffic, TrafficLevel, TruckStyle,
+    BodyBox, CarColor, CarShapes, FacePart, LaneChanges, MINUTES_PER_DAY, Traffic, TrafficLevel,
+    TruckStyle,
 };
 use crate::tunnel::{Tunnel, TunnelLighting, Tunnels, draw_entrance};
 use crate::ufo::Ufo;
@@ -48,6 +49,8 @@ pub struct SceneConfig {
     pub car_shapes: CarShapes,
     /// The color of the bodies.
     pub car_color: CarColor,
+    /// Who changes lanes.
+    pub lane_changes: LaneChanges,
     /// Whether the speed drifts slowly around `speed_kmh`.
     pub vary_speed: bool,
     /// Whether the traffic follows the time of day, given by `start_minute`.
@@ -71,6 +74,9 @@ impl Default for SceneConfig {
             tunnels: TunnelLighting::default(),
             car_shapes: CarShapes::default(),
             car_color: CarColor::default(),
+            // The road as it was before the lane changes; the settings turn
+            // them on by default.
+            lane_changes: LaneChanges::None,
             // The three kinds of variation are off here, which is the road
             // as it was before them. The settings turn them on by default.
             vary_speed: false,

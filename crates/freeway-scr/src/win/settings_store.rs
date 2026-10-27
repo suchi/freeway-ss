@@ -32,6 +32,7 @@ const SCENERY_ZONES: PCWSTR = w!("SceneryZones");
 const CAR_BODIES: PCWSTR = w!("CarBodies");
 const CAR_SHAPES: PCWSTR = w!("CarShapes");
 const CAR_COLOR: PCWSTR = w!("CarColor");
+const LANE_CHANGES: PCWSTR = w!("LaneChanges");
 
 /// Reads the saved settings; anything missing or invalid is the default.
 pub fn load() -> Settings {
@@ -60,6 +61,7 @@ fn load_from(root: HKEY, key: PCWSTR) -> Settings {
         read_dword(root, key, SPEEDOMETER),
         read_dword(root, key, CAR_SHAPES),
         read_dword(root, key, CAR_COLOR),
+        read_dword(root, key, LANE_CHANGES),
     )
 }
 
@@ -98,6 +100,7 @@ fn save_to(root: HKEY, key: PCWSTR, settings: &Settings) -> Result<()> {
     write_dword(root, key, SCENERY_ZONES, u32::from(settings.scenery_zones))?;
     write_dword(root, key, CAR_SHAPES, settings.car_shapes.to_raw())?;
     write_dword(root, key, CAR_COLOR, settings.car_color.to_raw())?;
+    write_dword(root, key, LANE_CHANGES, settings.lane_changes.to_raw())?;
     write_dword(root, key, CAR_BODIES, settings.legacy_car_bodies())
 }
 
@@ -140,7 +143,7 @@ fn write_dword(root: HKEY, key: PCWSTR, name: PCWSTR, value: u32) -> Result<()> 
 mod tests {
     use freeway_core::settings::DEFAULT_SPEED_KMH;
     use freeway_core::{
-        CarColor, CarShapes, Language, SpeedometerStyle, TruckStyle, TunnelLighting,
+        CarColor, CarShapes, LaneChanges, Language, SpeedometerStyle, TruckStyle, TunnelLighting,
     };
     use windows::Win32::System::Registry::{REG_SZ, RegDeleteTreeW};
     use windows::core::HSTRING;
@@ -199,6 +202,7 @@ mod tests {
             tunnels: TunnelLighting::Led,
             car_shapes: CarShapes::Blocks,
             car_color: CarColor::Black,
+            lane_changes: LaneChanges::OwnCar,
             language: Language::Japanese,
             vary_speed: false,
             traffic_by_time: false,
@@ -230,6 +234,7 @@ mod tests {
         write_dword(HKEY_CURRENT_USER, test.key(), SCENERY_ZONES, u32::MAX)?;
         write_dword(HKEY_CURRENT_USER, test.key(), CAR_SHAPES, 4)?;
         write_dword(HKEY_CURRENT_USER, test.key(), CAR_COLOR, 2)?;
+        write_dword(HKEY_CURRENT_USER, test.key(), LANE_CHANGES, 3)?;
         let settings = test.load();
         assert_eq!(settings.speed_kmh, DEFAULT_SPEED_KMH);
         assert!(!settings.left_hand_traffic);
@@ -240,8 +245,32 @@ mod tests {
         assert_eq!(settings.tunnels, TunnelLighting::Mixed);
         assert_eq!(settings.car_shapes, CarShapes::None);
         assert_eq!(settings.car_color, CarColor::TranslucentBlack);
+        assert_eq!(settings.lane_changes, LaneChanges::All);
         assert_eq!(settings.language, Language::Auto);
         assert!(settings.vary_speed && settings.traffic_by_time && settings.scenery_zones);
+        Ok(())
+    }
+
+    #[test]
+    fn every_lane_changes_choice_is_read_back() -> Result<()> {
+        let test = TestKey::new("lane-changes");
+        for lane_changes in LaneChanges::ALL {
+            let settings = Settings {
+                lane_changes,
+                ..Settings::default()
+            };
+            save_to(HKEY_CURRENT_USER, test.key(), &settings)?;
+            assert_eq!(test.load().lane_changes, lane_changes);
+        }
+        // Without the value, or with one that is not 0, 1 or 2, lane changes are on.
+        let missing = TestKey::new("lane-changes-missing");
+        write_dword(HKEY_CURRENT_USER, missing.key(), SPEED, 60)?;
+        assert_eq!(missing.load().lane_changes, LaneChanges::All);
+        let invalid = TestKey::new("lane-changes-invalid");
+        for raw in [3, u32::MAX] {
+            write_dword(HKEY_CURRENT_USER, invalid.key(), LANE_CHANGES, raw)?;
+            assert_eq!(invalid.load().lane_changes, LaneChanges::All, "{raw}");
+        }
         Ok(())
     }
 

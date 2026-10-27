@@ -26,5 +26,5 @@ pub use canvas::{Canvas, Rgb};
 pub use i18n::{DisplayLanguage, Text};
 pub use scene::{Scene, SceneConfig, Viewport};
 pub use settings::{Language, Settings, SpeedometerStyle};
-pub use traffic::{CarColor, CarShapes, TruckStyle};
+pub use traffic::{CarColor, CarShapes, LaneChanges, TruckStyle};
 pub use tunnel::TunnelLighting;
