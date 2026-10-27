@@ -140,7 +140,7 @@ const BODY_GLASS: Rgb = Rgb::new(12, 14, 20);
 /// road reach.
 const LAMP_LATERAL: f32 = 4.5;
 const LAMP_HEIGHT: f32 = 10.0;
-const LAMP_SPACING: f64 = 45.0;
+const LAMP_SPACING: f64 = 70.0;
 const LAMP_POOL_RANGE: f32 = 350.0;
 /// The radius of the pools of light under the street lamps, in meters, and
 /// where across the road the two pools of a lamp are.
@@ -3675,6 +3675,26 @@ mod tests {
     }
 
     #[test]
+    fn the_street_lamps_and_their_shadows_use_the_same_spacing() {
+        let scene = driven(bodies_config(2, CarColor::Black), 40);
+        let lamps: Vec<_> = scene
+            .lights()
+            .into_iter()
+            .filter_map(|l| l.lamp.map(|k| (k, l.d)))
+            .collect();
+        assert!(lamps.len() > 4);
+        for (key, d) in lamps {
+            let along = scene.track_s + f64::from(d);
+            assert!(
+                (along - key as f64 * LAMP_SPACING).abs() < 1e-3,
+                "{key} {d}"
+            );
+        }
+        // The lamps stand 70 m apart.
+        assert_eq!(LAMP_SPACING, 70.0);
+    }
+
+    #[test]
     fn bodies_are_valid_through_a_whole_drive_on_both_sides_of_the_road() {
         for left_hand_traffic in [true, false] {
             let mut scene = Scene::new(SceneConfig {
@@ -3787,7 +3807,9 @@ mod tests {
     }
 
     /// A hash of the commands drawn over a drive, which tests that a picture
-    /// without car bodies is that of v1.10.0. With `exact`, the numbers of the
+    /// without car bodies is that of v1.10.0, but for the spacing of the
+    /// street lamps, which v1.13.0 widened from 45 to 70 meters. (With the
+    /// spacing set back to 45, the hashes of v1.10.0 came out unchanged.) With `exact`, the numbers of the
     /// commands count; otherwise only which commands are drawn in which order.
     fn commands_hash(config: SceneConfig, exact: bool) -> u64 {
         let mut scene = Scene::new(config);
@@ -3825,36 +3847,36 @@ mod tests {
         }
     }
 
-    /// The exact hashes were taken on Linux from v1.10.0. The sine and the
+    /// The exact hashes were taken on Linux from v1.13.0. The sine and the
     /// like give other last digits elsewhere (Windows differs in two of the
     /// nine), so the exact test is for Linux, and the other one holds
     /// everywhere.
     #[test]
     #[cfg(target_os = "linux")]
-    fn without_car_bodies_the_commands_are_those_of_v1_10_0() {
+    fn without_car_bodies_the_commands_are_those_of_v1_10_0_but_for_the_lamps() {
         for (trucks, golden) in [
             (
                 TruckStyle::None,
                 [
-                    3_747_085_965_833_721_906,
-                    10_061_296_263_306_752_667,
-                    56_210_606_116_699_451,
+                    17_746_530_119_329_405_890,
+                    11_998_200_545_838_925_742,
+                    15_772_051_522_667_040_513,
                 ],
             ),
             (
                 TruckStyle::Japanese,
                 [
-                    12_498_055_424_280_975_874,
-                    8_061_650_184_240_585_894,
-                    15_783_032_712_771_803_535,
+                    3_652_658_251_073_851_458,
+                    7_924_904_988_023_008_053,
+                    1_866_132_785_076_779_151,
                 ],
             ),
             (
                 TruckStyle::NorthAmerican,
                 [
-                    2_220_682_745_943_549_350,
-                    4_681_926_326_815_209_319,
-                    14_456_919_141_875_129_913,
+                    14_085_231_820_565_025_596,
+                    14_842_389_297_464_709_404,
+                    11_407_920_229_021_396_787,
                 ],
             ),
         ] {
@@ -3872,7 +3894,7 @@ mod tests {
     }
 
     #[test]
-    fn without_car_bodies_the_commands_are_those_of_v1_10_0_in_kind_and_order() {
+    fn without_car_bodies_the_commands_are_those_of_v1_10_0_in_kind_and_order_but_for_the_lamps() {
         for (trucks, golden) in [
             (TruckStyle::None, KINDS_NONE),
             (TruckStyle::Japanese, KINDS_JAPANESE),
@@ -3886,23 +3908,24 @@ mod tests {
     }
 
     const KINDS_NONE: [u64; 3] = [
-        468_534_814_160_060_606,
-        8_137_298_111_563_663_754,
-        12_072_154_355_330_509_400,
+        12_013_975_337_413_605_131,
+        16_766_635_609_035_508_933,
+        8_038_331_859_315_681_280,
     ];
     const KINDS_JAPANESE: [u64; 3] = [
-        7_114_710_342_343_259_971,
-        3_605_832_487_212_935_424,
-        14_851_655_165_617_784_221,
+        4_607_320_911_683_114_870,
+        18_038_125_003_470_254_003,
+        2_535_938_213_202_221_861,
     ];
     const KINDS_NORTH_AMERICAN: [u64; 3] = [
-        4_942_396_396_457_689_779,
-        14_159_349_977_691_203_828,
-        16_922_474_812_910_385_076,
+        17_906_295_104_016_808_198,
+        13_920_986_494_944_790_271,
+        9_279_387_108_017_783_596,
     ];
 
     #[test]
     fn the_shapes_of_car_bodies_draw_what_they_should() {
+        let mut detailed_total = 0;
         for seed in [1, 2, 3] {
             // Trucks are made of several boxes that cast shadows when they are
             // blocks, so there are none: cars cast one shadow in all.
@@ -3928,7 +3951,9 @@ mod tests {
             assert_eq!(blocks_shadows, boxes_shadows, "{seed}");
             // A detailed car is made of more faces still, with the same shadows.
             assert!(detailed_bodies > blocks_bodies, "{seed}");
-            assert!(detailed_shadows > 0, "{seed}");
+            detailed_total += detailed_shadows;
         }
+        // The lamps stand far apart, so a frame has no shadow now and then.
+        assert!(detailed_total > 0);
     }
 }
