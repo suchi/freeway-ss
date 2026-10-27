@@ -9,10 +9,11 @@
 use std::collections::VecDeque;
 
 use crate::canvas::{Canvas, Rgb};
-use crate::projection::{NEAR_DISTANCE, Projector, VIEW_DISTANCE};
+use crate::projection::{CAMERA_HEIGHT, CAMERA_LATERAL, NEAR_DISTANCE, Projector, VIEW_DISTANCE};
 use crate::rng::hash01;
 use crate::road::RoadView;
 use crate::scenery::{BLEND_HALF, ZoneKind, Zones};
+use crate::sky::{BAND_BOTTOM, REF_FOCAL};
 
 /// Length of a tunnel, in meters: 20 to 60 seconds at 100 km/h.
 const LENGTH: (f64, f64) = (550.0, 1650.0);
@@ -55,7 +56,7 @@ const LED_DARK: Rgb = Rgb::new(6, 8, 12);
 
 /// The opening of a tunnel as seen from the front: lateral position and
 /// height of its corners, in meters. The top is rounded off.
-const OPENING: [(f32, f32); 7] = [
+pub(crate) const OPENING: [(f32, f32); 7] = [
     (-5.0, 0.0),
     (-5.0, 5.6),
     (-3.6, 6.6),
@@ -173,12 +174,19 @@ pub fn draw_entrance(
     };
     // Fades in from the dark of the night so that it does not pop up far away.
     let fade = ((FADE_FAR - d) / (FADE_FAR - FADE_NEAR)).clamp(0.0, 1.0);
+    // The foot of the hill reaches down to the bottom of the glow on the
+    // horizon (as far below the horizon as the mountains), so that no gap of
+    // sky shows under it where the road climbs to the entrance. Its height
+    // above the road is negative then, and the hill widens with it.
+    let foot = (CAMERA_HEIGHT - rise - BAND_BOTTOM / REF_FOCAL * d).min(0.0);
+    let height_above_foot = tunnel.hill_height - foot;
+    let half_width = tunnel.hill_half_width * height_above_foot / tunnel.hill_height;
     let hill: Option<Vec<(f32, f32)>> = (0..=2 * HILL_STEPS)
         .map(|step| {
             let across = step as f32 / HILL_STEPS as f32 - 1.0;
             // A bell that levels off at the foot of the hill on both sides.
-            let height = tunnel.hill_height * 0.5 * (1.0 + (across * std::f32::consts::PI).cos());
-            project(across * tunnel.hill_half_width, height)
+            let bell = 0.5 * (1.0 + (across * std::f32::consts::PI).cos());
+            project(across * half_width, foot + height_above_foot * bell)
         })
         .collect();
     let opening: Option<Vec<(f32, f32)>> = OPENING
@@ -199,6 +207,88 @@ fn mix(from: Rgb, to: Rgb, t: f32) -> Rgb {
         channel(from.g, to.g),
         channel(from.b, to.b),
     )
+}
+
+/// Distance between the points of a line of sight that are checked against
+/// the walls of a tunnel, in meters.
+const SIGHT_STEP: f32 = 2.0;
+/// The walls are checked this much wider than the opening, in meters: the
+/// lamps and the emergency lights hang on the walls, at the edge of it.
+pub(crate) const SIGHT_MARGIN: f32 = 0.3;
+
+/// One tunnel as seen from the camera, in meters ahead of it.
+struct Span {
+    start: f32,
+    end: f32,
+    /// The bend and the rise of the road every `SIGHT_STEP` meters from
+    /// `start` on, as (distance, bend, rise).
+    samples: Vec<(f32, f32, f32)>,
+}
+
+/// The edges of `OPENING` as (lateral, height, offset) of the line
+/// `lateral * x + height * y + offset = 0`, normalized so that points inside
+/// of the opening have a value of zero or more.
+fn opening_edges() -> [(f32, f32, f32); OPENING.len()] {
+    std::array::from_fn(|i| {
+        let (x1, y1) = OPENING[i];
+        let (x2, y2) = OPENING[(i + 1) % OPENING.len()];
+        // The corners run clockwise (up the left wall, over the top, down
+        // the right wall), so the inside lies to the right of each edge.
+        let (nx, ny) = (y2 - y1, x1 - x2);
+        let length = nx.hypot(ny);
+        (nx / length, ny / length, -(nx * x1 + ny * y1) / length)
+    })
+}
+
+/// What the camera can see through the tunnels ahead: a light is hidden
+/// when the line from the eye to it leaves the opening of a tunnel on its
+/// way (the road bends and rises, so a wall or the hill stands in the way).
+pub struct Sight<'a> {
+    view: &'a RoadView,
+    spans: Vec<Span>,
+    edges: [(f32, f32, f32); OPENING.len()],
+}
+
+impl Sight<'_> {
+    /// Whether a light of the road outside, `d` meters ahead, at the given
+    /// lateral position and height above the road, is hidden by a tunnel.
+    pub fn hides(&self, d: f32, lateral: f32, height: f32) -> bool {
+        // The lights of the road outside do not stand in a tunnel.
+        let inside = self.spans.iter().any(|span| span.start < d && d < span.end);
+        (inside && !fits_through(lateral, height)) || self.blocked(d, lateral, height)
+    }
+
+    /// Whether a wall or the hill is in the way of the line of sight to the
+    /// light, which may stand in a tunnel (a lamp, for example).
+    pub fn blocked(&self, d: f32, lateral: f32, height: f32) -> bool {
+        let (bend, rise) = self.view.offset(d);
+        let target = (lateral + bend, height + rise);
+        let eye = (CAMERA_LATERAL, CAMERA_HEIGHT);
+        self.spans.iter().any(|span| {
+            if span.start >= d {
+                return false;
+            }
+            // Where the line of sight, straight in the space of the
+            // unbent road, stands outside the tunnel at the distance `at`.
+            let outside = |at: f32, bend: f32, rise: f32| {
+                let t = at / d;
+                let x = eye.0 + (target.0 - eye.0) * t - bend;
+                let y = eye.1 + (target.1 - eye.1) * t - rise;
+                self.edges
+                    .iter()
+                    .any(|&(nx, ny, c)| nx * x + ny * y + c < -SIGHT_MARGIN)
+            };
+            let last = d.min(span.end);
+            span.samples
+                .iter()
+                .take_while(|s| s.0 < last)
+                .any(|&(at, bend, rise)| outside(at, bend, rise))
+                || {
+                    let (bend, rise) = self.view.offset(last);
+                    outside(last, bend, rise)
+                }
+        })
+    }
 }
 
 /// The tunnels of a road, from just behind the camera to just beyond its view.
@@ -274,12 +364,37 @@ impl Tunnels {
         self.ahead.iter().any(|t| t.contains(s))
     }
 
-    /// Whether a light of the road outside, `d` meters ahead of the camera at
-    /// `track_s`, is hidden: some tunnel lies between the camera and the
-    /// light (or around it), and the light is not in the way of the tunnel.
-    pub fn hides(&self, track_s: f64, d: f32, lateral: f32, height: f32) -> bool {
-        let at = track_s + f64::from(d);
-        !fits_through(lateral, height) && self.ahead.iter().any(|t| t.start < at && t.end > track_s)
+    /// What the camera at `track_s` can see through the tunnels ahead: the
+    /// road ahead is `view`.
+    pub fn sight<'a>(&self, track_s: f64, view: &'a RoadView) -> Sight<'a> {
+        let spans = self
+            .ahead
+            .iter()
+            .filter(|t| t.end > track_s)
+            .filter_map(|t| {
+                let start = ((t.start - track_s) as f32).max(0.0);
+                let end = (t.end - track_s) as f32;
+                (start < VIEW_DISTANCE).then(|| {
+                    let mut samples = Vec::new();
+                    let mut d = start;
+                    while d < end.min(VIEW_DISTANCE) {
+                        let (bend, rise) = view.offset(d);
+                        samples.push((d, bend, rise));
+                        d += SIGHT_STEP;
+                    }
+                    Span {
+                        start,
+                        end,
+                        samples,
+                    }
+                })
+            })
+            .collect();
+        Sight {
+            view,
+            spans,
+            edges: opening_edges(),
+        }
     }
 
     /// The tunnel whose entrance is in front of the camera at `track_s` and
@@ -593,6 +708,66 @@ mod tests {
             tunnels.update(f64::from(step) * 100.0);
             assert_eq!(tunnels.ahead().count(), 0);
         }
+    }
+
+    /// Tunnels with the first one from 100 to 300 meters ahead of the camera
+    /// at 0, on a road without bends and hills.
+    fn straight_sight(view: &RoadView) -> Sight<'_> {
+        let tunnel = Tunnel {
+            start: 100.0,
+            end: 300.0,
+            lamp: LED_LAMP,
+            hill_half_width: 150.0,
+            hill_height: 40.0,
+        };
+        let tunnels = Tunnels {
+            seed: 0,
+            lighting: TunnelLighting::Led,
+            zones: Zones::new(0, false),
+            ahead: VecDeque::from([tunnel]),
+            made: 1,
+            next: None,
+        };
+        tunnels.sight(0.0, view)
+    }
+
+    #[test]
+    fn on_a_straight_flat_road_what_fits_through_the_tunnel_is_seen_beyond_it() {
+        let view = RoadView::flat();
+        let sight = straight_sight(&view);
+        // The delineators, the lanes and the lamps stand where the tunnel is.
+        for (lateral, height) in [(-4.0, 0.9), (3.9, 0.9), (0.0, 0.0), (1.75, 0.9)] {
+            for d in [150.0, 299.0, 301.0, 400.0, 590.0] {
+                assert!(!sight.hides(d, lateral, height), "{d} {lateral} {height}");
+            }
+        }
+        // Whatever stands outside, and beyond it, is hidden, but not before the entrance.
+        for (lateral, height) in [
+            (13.0, 0.9),
+            (9.0, 0.0),
+            (4.5, 10.0),
+            (-9.0, 0.0),
+            (0.0, 12.0),
+        ] {
+            assert!(sight.hides(400.0, lateral, height), "{lateral} {height}");
+            assert!(!sight.hides(99.0, lateral, height), "{lateral} {height}");
+        }
+        // The walls leave the line of sight to the lamps hanging on them free.
+        for (lateral, d) in [(-4.6, 150.0), (5.1, 150.0), (-4.6, 299.0), (5.1, 120.0)] {
+            assert!(!sight.blocked(d, lateral, 5.0), "{d} {lateral}");
+        }
+    }
+
+    #[test]
+    fn a_bend_hides_the_lights_beyond_the_wall() {
+        // A road that bends to the side: a straight line of sight reaches the
+        // wall before the exit, where it can see nothing of the far lamps.
+        let view = RoadView::new(&crate::road::RoadShape::new(21), 0.0);
+        let (bend, _) = view.offset(300.0);
+        assert!(bend.abs() > 10.0, "{bend}");
+        let sight = straight_sight(&view);
+        assert!(sight.hides(400.0, 0.0, 0.0));
+        assert!(!sight.hides(101.0, 0.0, 0.0));
     }
 
     #[test]

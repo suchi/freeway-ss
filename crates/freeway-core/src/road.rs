@@ -136,6 +136,30 @@ impl RoadView {
         (lerp(&self.lateral), lerp(&self.height))
     }
 
+    /// A road without bends and hills.
+    #[cfg(test)]
+    pub(crate) fn flat() -> Self {
+        Self {
+            lateral: vec![0.0; STEPS + 1],
+            height: vec![0.0; STEPS + 1],
+        }
+    }
+
+    /// A road whose bend and height grow with the square of the distance:
+    /// `bend` and `rise` are the offsets 100 meters ahead.
+    #[cfg(test)]
+    pub(crate) fn curved(bend: f32, rise: f32) -> Self {
+        let at = |per_square: f32| -> Vec<f32> {
+            (0..=STEPS)
+                .map(|d| per_square * (d * d) as f32 / 10_000.0)
+                .collect()
+        };
+        Self {
+            lateral: at(bend),
+            height: at(rise),
+        }
+    }
+
     #[cfg(test)]
     fn lateral(&self) -> &[f32] {
         &self.lateral

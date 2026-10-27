@@ -45,7 +45,7 @@ const CITY_GLOW_COLOR: Rgb = Rgb::new(255, 210, 120);
 /// relative to the horizon (negative is above it).
 const BAND_TOP: f32 = -170.0;
 const BAND_PEAK: f32 = -20.0;
-const BAND_BOTTOM: f32 = 24.0;
+pub(crate) const BAND_BOTTOM: f32 = 24.0;
 const BAND_ALPHA: f32 = 0.14;
 const BAND_COLOR: Rgb = Rgb::new(255, 130, 60);
 
