@@ -1,6 +1,6 @@
 # v1.14.0 詳細設計: 版の情報・流しているあいだの操作・バナーの書体・速度の変化
 
-- ステータス: 実装中
+- ステータス: 完了(実機確認済み。[#30](https://github.com/suchi/freeway-ss/pull/30))
 - 日付: 2026-10-27
 - 親計画: [実装計画](0001-screensaver-implementation-plan.md)の6章
 

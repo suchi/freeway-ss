@@ -224,7 +224,7 @@ MVPの項目は、本家の実行中の操作と表示(速度・通行方向・H
 | v1.11.0: 他車の形と表示の選び方 | 完了(実機確認済み) | [0018](0018-v1-11-car-shapes.md) | [#27](https://github.com/suchi/freeway-ss/pull/27) | [v1.11.0](https://github.com/suchi/freeway-ss/releases/tag/v1.11.0) |
 | v1.12.0: 他車の詳細な形と影 | 完了(実機確認済み) | [0019](0019-v1-12-detailed-cars-and-shadows.md) | [#28](https://github.com/suchi/freeway-ss/pull/28) | [v1.12.0](https://github.com/suchi/freeway-ss/releases/tag/v1.12.0) |
 | v1.13.0: トンネルの影・街灯の間隔・文書・流し続けるモード | 完了(実機確認済み) | [0020](0020-v1-13-tunnel-shadows-and-run-modes.md) | [#29](https://github.com/suchi/freeway-ss/pull/29) | [v1.13.0](https://github.com/suchi/freeway-ss/releases/tag/v1.13.0) |
-| v1.14.0: 版の情報・流しているあいだの操作・バナーの書体・速度の変化 | 実装中(実装済み、CI確認中) | [0021](0021-v1-14-version-info-and-run-controls.md) | [#30](https://github.com/suchi/freeway-ss/pull/30) | - |
+| v1.14.0: 版の情報・流しているあいだの操作・バナーの書体・速度の変化 | 完了(実機確認済み) | [0021](0021-v1-14-version-info-and-run-controls.md) | [#30](https://github.com/suchi/freeway-ss/pull/30) | [v1.14.0](https://github.com/suchi/freeway-ss/releases/tag/v1.14.0) |
 | v1.15.0: 自車の追い越しと他車の車線変更 | 未着手(v1.14.0の後に詳細設計を置く) | - | - | - |
 
 ```mermaid
