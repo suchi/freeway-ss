@@ -5,7 +5,7 @@
 
 use freeway_core::settings::{SPEED_CHOICES, position_to_speed, speed_to_position};
 use freeway_core::{
-    CarBodies, DisplayLanguage, Language, Settings, SpeedometerStyle, Text, TruckStyle,
+    CarColor, CarShapes, DisplayLanguage, Language, Settings, SpeedometerStyle, Text, TruckStyle,
     TunnelLighting,
 };
 use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
@@ -14,9 +14,10 @@ use windows::Win32::UI::Controls::{
     BST_CHECKED, BST_UNCHECKED, CheckDlgButton, CheckRadioButton, ICC_BAR_CLASSES,
     INITCOMMONCONTROLSEX, InitCommonControlsEx, IsDlgButtonChecked, TBM_SETPOS, TBM_SETRANGE,
 };
+use windows::Win32::UI::Input::KeyboardAndMouse::EnableWindow;
 use windows::Win32::UI::WindowsAndMessaging::{
     CB_ADDSTRING, CB_GETCURSEL, CB_RESETCONTENT, CB_SETCURSEL, CBN_SELCHANGE, DialogBoxParamW,
-    EndDialog, GWLP_USERDATA, GetWindowLongPtrW, IDCANCEL, IDOK, SendDlgItemMessageW,
+    EndDialog, GWLP_USERDATA, GetDlgItem, GetWindowLongPtrW, IDCANCEL, IDOK, SendDlgItemMessageW,
     SetDlgItemTextW, SetWindowLongPtrW, SetWindowTextW, WM_COMMAND, WM_HSCROLL, WM_INITDIALOG,
 };
 use windows::core::{Error, HSTRING, PCWSTR, Result};
@@ -40,12 +41,14 @@ const TUNNELS: i32 = 115;
 const VARY_SPEED: i32 = 116;
 const TRAFFIC_BY_TIME: i32 = 117;
 const SCENERY_ZONES: i32 = 118;
-const CAR_BODIES_LABEL: i32 = 119;
-const CAR_BODIES: i32 = 120;
+const CAR_SHAPES_LABEL: i32 = 119;
+const CAR_SHAPES: i32 = 120;
 const SPEEDOMETER_LABEL: i32 = 121;
+const CAR_COLOR_LABEL: i32 = 122;
+const CAR_COLOR: i32 = 123;
 
 /// The texts of the controls that are set from the string table, by ID.
-const CONTROL_TEXTS: [(i32, Text); 16] = [
+const CONTROL_TEXTS: [(i32, Text); 17] = [
     (SPEED_LABEL, Text::SpeedLabel),
     (SIDE_LABEL, Text::DrivingSideLabel),
     (LEFT_HAND, Text::LeftHandTraffic),
@@ -58,7 +61,8 @@ const CONTROL_TEXTS: [(i32, Text); 16] = [
     (SCENERY_ZONES, Text::SceneryZones),
     (TRUCKS_LABEL, Text::TrucksLabel),
     (TUNNELS_LABEL, Text::TunnelsLabel),
-    (CAR_BODIES_LABEL, Text::CarBodiesLabel),
+    (CAR_SHAPES_LABEL, Text::CarShapesLabel),
+    (CAR_COLOR_LABEL, Text::CarColorLabel),
     (LANGUAGE_LABEL, Text::LanguageLabel),
     // OK and Cancel use the IDs of the standard buttons.
     (IDOK.0, Text::Ok),
@@ -95,12 +99,15 @@ const SPEEDOMETER_TEXTS: [Text; 4] = [
     Text::SpeedometerDetailed,
 ];
 
-/// The items of the car bodies drop-down, in the order of `CarBodies::ALL`.
-const CAR_BODY_TEXTS: [Text; 3] = [
-    Text::CarBodiesTransparent,
-    Text::CarBodiesTranslucent,
-    Text::CarBodiesBlack,
+/// The items of the car shapes drop-down, in the order of `CarShapes::ALL`.
+const CAR_SHAPE_TEXTS: [Text; 3] = [
+    Text::CarShapesNone,
+    Text::CarShapesBoxes,
+    Text::CarShapesDetailed,
 ];
+
+/// The items of the car color drop-down, in the order of `CarColor::ALL`.
+const CAR_COLOR_TEXTS: [Text; 2] = [Text::CarColorTranslucent, Text::CarColorBlack];
 
 /// `WM_USER`; the windows crate does not define this message.
 const TBM_GETPOS: u32 = 0x0400;
@@ -159,7 +166,9 @@ unsafe extern "system" fn dialog_proc(
                 // The drop-down is empty until the language is applied.
                 select_trucks(hwnd, state.settings.trucks);
                 select_tunnels(hwnd, state.settings.tunnels);
-                select_car_bodies(hwnd, state.settings.car_bodies);
+                select_car_shapes(hwnd, state.settings.car_shapes);
+                select_car_color(hwnd, state.settings.car_color);
+                update_car_color_enabled(hwnd);
                 select_speedometer(hwnd, state.settings.speedometer);
             }
             // Let the dialog manager give the focus to the first control.
@@ -176,6 +185,11 @@ unsafe extern "system" fn dialog_proc(
                 LANGUAGE if (wparam.0 >> 16) as u32 == CBN_SELCHANGE => {
                     // Show the chosen language at once; it is saved only by OK.
                     apply_language(hwnd, selected_language(hwnd));
+                    1
+                }
+                CAR_SHAPES if (wparam.0 >> 16) as u32 == CBN_SELCHANGE => {
+                    // The color means nothing while the cars have no bodies.
+                    update_car_color_enabled(hwnd);
                     1
                 }
                 id if id == IDOK.0 => {
@@ -269,27 +283,62 @@ fn select_tunnels(hwnd: HWND, tunnels: TunnelLighting) {
     }
 }
 
-/// The car body choice selected in the drop-down; the default while the
+/// The car shape choice selected in the drop-down; the default while the
 /// drop-down is still empty.
-fn selected_car_bodies(hwnd: HWND) -> CarBodies {
+fn selected_car_shapes(hwnd: HWND) -> CarShapes {
     let index =
-        unsafe { SendDlgItemMessageW(hwnd, CAR_BODIES, CB_GETCURSEL, WPARAM(0), LPARAM(0)) }.0;
+        unsafe { SendDlgItemMessageW(hwnd, CAR_SHAPES, CB_GETCURSEL, WPARAM(0), LPARAM(0)) }.0;
     // CB_ERR (-1) means nothing is selected.
     u32::try_from(index)
         .ok()
-        .and_then(|index| CarBodies::from_raw(Some(index)))
+        .and_then(|index| CarShapes::from_raw(Some(index)))
         .unwrap_or_default()
 }
 
-fn select_car_bodies(hwnd: HWND, car_bodies: CarBodies) {
+fn select_car_shapes(hwnd: HWND, car_shapes: CarShapes) {
     unsafe {
         SendDlgItemMessageW(
             hwnd,
-            CAR_BODIES,
+            CAR_SHAPES,
             CB_SETCURSEL,
-            WPARAM(car_bodies.to_raw() as usize),
+            WPARAM(car_shapes.to_raw() as usize),
             LPARAM(0),
         );
+    }
+}
+
+/// The car color choice selected in the drop-down; the default while the
+/// drop-down is still empty.
+fn selected_car_color(hwnd: HWND) -> CarColor {
+    let index =
+        unsafe { SendDlgItemMessageW(hwnd, CAR_COLOR, CB_GETCURSEL, WPARAM(0), LPARAM(0)) }.0;
+    // CB_ERR (-1) means nothing is selected.
+    u32::try_from(index)
+        .ok()
+        .and_then(|index| CarColor::from_raw(Some(index)))
+        .unwrap_or_default()
+}
+
+fn select_car_color(hwnd: HWND, car_color: CarColor) {
+    unsafe {
+        SendDlgItemMessageW(
+            hwnd,
+            CAR_COLOR,
+            CB_SETCURSEL,
+            WPARAM(car_color.to_raw() as usize),
+            LPARAM(0),
+        );
+    }
+}
+
+/// Grays out the color of the car bodies while the cars have no bodies.
+fn update_car_color_enabled(hwnd: HWND) {
+    let enabled = selected_car_shapes(hwnd).has_bodies();
+    for id in [CAR_COLOR_LABEL, CAR_COLOR] {
+        // A control that is missing is left as it is.
+        if let Ok(control) = unsafe { GetDlgItem(Some(hwnd), id) } {
+            let _ = unsafe { EnableWindow(control, enabled) };
+        }
     }
 }
 
@@ -330,17 +379,25 @@ fn apply_language(hwnd: HWND, selected: Language) {
     // The drop-downs are refilled, so the chosen items are kept across it.
     let trucks = selected_trucks(hwnd);
     let tunnels = selected_tunnels(hwnd);
-    let car_bodies = selected_car_bodies(hwnd);
+    let car_shapes = selected_car_shapes(hwnd);
+    let car_color = selected_car_color(hwnd);
     let speedometer = selected_speedometer(hwnd);
     fill_dropdown(hwnd, LANGUAGE, &LANGUAGE_TEXTS, language, selected.to_raw());
     fill_dropdown(hwnd, TRUCKS, &TRUCK_TEXTS, language, trucks.to_raw());
     fill_dropdown(hwnd, TUNNELS, &TUNNEL_TEXTS, language, tunnels.to_raw());
     fill_dropdown(
         hwnd,
-        CAR_BODIES,
-        &CAR_BODY_TEXTS,
+        CAR_SHAPES,
+        &CAR_SHAPE_TEXTS,
         language,
-        car_bodies.to_raw(),
+        car_shapes.to_raw(),
+    );
+    fill_dropdown(
+        hwnd,
+        CAR_COLOR,
+        &CAR_COLOR_TEXTS,
+        language,
+        car_color.to_raw(),
     );
     fill_dropdown(
         hwnd,
@@ -415,7 +472,8 @@ fn read_controls(hwnd: HWND) -> Settings {
         show_mountains: unsafe { IsDlgButtonChecked(hwnd, MOUNTAINS) } == BST_CHECKED.0,
         trucks: selected_trucks(hwnd),
         tunnels: selected_tunnels(hwnd),
-        car_bodies: selected_car_bodies(hwnd),
+        car_shapes: selected_car_shapes(hwnd),
+        car_color: selected_car_color(hwnd),
         language: selected_language(hwnd),
         vary_speed: unsafe { IsDlgButtonChecked(hwnd, VARY_SPEED) } == BST_CHECKED.0,
         traffic_by_time: unsafe { IsDlgButtonChecked(hwnd, TRAFFIC_BY_TIME) } == BST_CHECKED.0,

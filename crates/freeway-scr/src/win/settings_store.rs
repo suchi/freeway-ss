@@ -26,7 +26,12 @@ const LANGUAGE: PCWSTR = w!("Language");
 const VARY_SPEED: PCWSTR = w!("VarySpeed");
 const TRAFFIC_BY_TIME: PCWSTR = w!("TrafficByTime");
 const SCENERY_ZONES: PCWSTR = w!("SceneryZones");
+/// Written by versions before 1.11, which had one choice for the bodies of
+/// the cars. It is still written, so that going back to such a version keeps
+/// whether the cars have bodies, and read when `CarShapes` is missing.
 const CAR_BODIES: PCWSTR = w!("CarBodies");
+const CAR_SHAPES: PCWSTR = w!("CarShapes");
+const CAR_COLOR: PCWSTR = w!("CarColor");
 
 /// Reads the saved settings; anything missing or invalid is the default.
 pub fn load() -> Settings {
@@ -53,6 +58,8 @@ fn load_from(root: HKEY, key: PCWSTR) -> Settings {
         read_dword(root, key, SCENERY_ZONES),
         read_dword(root, key, CAR_BODIES),
         read_dword(root, key, SPEEDOMETER),
+        read_dword(root, key, CAR_SHAPES),
+        read_dword(root, key, CAR_COLOR),
     )
 }
 
@@ -89,7 +96,9 @@ fn save_to(root: HKEY, key: PCWSTR, settings: &Settings) -> Result<()> {
         u32::from(settings.traffic_by_time),
     )?;
     write_dword(root, key, SCENERY_ZONES, u32::from(settings.scenery_zones))?;
-    write_dword(root, key, CAR_BODIES, settings.car_bodies.to_raw())
+    write_dword(root, key, CAR_SHAPES, settings.car_shapes.to_raw())?;
+    write_dword(root, key, CAR_COLOR, settings.car_color.to_raw())?;
+    write_dword(root, key, CAR_BODIES, settings.legacy_car_bodies())
 }
 
 /// Returns `None` when the key or value is missing, or is not a `REG_DWORD`.
@@ -130,7 +139,9 @@ fn write_dword(root: HKEY, key: PCWSTR, name: PCWSTR, value: u32) -> Result<()> 
 #[cfg(test)]
 mod tests {
     use freeway_core::settings::DEFAULT_SPEED_KMH;
-    use freeway_core::{CarBodies, Language, SpeedometerStyle, TruckStyle, TunnelLighting};
+    use freeway_core::{
+        CarColor, CarShapes, Language, SpeedometerStyle, TruckStyle, TunnelLighting,
+    };
     use windows::Win32::System::Registry::{REG_SZ, RegDeleteTreeW};
     use windows::core::HSTRING;
 
@@ -186,7 +197,8 @@ mod tests {
             show_mountains: false,
             trucks: TruckStyle::NorthAmerican,
             tunnels: TunnelLighting::Led,
-            car_bodies: CarBodies::TranslucentBlack,
+            car_shapes: CarShapes::Detailed,
+            car_color: CarColor::Black,
             language: Language::Japanese,
             vary_speed: false,
             traffic_by_time: false,
@@ -216,7 +228,8 @@ mod tests {
         write_dword(HKEY_CURRENT_USER, test.key(), VARY_SPEED, 2)?;
         write_dword(HKEY_CURRENT_USER, test.key(), TRAFFIC_BY_TIME, 7)?;
         write_dword(HKEY_CURRENT_USER, test.key(), SCENERY_ZONES, u32::MAX)?;
-        write_dword(HKEY_CURRENT_USER, test.key(), CAR_BODIES, 3)?;
+        write_dword(HKEY_CURRENT_USER, test.key(), CAR_SHAPES, 3)?;
+        write_dword(HKEY_CURRENT_USER, test.key(), CAR_COLOR, 2)?;
         let settings = test.load();
         assert_eq!(settings.speed_kmh, DEFAULT_SPEED_KMH);
         assert!(!settings.left_hand_traffic);
@@ -225,7 +238,8 @@ mod tests {
         assert!(settings.show_mountains);
         assert_eq!(settings.trucks, TruckStyle::Japanese);
         assert_eq!(settings.tunnels, TunnelLighting::Mixed);
-        assert_eq!(settings.car_bodies, CarBodies::Transparent);
+        assert_eq!(settings.car_shapes, CarShapes::None);
+        assert_eq!(settings.car_color, CarColor::TranslucentBlack);
         assert_eq!(settings.language, Language::Auto);
         assert!(settings.vary_speed && settings.traffic_by_time && settings.scenery_zones);
         Ok(())
@@ -353,24 +367,107 @@ mod tests {
     }
 
     #[test]
-    fn every_car_body_choice_is_read_back() -> Result<()> {
-        let test = TestKey::new("car-bodies");
-        for car_bodies in CarBodies::ALL {
+    fn every_car_shape_and_color_is_read_back() -> Result<()> {
+        let test = TestKey::new("car-shapes");
+        for car_shapes in CarShapes::ALL {
+            for car_color in CarColor::ALL {
+                let settings = Settings {
+                    car_shapes,
+                    car_color,
+                    ..Settings::default()
+                };
+                save_to(HKEY_CURRENT_USER, test.key(), &settings)?;
+                let loaded = test.load();
+                assert_eq!(
+                    (loaded.car_shapes, loaded.car_color),
+                    (car_shapes, car_color)
+                );
+            }
+        }
+        // Without the values, the bodies are off and translucent black.
+        let missing = TestKey::new("car-shapes-missing");
+        write_dword(HKEY_CURRENT_USER, missing.key(), SPEED, 60)?;
+        assert_eq!(missing.load().car_shapes, CarShapes::None);
+        assert_eq!(missing.load().car_color, CarColor::TranslucentBlack);
+        // With one out of range, each falls back by itself.
+        let invalid = TestKey::new("car-shapes-invalid");
+        for raw in [3, u32::MAX] {
+            write_dword(HKEY_CURRENT_USER, invalid.key(), CAR_SHAPES, raw)?;
+            write_dword(HKEY_CURRENT_USER, invalid.key(), CAR_COLOR, 1)?;
+            let loaded = invalid.load();
+            assert_eq!(loaded.car_shapes, CarShapes::None, "{raw}");
+            assert_eq!(loaded.car_color, CarColor::Black, "{raw}");
+            write_dword(HKEY_CURRENT_USER, invalid.key(), CAR_SHAPES, 2)?;
+            write_dword(HKEY_CURRENT_USER, invalid.key(), CAR_COLOR, raw)?;
+            let loaded = invalid.load();
+            assert_eq!(loaded.car_shapes, CarShapes::Detailed, "{raw}");
+            assert_eq!(loaded.car_color, CarColor::TranslucentBlack, "{raw}");
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn the_old_car_bodies_value_alone_carries_over() -> Result<()> {
+        // Settings saved by a version before 1.11 have CarBodies only.
+        for (raw, shapes, color) in [
+            (0, CarShapes::None, CarColor::TranslucentBlack),
+            (1, CarShapes::Detailed, CarColor::TranslucentBlack),
+            (2, CarShapes::Detailed, CarColor::Black),
+        ] {
+            let test = TestKey::new(&format!("car-bodies-old-{raw}"));
+            write_dword(HKEY_CURRENT_USER, test.key(), CAR_BODIES, raw)?;
+            let loaded = test.load();
+            assert_eq!(
+                (loaded.car_shapes, loaded.car_color),
+                (shapes, color),
+                "{raw}"
+            );
+        }
+        // A value out of range gives the defaults.
+        let invalid = TestKey::new("car-bodies-old-invalid");
+        for raw in [3, u32::MAX] {
+            write_dword(HKEY_CURRENT_USER, invalid.key(), CAR_BODIES, raw)?;
+            let loaded = invalid.load();
+            assert_eq!(loaded.car_shapes, CarShapes::None, "{raw}");
+            assert_eq!(loaded.car_color, CarColor::TranslucentBlack, "{raw}");
+        }
+        // The new values win when both are stored.
+        let both = TestKey::new("car-bodies-both");
+        write_dword(HKEY_CURRENT_USER, both.key(), CAR_BODIES, 2)?;
+        write_dword(HKEY_CURRENT_USER, both.key(), CAR_SHAPES, 0)?;
+        assert_eq!(both.load().car_shapes, CarShapes::None);
+        write_dword(HKEY_CURRENT_USER, both.key(), CAR_SHAPES, 1)?;
+        write_dword(HKEY_CURRENT_USER, both.key(), CAR_COLOR, 0)?;
+        let loaded = both.load();
+        assert_eq!(
+            (loaded.car_shapes, loaded.car_color),
+            (CarShapes::Boxes, CarColor::TranslucentBlack)
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn the_old_car_bodies_value_is_written_for_earlier_versions() -> Result<()> {
+        let test = TestKey::new("car-bodies-written");
+        for (car_shapes, car_color, expected) in [
+            (CarShapes::None, CarColor::TranslucentBlack, 0),
+            (CarShapes::None, CarColor::Black, 0),
+            (CarShapes::Boxes, CarColor::TranslucentBlack, 1),
+            (CarShapes::Detailed, CarColor::TranslucentBlack, 1),
+            (CarShapes::Boxes, CarColor::Black, 2),
+            (CarShapes::Detailed, CarColor::Black, 2),
+        ] {
             let settings = Settings {
-                car_bodies,
+                car_shapes,
+                car_color,
                 ..Settings::default()
             };
             save_to(HKEY_CURRENT_USER, test.key(), &settings)?;
-            assert_eq!(test.load().car_bodies, car_bodies);
-        }
-        // Without the value, or with one out of range, the bodies are transparent.
-        let missing = TestKey::new("car-bodies-missing");
-        write_dword(HKEY_CURRENT_USER, missing.key(), SPEED, 60)?;
-        assert_eq!(missing.load().car_bodies, CarBodies::Transparent);
-        let invalid = TestKey::new("car-bodies-invalid");
-        for raw in [3, u32::MAX] {
-            write_dword(HKEY_CURRENT_USER, invalid.key(), CAR_BODIES, raw)?;
-            assert_eq!(invalid.load().car_bodies, CarBodies::Transparent, "{raw}");
+            assert_eq!(
+                read_dword(HKEY_CURRENT_USER, test.key(), CAR_BODIES),
+                Some(expected),
+                "{car_shapes:?} {car_color:?}"
+            );
         }
         Ok(())
     }

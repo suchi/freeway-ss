@@ -58,16 +58,21 @@ const STREAM_PHASE: u32 = 16;
 const STREAM_TRUCK: u32 = 17;
 const STREAM_ACTIVE: u32 = 18;
 const STREAM_SHAPE: u32 = 19;
+const STREAM_MODEL: u32 = 20;
 
 /// The share of cars that are trucks, when trucks are enabled.
 pub const TRUCK_RATIO: f32 = 0.2;
 const TRUCK_HALF_WIDTH: f32 = 1.25;
-/// Width, height and length of the body of a car, in meters.
-const CAR_BODY: BodySize = BodySize {
-    width: 1.8,
-    height: 1.45,
-    length: 4.5,
-};
+/// Boxes of a body no higher than this cast no shadow of their own.
+pub(crate) const LOW_BOX: f32 = 1.25;
+/// The wheels of a car are boxes of this width at both sides, this much in
+/// from the side of the body.
+const CAR_WHEEL_INSET: f32 = 0.05;
+const CAR_WHEEL_WIDTH: f32 = 0.22;
+/// The cabin of a car is this much narrower than its body on each side.
+const CABIN_INSET: f32 = 0.1;
+/// The lamps of a car stand this far in from the side of the body.
+const LAMP_INSET: f32 = 0.15;
 /// The wheels of a truck are boxes of this length and height along the
 /// sides, reaching this far in from the edge of the body.
 const WHEEL_LENGTH: f32 = 1.0;
@@ -323,50 +328,233 @@ impl TruckStyle {
     }
 }
 
-/// Whether the other cars have bodies that hide the lights behind them.
+/// How the bodies of the other cars are drawn.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum CarBodies {
+pub enum CarShapes {
     /// Only the lights of the cars are drawn.
     #[default]
-    Transparent,
-    /// Black bodies that let a tenth of the light behind them through.
-    TranslucentBlack,
-    /// Black bodies that hide everything behind them.
-    Black,
+    None,
+    /// Each car is one box.
+    Boxes,
+    /// Cars have the shapes of sedans, minivans and so on, and trucks their
+    /// own shapes.
+    Detailed,
 }
 
-impl CarBodies {
+impl CarShapes {
     /// Every choice, in the order of the stored values 0, 1, 2.
-    pub const ALL: [CarBodies; 3] = [
-        CarBodies::Transparent,
-        CarBodies::TranslucentBlack,
-        CarBodies::Black,
-    ];
+    pub const ALL: [CarShapes; 3] = [CarShapes::None, CarShapes::Boxes, CarShapes::Detailed];
 
     /// The choice for a stored value; `None` when the value is not valid.
     pub fn from_raw(raw: Option<u32>) -> Option<Self> {
         Self::ALL.get(usize::try_from(raw?).ok()?).copied()
     }
 
-    /// How much a body hides what is behind it, from 0 to 1; `None` when
-    /// the cars have no bodies.
-    pub fn opacity(self) -> Option<f32> {
+    /// The value to store; `from_raw` reads it back.
+    pub fn to_raw(self) -> u32 {
         match self {
-            CarBodies::Transparent => None,
-            CarBodies::TranslucentBlack => Some(0.9),
-            CarBodies::Black => Some(1.0),
+            CarShapes::None => 0,
+            CarShapes::Boxes => 1,
+            CarShapes::Detailed => 2,
+        }
+    }
+
+    /// Whether the cars have bodies at all.
+    pub fn has_bodies(self) -> bool {
+        self != CarShapes::None
+    }
+}
+
+/// The color of the bodies of the other cars.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum CarColor {
+    /// Black bodies that let a tenth of the light behind them through.
+    #[default]
+    TranslucentBlack,
+    /// Black bodies that hide everything behind them.
+    Black,
+}
+
+impl CarColor {
+    /// Every choice, in the order of the stored values 0, 1.
+    pub const ALL: [CarColor; 2] = [CarColor::TranslucentBlack, CarColor::Black];
+
+    /// The choice for a stored value; `None` when the value is not valid.
+    pub fn from_raw(raw: Option<u32>) -> Option<Self> {
+        Self::ALL.get(usize::try_from(raw?).ok()?).copied()
+    }
+
+    /// How much a body hides what is behind it, from 0 to 1.
+    pub fn opacity(self) -> f32 {
+        match self {
+            CarColor::TranslucentBlack => 0.9,
+            CarColor::Black => 1.0,
         }
     }
 
     /// The value to store; `from_raw` reads it back.
     pub fn to_raw(self) -> u32 {
         match self {
-            CarBodies::Transparent => 0,
-            CarBodies::TranslucentBlack => 1,
-            CarBodies::Black => 2,
+            CarColor::TranslucentBlack => 0,
+            CarColor::Black => 1,
         }
     }
 }
+
+/// The shapes of cars that are not trucks.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CarModel {
+    Sedan,
+    Hatchback,
+    Minivan,
+    Suv,
+    /// A small Japanese car.
+    Kei,
+    /// A North American pickup truck.
+    Pickup,
+}
+
+/// What a car is made of, in meters from its front end and above the road:
+/// a body, a cabin on it and the wheels.
+struct ModelSpec {
+    length: f32,
+    half_width: f32,
+    /// The lower and upper edge of the body, which spans the whole car.
+    body: (f32, f32),
+    /// Where the cabin stands along the car, and the height of its roof. It
+    /// rises from the upper edge of the body.
+    cabin: (f32, f32),
+    roof: f32,
+    /// The diameter of the wheels, and where the front and the rear axle are.
+    wheel: f32,
+    axles: (f32, f32),
+}
+
+impl CarModel {
+    /// Every model, in the order the shares are given in.
+    pub const ALL: [CarModel; 6] = [
+        CarModel::Sedan,
+        CarModel::Hatchback,
+        CarModel::Minivan,
+        CarModel::Suv,
+        CarModel::Kei,
+        CarModel::Pickup,
+    ];
+
+    fn spec(self) -> &'static ModelSpec {
+        match self {
+            CarModel::Sedan => &SEDAN,
+            CarModel::Hatchback => &HATCHBACK,
+            CarModel::Minivan => &MINIVAN,
+            CarModel::Suv => &SUV,
+            CarModel::Kei => &KEI,
+            CarModel::Pickup => &PICKUP,
+        }
+    }
+
+    /// The length of the car in meters.
+    pub fn length(self) -> f32 {
+        self.spec().length
+    }
+
+    /// The model for a random `roll` in `0..1`, by the shares of the models
+    /// among the cars that are not trucks. The Japanese small car and the
+    /// pickup truck belong to the truck style of their country.
+    fn pick(style: TruckStyle, roll: f32) -> Self {
+        let shares: [(CarModel, f32); 5] = match style {
+            TruckStyle::None => [
+                (CarModel::Sedan, 0.30),
+                (CarModel::Hatchback, 0.25),
+                (CarModel::Minivan, 0.25),
+                (CarModel::Suv, 0.20),
+                (CarModel::Suv, 0.0),
+            ],
+            TruckStyle::Japanese => [
+                (CarModel::Sedan, 0.25),
+                (CarModel::Hatchback, 0.20),
+                (CarModel::Minivan, 0.25),
+                (CarModel::Suv, 0.15),
+                (CarModel::Kei, 0.15),
+            ],
+            TruckStyle::NorthAmerican => [
+                (CarModel::Sedan, 0.30),
+                (CarModel::Hatchback, 0.10),
+                (CarModel::Minivan, 0.15),
+                (CarModel::Suv, 0.30),
+                (CarModel::Pickup, 0.15),
+            ],
+        };
+        let mut edge = 0.0;
+        for (model, share) in shares {
+            edge += share;
+            if roll < edge {
+                return model;
+            }
+        }
+        // Rounding may leave a sliver at the end.
+        shares[4].0
+    }
+}
+
+const SEDAN: ModelSpec = ModelSpec {
+    length: 4.7,
+    half_width: 0.9,
+    body: (0.3, 0.95),
+    cabin: (1.6, 3.7),
+    roof: 1.45,
+    wheel: 0.65,
+    axles: (0.95, 3.75),
+};
+
+const HATCHBACK: ModelSpec = ModelSpec {
+    length: 4.0,
+    half_width: 0.875,
+    body: (0.3, 0.95),
+    cabin: (1.4, 3.9),
+    roof: 1.5,
+    wheel: 0.6,
+    axles: (0.8, 3.2),
+};
+
+const MINIVAN: ModelSpec = ModelSpec {
+    length: 4.8,
+    half_width: 0.9,
+    body: (0.3, 1.0),
+    cabin: (1.0, 4.8),
+    roof: 1.85,
+    wheel: 0.65,
+    axles: (0.95, 3.85),
+};
+
+const SUV: ModelSpec = ModelSpec {
+    length: 4.6,
+    half_width: 0.925,
+    body: (0.4, 1.1),
+    cabin: (1.5, 4.4),
+    roof: 1.75,
+    wheel: 0.75,
+    axles: (0.95, 3.65),
+};
+
+const KEI: ModelSpec = ModelSpec {
+    length: 3.4,
+    half_width: 0.74,
+    body: (0.3, 0.9),
+    cabin: (0.8, 3.4),
+    roof: 1.75,
+    wheel: 0.55,
+    axles: (0.6, 2.8),
+};
+
+const PICKUP: ModelSpec = ModelSpec {
+    length: 5.9,
+    half_width: 1.0,
+    body: (0.45, 1.2),
+    cabin: (1.9, 3.6),
+    roof: 1.95,
+    wheel: 0.8,
+    axles: (1.0, 4.6),
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Kind {
@@ -375,13 +563,6 @@ enum Kind {
     /// Same direction, passing lane, faster than the camera.
     Passing,
     Oncoming,
-}
-
-#[derive(Clone, Copy)]
-struct BodySize {
-    width: f32,
-    height: f32,
-    length: f32,
 }
 
 /// Which face of the box of a body a `BodyFace` is.
@@ -433,6 +614,13 @@ pub struct BodyBox {
     /// The middle and half the length of the whole car.
     pub center: f32,
     pub half_length: f32,
+    /// The lowest and highest height of the box that casts the shadow of this
+    /// box; `None` where the box casts none. The shadow of a car is that of
+    /// the whole car, cast by one of its boxes.
+    pub shadow: Option<(f32, f32)>,
+    /// The part along the road where another box of the car stands on the top
+    /// of this one, which hides the roof there.
+    pub covered: Option<(f32, f32)>,
 }
 
 impl BodyBox {
@@ -483,15 +671,36 @@ impl BodyBox {
                     (near, right, top),
                 ],
             ),
-            (FacePart::Roof, self.top_corners()),
         ];
-        end.into_iter().chain(rest).map(|(part, corners)| BodyFace {
-            car: self.car,
-            part,
-            lateral: self.lateral,
-            sight: self.sight,
-            corners,
-        })
+        // The roof, but for the part that another box stands on.
+        let (hole_near, hole_far) = self.covered.unwrap_or((near, near));
+        let roofs = [
+            (near, hole_near.clamp(near, far)),
+            (hole_far.clamp(near, far), far),
+        ]
+        .into_iter()
+        .filter(|&(from, to)| to - from > 1e-3)
+        .map(move |(from, to)| {
+            (
+                FacePart::Roof,
+                [
+                    (from, left, top),
+                    (from, right, top),
+                    (to, right, top),
+                    (to, left, top),
+                ],
+            )
+        });
+        end.into_iter()
+            .chain(rest)
+            .chain(roofs)
+            .map(|(part, corners)| BodyFace {
+                car: self.car,
+                part,
+                lateral: self.lateral,
+                sight: self.sight,
+                corners,
+            })
     }
 }
 
@@ -546,6 +755,9 @@ struct Car {
     /// The shape of the car if it is a truck; decided each time the car is
     /// placed.
     truck: Option<TruckShape>,
+    /// The shape of the car if it is not a truck; decided each time the car
+    /// is placed.
+    model: CarModel,
     /// Where cars keep clear of each other: the velocity the car drives at,
     /// which follows what it should be at a limited rate. `None` after the car
     /// has been placed, when it takes up the velocity it should have at once.
@@ -590,6 +802,7 @@ impl Car {
             generation: 0,
             active: true,
             truck: None,
+            model: CarModel::Sedan,
             drive: None,
             brakes: 0,
             until_brake: 0.0,
@@ -632,6 +845,7 @@ impl Car {
         } else {
             None
         };
+        self.model = CarModel::pick(style, self.roll(seed, STREAM_MODEL));
         self.age = 0.0;
         self.drive = None;
         self.phase = self.roll(seed, STREAM_PHASE) * std::f32::consts::TAU;
@@ -791,13 +1005,17 @@ impl Car {
         }
     }
 
-    fn push_lights(&self, style: TruckStyle, out: &mut Vec<CarLight>) {
+    fn push_lights(&self, style: TruckStyle, shapes: CarShapes, out: &mut Vec<CarLight>) {
         let d = self.rel;
         if !self.active || !(NEAR_DISTANCE..VIEW_DISTANCE).contains(&d) {
             return;
         }
         if let Some(shape) = self.truck {
             self.push_truck_lights(shape, style, out);
+            return;
+        }
+        if shapes.has_bodies() {
+            self.push_model_lights(out);
             return;
         }
         match self.kind {
@@ -870,23 +1088,32 @@ impl Car {
     /// The length of the body of the car in meters.
     fn length(&self) -> f32 {
         self.truck
-            .map_or(CAR_BODY.length, |shape| shape.spec().length)
+            .map_or(self.model.length(), |shape| shape.spec().length)
+    }
+
+    /// The height of the body of the car in meters.
+    fn height(&self) -> f32 {
+        self.truck
+            .map_or(self.model.spec().roof, |shape| shape.spec().height)
     }
 
     /// The boxes of the body, cut off where the view ends. `rel` is the end
     /// that faces the camera, and the body reaches the length of the car
     /// farther away. A body that has partly passed the camera is cut off at
     /// `NEAR_DISTANCE`, so that it does not vanish all at once.
-    fn push_boxes(&self, out: &mut Vec<BodyBox>) {
+    fn push_boxes(&self, shapes: CarShapes, out: &mut Vec<BodyBox>) {
         let length = self.length();
         let end_of_view = VIEW_DISTANCE - VIEW_MARGIN;
         if !self.active || self.rel >= end_of_view || self.rel + length <= NEAR_DISTANCE {
             return;
         }
-        let height = self.truck.map_or(CAR_BODY.height, |t| t.spec().height);
+        let height = self.height();
         let sight = (self.rel.max(NEAR_DISTANCE), self.lateral, height * 0.5);
-        let mut push = |along: (f32, f32), across: (f32, f32), up: (f32, f32)| {
-            let (start, stop) = (self.rel + along.0, (self.rel + along.1).min(end_of_view));
+        let mut push = |part: Part| {
+            let (start, stop) = (
+                self.rel + part.along.0,
+                (self.rel + part.along.1).min(end_of_view),
+            );
             if start >= end_of_view || stop <= NEAR_DISTANCE {
                 return;
             }
@@ -896,33 +1123,91 @@ impl Car {
                 sight,
                 near: start.max(NEAR_DISTANCE),
                 far: stop,
-                left: self.lateral + across.0,
-                right: self.lateral + across.1,
-                bottom: up.0,
-                top: up.1,
+                left: self.lateral + part.across.0,
+                right: self.lateral + part.across.1,
+                bottom: part.up.0,
+                top: part.up.1,
                 has_end: start >= NEAR_DISTANCE,
                 center: self.rel + length * 0.5,
                 half_length: length * 0.5,
+                shadow: part.shadow,
+                covered: part
+                    .covered
+                    .map(|(from, to)| (self.rel + from, self.rel + to)),
             });
         };
-        let Some(shape) = self.truck else {
-            let half = CAR_BODY.width * 0.5;
-            push((0.0, length), (-half, half), (0.0, CAR_BODY.height));
-            return;
-        };
-        let spec = shape.spec();
         // The shape is given from the front; the end that faces the camera is
-        // the front of an oncoming truck and the rear of the others.
+        // the front of an oncoming car and the rear of the others.
         let along = |from: f32, to: f32| {
             if self.kind == Kind::Oncoming {
                 (from, to)
             } else {
-                (spec.length - to, spec.length - from)
+                (length - to, length - from)
             }
         };
+        let solid = |across: f32, up: (f32, f32)| Part {
+            along: (0.0, length),
+            across: (-across, across),
+            up,
+            shadow: Some(up),
+            covered: None,
+        };
+        if shapes == CarShapes::Boxes {
+            // One box that holds the whole shape.
+            let across = self
+                .truck
+                .map_or(self.model.spec().half_width, |_| TRUCK_HALF_WIDTH);
+            push(solid(across, (0.0, height)));
+            return;
+        }
+        let Some(shape) = self.truck else {
+            let spec = self.model.spec();
+            let (cabin_from, cabin_to) = spec.cabin;
+            let half = spec.half_width;
+            // The body spans the car and casts the shadow of the whole car.
+            push(Part {
+                shadow: Some((0.0, spec.roof)),
+                covered: Some(along(cabin_from, cabin_to)),
+                ..solid(half, spec.body)
+            });
+            push(Part {
+                along: along(cabin_from, cabin_to),
+                across: (-(half - CABIN_INSET), half - CABIN_INSET),
+                up: (spec.body.1, spec.roof),
+                shadow: None,
+                covered: None,
+            });
+            // A wheel at each side of each axle; the light of the road shows
+            // between them.
+            let edge = half - CAR_WHEEL_INSET;
+            for axle in [spec.axles.0, spec.axles.1] {
+                for across in [
+                    (-edge, CAR_WHEEL_WIDTH - edge),
+                    (edge - CAR_WHEEL_WIDTH, edge),
+                ] {
+                    push(Part {
+                        along: along(axle - spec.wheel * 0.5, axle + spec.wheel * 0.5),
+                        across,
+                        up: (0.0, spec.wheel),
+                        shadow: None,
+                        covered: None,
+                    });
+                }
+            }
+            return;
+        };
+        let spec = shape.spec();
+        // The low parts, wheels and frames, cast shadows that the body's hide.
+        let shadow = |up: (f32, f32)| (up.1 > LOW_BOX).then_some(up);
         for block in spec.blocks {
             let half = block.half_width;
-            push(along(block.along.0, block.along.1), (-half, half), block.up);
+            push(Part {
+                along: along(block.along.0, block.along.1),
+                across: (-half, half),
+                up: block.up,
+                shadow: shadow(block.up),
+                covered: None,
+            });
         }
         // Axles that are closer than `TANDEM_GAP` are one set with one wheel
         // each side: the gaps between their wheels are too small to be seen.
@@ -937,10 +1222,102 @@ impl Car {
         let edge = TRUCK_HALF_WIDTH;
         for (from, to) in sets {
             for across in [(-edge, WHEEL_WIDTH - edge), (edge - WHEEL_WIDTH, edge)] {
-                push(along(from, to), across, (0.0, WHEEL_HEIGHT));
+                push(Part {
+                    along: along(from, to),
+                    across,
+                    up: (0.0, WHEEL_HEIGHT),
+                    shadow: shadow((0.0, WHEEL_HEIGHT)),
+                    covered: None,
+                });
             }
         }
     }
+
+    /// Lights of a car that has a body, which stand on its surface. `rel` is
+    /// the end of the body that faces the camera. The tail lamps and the
+    /// headlights are on the body, near its upper edge; the lamp that shows
+    /// when the car brakes is on the cabin.
+    fn push_model_lights(&self, out: &mut Vec<CarLight>) {
+        let spec = self.model.spec();
+        let d = self.rel;
+        let across = spec.half_width - LAMP_INSET;
+        match self.kind {
+            Kind::Lead | Kind::Passing => {
+                let fade = (1.0 - d / TAIL_RANGE).max(0.0);
+                let (size, alpha) = if self.braking() {
+                    (0.09, fade)
+                } else {
+                    (0.07, 0.6 * fade)
+                };
+                for side in [-across, across] {
+                    out.push(CarLight {
+                        car: self.id,
+                        d,
+                        lateral: self.lateral + side,
+                        height: spec.body.1 - 0.15,
+                        size,
+                        color: TAIL_RED,
+                        alpha,
+                        glare: false,
+                    });
+                }
+                // The rear face of the cabin is this far from the rear end.
+                let behind = d + spec.length - spec.cabin.1;
+                if self.braking() && behind < VIEW_DISTANCE {
+                    out.push(CarLight {
+                        car: self.id,
+                        d: behind,
+                        lateral: self.lateral,
+                        height: spec.body.1 + 0.25,
+                        size: 0.05,
+                        color: TAIL_RED,
+                        alpha: fade,
+                        glare: false,
+                    });
+                }
+            }
+            Kind::Oncoming => {
+                // The median barrier chops the light as the car passes it.
+                let flicker = 0.875 + 0.125 * (d * 0.8 + self.phase).sin();
+                let alpha = (1.0 - d / VIEW_DISTANCE) * flicker;
+                let height = spec.body.1 - 0.25;
+                for side in [-across, across] {
+                    out.push(CarLight {
+                        car: self.id,
+                        d,
+                        lateral: self.lateral + side,
+                        height,
+                        size: 0.13,
+                        color: HEADLIGHT_WHITE,
+                        alpha,
+                        glare: false,
+                    });
+                }
+                if d < GLARE_RANGE {
+                    out.push(CarLight {
+                        car: self.id,
+                        d,
+                        lateral: self.lateral,
+                        height,
+                        size: 1.2,
+                        color: HEADLIGHT_WHITE,
+                        alpha: GLARE_ALPHA * (1.0 - d / GLARE_RANGE),
+                        glare: true,
+                    });
+                }
+            }
+        }
+    }
+}
+
+/// A box of a car: along the road as distances from the end that faces the
+/// camera, across it from the middle of the car, and above the road.
+struct Part {
+    along: (f32, f32),
+    across: (f32, f32),
+    up: (f32, f32),
+    shadow: Option<(f32, f32)>,
+    covered: Option<(f32, f32)>,
 }
 
 impl Car {
@@ -1072,10 +1449,10 @@ pub struct Traffic {
     seed: u64,
     trucks: TruckStyle,
     level: TrafficLevel,
-    /// Whether the cars keep clear of each other. They do where their bodies
-    /// are drawn, since bodies that pass through each other are seen; with
-    /// only lights, that is not worth the change in the traffic.
-    keep_apart: bool,
+    /// How the bodies of the cars are drawn. The cars keep clear of each other
+    /// where they are drawn, since bodies that pass through each other are
+    /// seen; with only lights, that is not worth the change in the traffic.
+    shapes: CarShapes,
     cars: Vec<Car>,
 }
 
@@ -1086,21 +1463,22 @@ impl Traffic {
 
     /// Traffic that is as busy as `level` from the start.
     pub fn with_level(seed: u64, trucks: TruckStyle, level: TrafficLevel) -> Self {
-        Self::build(seed, trucks, level, false)
+        Self::build(seed, trucks, level, CarShapes::None)
     }
 
     /// Like `with_level`, and the cars of a lane keep clear of each other if
-    /// `keep_apart`.
-    pub fn with_spacing(
+    /// they have bodies.
+    pub fn with_shapes(
         seed: u64,
         trucks: TruckStyle,
         level: TrafficLevel,
-        keep_apart: bool,
+        shapes: CarShapes,
     ) -> Self {
-        Self::build(seed, trucks, level, keep_apart)
+        Self::build(seed, trucks, level, shapes)
     }
 
-    fn build(seed: u64, trucks: TruckStyle, level: TrafficLevel, keep_apart: bool) -> Self {
+    fn build(seed: u64, trucks: TruckStyle, level: TrafficLevel, shapes: CarShapes) -> Self {
+        let keep_apart = shapes.has_bodies();
         let count = LEAD_CARS + PASSING_CARS + ONCOMING_CARS;
         let mut cars: Vec<Car> = Vec::new();
         for id in 0..count {
@@ -1117,7 +1495,7 @@ impl Traffic {
             seed,
             trucks,
             level,
-            keep_apart,
+            shapes,
             cars,
         }
     }
@@ -1157,13 +1535,13 @@ impl Traffic {
             .iter()
             .map(|c| c.rel_velocity(own_speed))
             .collect();
-        if self.keep_apart {
+        if self.shapes.has_bodies() {
             self.match_speeds(&mut velocity, dt);
         }
         for (car, &velocity) in self.cars.iter_mut().zip(&velocity) {
             car.advance(self.seed, dt, velocity);
         }
-        if self.keep_apart {
+        if self.shapes.has_bodies() {
             self.push_apart();
         }
         for index in 0..self.cars.len() {
@@ -1184,7 +1562,7 @@ impl Traffic {
                 self.trucks,
                 self.level,
                 false,
-                self.keep_apart.then_some(&others[..]),
+                self.shapes.has_bodies().then_some(&others[..]),
             );
         }
     }
@@ -1304,7 +1682,7 @@ impl Traffic {
     pub fn lights(&self) -> Vec<CarLight> {
         let mut lights = Vec::new();
         for car in &self.cars {
-            car.push_lights(self.trucks, &mut lights);
+            car.push_lights(self.trucks, self.shapes, &mut lights);
         }
         lights
     }
@@ -1314,7 +1692,7 @@ impl Traffic {
     pub fn boxes(&self) -> Vec<BodyBox> {
         let mut boxes = Vec::new();
         for car in &self.cars {
-            car.push_boxes(&mut boxes);
+            car.push_boxes(self.shapes, &mut boxes);
         }
         boxes
     }
@@ -1506,7 +1884,7 @@ mod tests {
         car.rel = 100.0;
         let lights = |car: &Car| {
             let mut out = Vec::new();
-            car.push_lights(TruckStyle::None, &mut out);
+            car.push_lights(TruckStyle::None, CarShapes::None, &mut out);
             out
         };
         car.braking_left = 0.0;
@@ -1530,7 +1908,7 @@ mod tests {
         let glare = |car: &mut Car, d: f32| {
             car.rel = d;
             let mut out = Vec::new();
-            car.push_lights(TruckStyle::None, &mut out);
+            car.push_lights(TruckStyle::None, CarShapes::None, &mut out);
             out.iter().find(|l| l.glare).map(|l| l.alpha)
         };
         assert_eq!(glare(&mut car, 200.0), None);
@@ -1565,7 +1943,7 @@ mod tests {
 
     fn lights_of(car: &Car, style: TruckStyle) -> Vec<CarLight> {
         let mut out = Vec::new();
-        car.push_lights(style, &mut out);
+        car.push_lights(style, CarShapes::Detailed, &mut out);
         out
     }
 
@@ -2059,7 +2437,7 @@ mod tests {
                         car.lateral = lateral;
                     }
                     let mut boxes = Vec::new();
-                    car.push_boxes(&mut boxes);
+                    car.push_boxes(CarShapes::Detailed, &mut boxes);
                     for light in lights_of(&car, style_of(shape)) {
                         let (distance, inside) = lamp_clearance(&boxes, &light);
                         assert!(!inside, "{shape:?} {id}: {light:?}");
@@ -2133,13 +2511,15 @@ mod tests {
         assert!(traffic.cars.iter().all(|c| c.rel.is_finite()));
     }
 
-    fn body_of(id: u32, truck: Option<TruckShape>, rel: f32) -> Vec<BodyFace> {
+    /// The faces of a car of `id`, drawn as `shapes`; a sedan unless it is a truck.
+    fn body_of(id: u32, truck: Option<TruckShape>, shapes: CarShapes, rel: f32) -> Vec<BodyFace> {
         let mut car = Car::new(0, id, TruckStyle::Japanese, TrafficLevel::FULL);
         car.truck = truck;
+        car.model = CarModel::Sedan;
         car.active = true;
         car.rel = rel;
         let mut boxes = Vec::new();
-        car.push_boxes(&mut boxes);
+        car.push_boxes(shapes, &mut boxes);
         boxes.iter().flat_map(BodyBox::faces).collect()
     }
 
@@ -2151,7 +2531,7 @@ mod tests {
             Kind::Oncoming => ONCOMING_LANES[0],
         };
         let mut boxes = Vec::new();
-        car.push_boxes(&mut boxes);
+        car.push_boxes(CarShapes::Detailed, &mut boxes);
         boxes
     }
 
@@ -2170,7 +2550,7 @@ mod tests {
     #[test]
     fn the_end_face_of_a_car_is_a_car_wide_and_high() {
         for id in [LEAD_ID, PASSING_ID, ONCOMING_ID] {
-            let faces = body_of(id, None, 50.0);
+            let faces = body_of(id, None, CarShapes::Boxes, 50.0);
             let end = faces[0];
             assert!(end.corners.iter().all(|c| c.0 == 50.0), "{id}");
             assert!((span(&faces[..1], |c| c.1) - 1.8).abs() < 1e-4, "{id}");
@@ -2186,7 +2566,7 @@ mod tests {
     #[test]
     fn a_car_is_a_box_of_an_end_two_sides_and_a_roof() {
         for id in [LEAD_ID, PASSING_ID, ONCOMING_ID] {
-            let faces = body_of(id, None, 50.0);
+            let faces = body_of(id, None, CarShapes::Boxes, 50.0);
             let parts: Vec<FacePart> = faces.iter().map(|f| f.part).collect();
             assert_eq!(
                 parts,
@@ -2198,32 +2578,21 @@ mod tests {
                 ],
                 "{id}"
             );
-            let size = CAR_BODY;
+            let spec = CarModel::Sedan.spec();
+            let size = (spec.half_width * 2.0, spec.roof, spec.length);
             let lateral = faces[0].lateral;
             assert!(faces.iter().all(|f| f.lateral == lateral), "{id}");
             // The sides stand at the edges of the width and reach the length of the car.
-            let (left, right) = (lateral - size.width * 0.5, lateral + size.width * 0.5);
+            let (left, right) = (lateral - size.0 * 0.5, lateral + size.0 * 0.5);
             assert!(faces[1].corners.iter().all(|c| c.1 == left), "{id}");
             assert!(faces[2].corners.iter().all(|c| c.1 == right), "{id}");
-            assert!(
-                (span(&faces[1..2], |c| c.0) - size.length).abs() < 1e-4,
-                "{id}"
-            );
-            assert!(
-                (span(&faces[1..2], |c| c.2) - size.height).abs() < 1e-4,
-                "{id}"
-            );
+            assert!((span(&faces[1..2], |c| c.0) - size.2).abs() < 1e-4, "{id}");
+            assert!((span(&faces[1..2], |c| c.2) - size.1).abs() < 1e-4, "{id}");
             assert_eq!(faces[1].corners[0].0, 50.0, "{id}");
             // The roof is at the height of the body and covers its whole top.
-            assert!(faces[3].corners.iter().all(|c| c.2 == size.height), "{id}");
-            assert!(
-                (span(&faces[3..], |c| c.0) - size.length).abs() < 1e-4,
-                "{id}"
-            );
-            assert!(
-                (span(&faces[3..], |c| c.1) - size.width).abs() < 1e-4,
-                "{id}"
-            );
+            assert!(faces[3].corners.iter().all(|c| c.2 == size.1), "{id}");
+            assert!((span(&faces[3..], |c| c.0) - size.2).abs() < 1e-4, "{id}");
+            assert!((span(&faces[3..], |c| c.1) - size.0).abs() < 1e-4, "{id}");
         }
     }
 
@@ -2363,25 +2732,36 @@ mod tests {
     fn the_body_of_a_passing_car_is_cut_off_at_the_camera() {
         // The rear is behind the camera: the end is gone, and what is left of
         // the sides and the roof starts at the nearest distance.
-        let faces = body_of(PASSING_ID, None, -2.0);
+        let faces = body_of(PASSING_ID, None, CarShapes::Boxes, -2.0);
         let parts: Vec<FacePart> = faces.iter().map(|f| f.part).collect();
         assert_eq!(parts, [FacePart::Side, FacePart::Side, FacePart::Roof]);
         for face in &faces {
             let near = face.corners.iter().map(|c| c.0).fold(f32::MAX, f32::min);
             let far = face.corners.iter().map(|c| c.0).fold(f32::MIN, f32::max);
-            assert_eq!((near, far), (NEAR_DISTANCE, 2.5));
+            assert_eq!(
+                (near, far),
+                (NEAR_DISTANCE, -2.0 + CarModel::Sedan.length())
+            );
         }
         // Once the whole car is behind the camera nothing is left.
-        assert!(body_of(PASSING_ID, None, -3.6).is_empty());
+        assert!(
+            body_of(
+                PASSING_ID,
+                None,
+                CarShapes::Boxes,
+                -(CarModel::Sedan.length() - NEAR_DISTANCE + 0.1)
+            )
+            .is_empty()
+        );
         let truck = Some(TruckShape::JapaneseBox);
-        assert!(!body_of(PASSING_ID, truck, -10.0).is_empty());
-        assert!(body_of(PASSING_ID, truck, -12.0).is_empty());
+        assert!(!body_of(PASSING_ID, truck, CarShapes::Detailed, -10.0).is_empty());
+        assert!(body_of(PASSING_ID, truck, CarShapes::Detailed, -12.0).is_empty());
         // The parts of a truck that are past the camera are gone, the others cut.
         let boxes_at = |rel: f32| {
             let mut car = shaped(PASSING_ID, TruckShape::JapaneseBox, rel);
             let mut boxes = Vec::new();
             car.lateral = PASSING_LANE;
-            car.push_boxes(&mut boxes);
+            car.push_boxes(CarShapes::Detailed, &mut boxes);
             boxes
         };
         let (whole, partly) = (boxes_at(100.0), boxes_at(-8.0));
@@ -2398,7 +2778,7 @@ mod tests {
         for rel in [VIEW_DISTANCE - 3.0, VIEW_DISTANCE - 0.005, VIEW_DISTANCE] {
             for truck in [None, Some(TruckShape::AmericanSemi)] {
                 for id in [LEAD_ID, PASSING_ID, ONCOMING_ID] {
-                    for face in body_of(id, truck, rel) {
+                    for face in body_of(id, truck, CarShapes::Detailed, rel) {
                         assert!(
                             face.corners
                                 .iter()
@@ -2471,7 +2851,8 @@ mod tests {
             TruckStyle::NorthAmerican,
         ] {
             for seed in 0..4 {
-                let mut traffic = Traffic::with_spacing(seed, style, TrafficLevel::FULL, true);
+                let mut traffic =
+                    Traffic::with_shapes(seed, style, TrafficLevel::FULL, CarShapes::Detailed);
                 assert!(
                     least_gap(&traffic) >= LANE_GAP - 1e-3,
                     "{style:?} {seed} start"
@@ -2506,7 +2887,8 @@ mod tests {
         let (mut checked, mut steepest) = (0, 0.0f32);
         for style in [TruckStyle::None, TruckStyle::Japanese] {
             for seed in 0..3 {
-                let mut traffic = Traffic::with_spacing(seed, style, TrafficLevel::FULL, true);
+                let mut traffic =
+                    Traffic::with_shapes(seed, style, TrafficLevel::FULL, CarShapes::Detailed);
                 // The position, the speed (0 if not known) and the generation of each car.
                 let mut last: Vec<(f32, f32, u32)> = traffic
                     .cars
@@ -2548,7 +2930,7 @@ mod tests {
         };
         for style in [TruckStyle::Japanese, TruckStyle::NorthAmerican] {
             for seed in 0..2 {
-                let mut traffic = Traffic::with_spacing(seed, style, level, true);
+                let mut traffic = Traffic::with_shapes(seed, style, level, CarShapes::Detailed);
                 assert!(traffic.cars.iter().all(|c| c.truck.is_some()));
                 let mut worst = f32::MAX;
                 run(&mut traffic, 72_000, |t| worst = worst.min(least_gap(t)));
@@ -2572,7 +2954,12 @@ mod tests {
         // stay in view as before.
         let mut visible = 0;
         let mut samples = 0;
-        let mut traffic = Traffic::with_spacing(3, TruckStyle::Japanese, TrafficLevel::FULL, true);
+        let mut traffic = Traffic::with_shapes(
+            3,
+            TruckStyle::Japanese,
+            TrafficLevel::FULL,
+            CarShapes::Detailed,
+        );
         run(&mut traffic, 72_000, |t| {
             visible += t
                 .cars
@@ -2620,9 +3007,396 @@ mod tests {
 
     #[test]
     fn car_body_choices_give_their_opacity() {
-        assert_eq!(CarBodies::Transparent.opacity(), None);
-        assert_eq!(CarBodies::TranslucentBlack.opacity(), Some(0.9));
-        assert_eq!(CarBodies::Black.opacity(), Some(1.0));
+        assert_eq!(CarColor::TranslucentBlack.opacity(), 0.9);
+        assert_eq!(CarColor::Black.opacity(), 1.0);
+    }
+
+    /// A car that is not a truck of `model`, as the kind of car of `id`, at `rel`.
+    fn model_car(id: u32, model: CarModel, rel: f32) -> Car {
+        let mut car = Car::new(0, id, TruckStyle::Japanese, TrafficLevel::FULL);
+        car.truck = None;
+        car.model = model;
+        car.active = true;
+        car.rel = rel;
+        car.lateral = match car.kind {
+            Kind::Lead => OWN_LANE,
+            Kind::Passing => PASSING_LANE,
+            Kind::Oncoming => ONCOMING_LANES[0],
+        };
+        car.braking_left = 0.0;
+        car
+    }
+
+    fn model_boxes(car: &Car, shapes: CarShapes) -> Vec<BodyBox> {
+        let mut boxes = Vec::new();
+        car.push_boxes(shapes, &mut boxes);
+        boxes
+    }
+
+    #[test]
+    fn the_models_have_the_designed_sizes() {
+        // (length, width, body from, body to, cabin from, cabin to, roof, wheel)
+        let designed = [
+            (CarModel::Sedan, 4.7, 1.8, 0.3, 0.95, 1.6, 3.7, 1.45, 0.65),
+            (
+                CarModel::Hatchback,
+                4.0,
+                1.75,
+                0.3,
+                0.95,
+                1.4,
+                3.9,
+                1.5,
+                0.6,
+            ),
+            (CarModel::Minivan, 4.8, 1.8, 0.3, 1.0, 1.0, 4.8, 1.85, 0.65),
+            (CarModel::Suv, 4.6, 1.85, 0.4, 1.1, 1.5, 4.4, 1.75, 0.75),
+            (CarModel::Kei, 3.4, 1.48, 0.3, 0.9, 0.8, 3.4, 1.75, 0.55),
+            (CarModel::Pickup, 5.9, 2.0, 0.45, 1.2, 1.9, 3.6, 1.95, 0.8),
+        ];
+        for (model, length, width, from, to, cabin_from, cabin_to, roof, wheel) in designed {
+            let spec = model.spec();
+            assert_eq!(model.length(), length, "{model:?}");
+            assert!((spec.half_width * 2.0 - width).abs() < 1e-4, "{model:?}");
+            assert_eq!(spec.body, (from, to), "{model:?}");
+            assert_eq!(spec.cabin, (cabin_from, cabin_to), "{model:?}");
+            assert_eq!((spec.roof, spec.wheel), (roof, wheel), "{model:?}");
+        }
+    }
+
+    #[test]
+    fn a_detailed_car_is_a_body_a_cabin_and_four_wheels_inside_its_size() {
+        for model in CarModel::ALL {
+            let spec = model.spec();
+            for id in [LEAD_ID, PASSING_ID, ONCOMING_ID] {
+                let car = model_car(id, model, 100.0);
+                let boxes = model_boxes(&car, CarShapes::Detailed);
+                assert_eq!(boxes.len(), 6, "{model:?} {id}");
+                for b in &boxes {
+                    let values = [b.near, b.far, b.left, b.right, b.bottom, b.top];
+                    assert!(values.iter().all(|v| v.is_finite()), "{model:?} {id}");
+                    assert!(b.near >= 100.0 - 1e-4 && b.far <= 100.0 + spec.length + 1e-4);
+                    assert!(b.left >= car.lateral - spec.half_width - 1e-4);
+                    assert!(b.right <= car.lateral + spec.half_width + 1e-4);
+                    assert!(b.bottom >= 0.0 && b.top <= spec.roof + 1e-4);
+                    assert!(b.near < b.far && b.left < b.right && b.bottom < b.top);
+                    assert!(b.has_end, "{model:?} {id}");
+                    for face in b.faces() {
+                        let all = face.corners.iter().flat_map(|c| [c.0, c.1, c.2]);
+                        assert!(all.into_iter().all(f32::is_finite), "{model:?} {id}");
+                    }
+                }
+                // The body spans the car, the cabin stands on it and the
+                // wheels reach the road.
+                let body = &boxes[0];
+                assert_eq!((body.near, body.far), (100.0, 100.0 + spec.length));
+                assert_eq!((body.bottom, body.top), spec.body);
+                let cabin = &boxes[1];
+                assert_eq!(cabin.bottom, spec.body.1);
+                assert_eq!(cabin.top, spec.roof);
+                assert!(
+                    (cabin.right - cabin.left - (spec.half_width - CABIN_INSET) * 2.0).abs() < 1e-4
+                );
+                assert!(
+                    boxes[2..]
+                        .iter()
+                        .all(|w| w.bottom == 0.0 && w.top == spec.wheel)
+                );
+                // The two wheels of an axle leave the road between them open.
+                for pair in boxes[2..].chunks(2) {
+                    assert_eq!((pair[0].near, pair[0].far), (pair[1].near, pair[1].far));
+                    assert!(pair[1].left - pair[0].right > 0.5, "{model:?} {id}");
+                    assert!((pair[0].right - pair[0].left - CAR_WHEEL_WIDTH).abs() < 1e-4);
+                }
+                // Only the body casts the shadow, and it is the shadow of the whole car.
+                assert_eq!(body.shadow, Some((0.0, spec.roof)));
+                assert!(boxes[1..].iter().all(|b| b.shadow.is_none()));
+            }
+        }
+    }
+
+    #[test]
+    fn the_cabin_faces_the_camera_the_way_the_car_does() {
+        // The pickup truck has its cabin 1.9 to 3.6 meters from the front and
+        // its bed behind it: an oncoming one shows the front, the others the bed.
+        let spec = CarModel::Pickup.spec();
+        let oncoming = model_boxes(
+            &model_car(ONCOMING_ID, CarModel::Pickup, 100.0),
+            CarShapes::Detailed,
+        );
+        let (near, far) = (oncoming[1].near, oncoming[1].far);
+        assert!((near - 101.9).abs() < 1e-4 && (far - 103.6).abs() < 1e-4);
+        assert_eq!(oncoming[0].covered, Some((101.9, 103.6)));
+        for id in [LEAD_ID, PASSING_ID] {
+            let boxes = model_boxes(&model_car(id, CarModel::Pickup, 100.0), CarShapes::Detailed);
+            let (near, far) = (boxes[1].near, boxes[1].far);
+            let (from, to) = (100.0 + spec.length - 3.6, 100.0 + spec.length - 1.9);
+            assert!(
+                (near - from).abs() < 1e-4 && (far - to).abs() < 1e-4,
+                "{id}"
+            );
+            assert_eq!(boxes[0].covered, Some((from, to)));
+        }
+    }
+
+    #[test]
+    fn the_roof_of_the_body_is_left_out_where_the_cabin_stands() {
+        for model in CarModel::ALL {
+            let spec = model.spec();
+            let car = model_car(PASSING_ID, model, 100.0);
+            let boxes = model_boxes(&car, CarShapes::Detailed);
+            let (hole_from, hole_to) = boxes[0].covered.unwrap();
+            let roofs: Vec<BodyFace> = boxes[0]
+                .faces()
+                .filter(|f| f.part == FacePart::Roof)
+                .collect();
+            let mut covered = 0.0;
+            for roof in &roofs {
+                let (near, far) = (
+                    roof.corners.iter().map(|c| c.0).fold(f32::MAX, f32::min),
+                    roof.corners.iter().map(|c| c.0).fold(f32::MIN, f32::max),
+                );
+                // No piece of the roof reaches into the hole.
+                assert!(
+                    far <= hole_from + 1e-4 || near >= hole_to - 1e-4,
+                    "{model:?}"
+                );
+                covered += far - near;
+            }
+            let expected = spec.length - (spec.cabin.1 - spec.cabin.0);
+            assert!((covered - expected).abs() < 1e-3, "{model:?} {covered}");
+            // A box that has nothing on it has its whole roof.
+            let solid = model_boxes(&car, CarShapes::Boxes);
+            assert_eq!(solid.len(), 1);
+            let whole = solid[0]
+                .faces()
+                .filter(|f| f.part == FacePart::Roof)
+                .count();
+            assert_eq!(whole, 1, "{model:?}");
+        }
+    }
+
+    #[test]
+    fn a_simple_box_holds_the_whole_shape_of_a_car_or_a_truck() {
+        for model in CarModel::ALL {
+            let spec = model.spec();
+            let boxes = model_boxes(&model_car(LEAD_ID, model, 100.0), CarShapes::Boxes);
+            assert_eq!(boxes.len(), 1, "{model:?}");
+            let b = &boxes[0];
+            assert_eq!((b.near, b.far), (100.0, 100.0 + spec.length));
+            assert!((b.right - b.left - spec.half_width * 2.0).abs() < 1e-4);
+            assert_eq!((b.bottom, b.top), (0.0, spec.roof));
+            assert_eq!(b.shadow, Some((0.0, spec.roof)));
+            assert_eq!(b.covered, None);
+        }
+        for shape in ALL_SHAPES {
+            let mut car = shaped(LEAD_ID, shape, 100.0);
+            car.lateral = OWN_LANE;
+            let boxes = model_boxes(&car, CarShapes::Boxes);
+            assert_eq!(boxes.len(), 1, "{shape:?}");
+            let b = &boxes[0];
+            assert_eq!((b.near, b.far), (100.0, 100.0 + shape.length()));
+            assert!((b.right - b.left - TRUCK_HALF_WIDTH * 2.0).abs() < 1e-4);
+            assert_eq!((b.bottom, b.top), (0.0, shape.spec().height));
+        }
+    }
+
+    #[test]
+    fn every_truck_is_the_same_with_the_shapes_but_for_the_shadow_rule() {
+        // The shadow of a part of a truck is cast by it if it is high enough.
+        for shape in ALL_SHAPES {
+            let boxes = boxes_of(PASSING_ID, shape, 100.0);
+            for b in &boxes {
+                assert_eq!(b.shadow.is_some(), b.top > LOW_BOX, "{shape:?}");
+                if let Some(heights) = b.shadow {
+                    assert_eq!(heights, (b.bottom, b.top));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn car_models_follow_the_designed_shares() {
+        // (style, shares of sedan, hatchback, minivan, SUV, kei, pickup)
+        let designed = [
+            (TruckStyle::Japanese, [0.25, 0.20, 0.25, 0.15, 0.15, 0.0]),
+            (
+                TruckStyle::NorthAmerican,
+                [0.30, 0.10, 0.15, 0.30, 0.0, 0.15],
+            ),
+            (TruckStyle::None, [0.30, 0.25, 0.25, 0.20, 0.0, 0.0]),
+        ];
+        for (style, shares) in designed {
+            let mut counts = [0u32; 6];
+            for seed in 0..300 {
+                let traffic = Traffic::with_level(
+                    seed,
+                    style,
+                    TrafficLevel {
+                        active: 1.0,
+                        trucks: 0.0,
+                    },
+                );
+                for car in &traffic.cars {
+                    assert!(car.truck.is_none());
+                    counts[CarModel::ALL.iter().position(|&m| m == car.model).unwrap()] += 1;
+                }
+            }
+            let total: u32 = counts.iter().sum();
+            assert_eq!(total, 300 * 25);
+            for (index, share) in shares.into_iter().enumerate() {
+                let ratio = counts[index] as f32 / total as f32;
+                assert!(
+                    (ratio - share).abs() < 0.03,
+                    "{style:?} {:?}: {ratio}",
+                    CarModel::ALL[index]
+                );
+                if share == 0.0 {
+                    assert_eq!(counts[index], 0, "{style:?} {:?}", CarModel::ALL[index]);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn the_models_are_picked_by_the_cumulative_shares() {
+        assert_eq!(CarModel::pick(TruckStyle::None, 0.0), CarModel::Sedan);
+        assert_eq!(CarModel::pick(TruckStyle::None, 0.29), CarModel::Sedan);
+        assert_eq!(CarModel::pick(TruckStyle::None, 0.31), CarModel::Hatchback);
+        assert_eq!(CarModel::pick(TruckStyle::None, 0.999), CarModel::Suv);
+        assert_eq!(CarModel::pick(TruckStyle::Japanese, 0.999), CarModel::Kei);
+        assert_eq!(
+            CarModel::pick(TruckStyle::NorthAmerican, 0.999),
+            CarModel::Pickup
+        );
+        // The roll just below 1 is the last model, even where rounding of the
+        // shares leaves a sliver.
+        let last = f32::from_bits(1.0f32.to_bits() - 1);
+        assert_eq!(CarModel::pick(TruckStyle::None, last), CarModel::Suv);
+        assert_eq!(CarModel::pick(TruckStyle::Japanese, last), CarModel::Kei);
+        assert_eq!(
+            CarModel::pick(TruckStyle::NorthAmerican, last),
+            CarModel::Pickup
+        );
+        // Whatever the roll, the model exists.
+        for style in TruckStyle::ALL {
+            for step in 0..=100 {
+                let _ = CarModel::pick(style, step as f32 / 100.0);
+            }
+        }
+    }
+
+    #[test]
+    fn the_shapes_do_not_change_where_the_cars_are() {
+        for style in TruckStyle::ALL {
+            for seed in 0..3 {
+                let mut boxes =
+                    Traffic::with_shapes(seed, style, TrafficLevel::FULL, CarShapes::Boxes);
+                let mut detailed =
+                    Traffic::with_shapes(seed, style, TrafficLevel::FULL, CarShapes::Detailed);
+                for step in 0..4000 {
+                    boxes.update(DT, OWN_SPEED);
+                    detailed.update(DT, OWN_SPEED);
+                    if step % 20 == 0 {
+                        assert_eq!(
+                            snapshot(&boxes),
+                            snapshot(&detailed),
+                            "{style:?} {seed} {step}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn lights_of_a_car_stand_on_its_surface_and_not_inside_it() {
+        for model in CarModel::ALL {
+            let spec = model.spec();
+            for id in [LEAD_ID, PASSING_ID, ONCOMING_ID] {
+                for braking in [0.0, 1.0] {
+                    let mut car = model_car(id, model, 20.0);
+                    car.braking_left = braking;
+                    let boxes = model_boxes(&car, CarShapes::Detailed);
+                    let mut lights = Vec::new();
+                    car.push_lights(TruckStyle::Japanese, CarShapes::Detailed, &mut lights);
+                    assert!(lights.len() >= 2, "{model:?} {id}");
+                    for light in &lights {
+                        let (distance, inside) = lamp_clearance(&boxes, light);
+                        assert!(!inside, "{model:?} {id}: {light:?}");
+                        assert!(distance < 1e-3, "{model:?} {id}: {distance} {light:?}");
+                        // The lamps are over the body, not under it.
+                        assert!(light.height > spec.body.0 && light.height < spec.roof);
+                        assert!(
+                            (light.lateral - car.lateral).abs()
+                                <= spec.half_width - LAMP_INSET + 1e-4
+                        );
+                    }
+                    // Lamps of a car are at its end that faces the camera, but the high lamp.
+                    let high = lights.iter().filter(|l| l.height > spec.body.1).count();
+                    assert_eq!(
+                        high,
+                        usize::from(braking > 0.0 && id != ONCOMING_ID),
+                        "{model:?} {id}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn lights_of_a_car_without_bodies_are_where_they_were() {
+        for id in [LEAD_ID, PASSING_ID, ONCOMING_ID] {
+            let mut car = model_car(id, CarModel::Minivan, 100.0);
+            car.braking_left = 1.0;
+            let mut lights = Vec::new();
+            car.push_lights(TruckStyle::Japanese, CarShapes::None, &mut lights);
+            let heights: Vec<f32> = lights.iter().map(|l| l.height).collect();
+            let expected: &[f32] = if id == ONCOMING_ID {
+                &[0.65, 0.65]
+            } else {
+                &[0.8, 0.8, 1.15]
+            };
+            assert_eq!(heights, expected, "{id}");
+            let sides: Vec<f32> = lights
+                .iter()
+                .take(2)
+                .map(|l| l.lateral - car.lateral)
+                .collect();
+            assert!((sides[0] + 0.7).abs() < 1e-5 && (sides[1] - 0.7).abs() < 1e-5);
+        }
+    }
+
+    #[test]
+    fn the_bodies_of_cars_in_a_lane_never_overlap() {
+        for style in TruckStyle::ALL {
+            for seed in 0..3 {
+                let mut traffic =
+                    Traffic::with_shapes(seed, style, TrafficLevel::FULL, CarShapes::Detailed);
+                run(&mut traffic, 12_000, |t| {
+                    let mut lanes: Vec<Vec<(f32, f32)>> = vec![Vec::new(); 4];
+                    for car in t.cars.iter().filter(|c| c.active) {
+                        let lane = [OWN_LANE, PASSING_LANE, ONCOMING_LANES[0], ONCOMING_LANES[1]]
+                            .iter()
+                            .position(|&l| l == car.lateral)
+                            .unwrap();
+                        let boxes = model_boxes(car, CarShapes::Detailed);
+                        if boxes.is_empty() {
+                            continue;
+                        }
+                        let near = boxes.iter().map(|b| b.near).fold(f32::MAX, f32::min);
+                        let far = boxes.iter().map(|b| b.far).fold(f32::MIN, f32::max);
+                        lanes[lane].push((near, far));
+                    }
+                    for lane in &mut lanes {
+                        lane.sort_by(|a, b| a.0.total_cmp(&b.0));
+                        for pair in lane.windows(2) {
+                            assert!(pair[0].1 <= pair[1].0, "{style:?} {seed}: {pair:?}");
+                        }
+                    }
+                });
+            }
+        }
     }
 }
 

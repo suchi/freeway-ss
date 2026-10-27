@@ -6,7 +6,7 @@
 
 use crate::i18n::DisplayLanguage;
 use crate::scene::SceneConfig;
-use crate::traffic::{CarBodies, TruckStyle};
+use crate::traffic::{CarColor, CarShapes, TruckStyle};
 use crate::tunnel::TunnelLighting;
 
 pub const MIN_SPEED_KMH: u32 = 30;
@@ -107,8 +107,10 @@ pub struct Settings {
     pub trucks: TruckStyle,
     /// Whether the road runs through tunnels, and how they are lit.
     pub tunnels: TunnelLighting,
-    /// Whether the other cars have bodies, and how dark they are.
-    pub car_bodies: CarBodies,
+    /// How the bodies of the other cars are drawn.
+    pub car_shapes: CarShapes,
+    /// The color of the bodies.
+    pub car_color: CarColor,
     pub language: Language,
     /// Whether the speed drifts slowly around `speed_kmh`.
     pub vary_speed: bool,
@@ -128,7 +130,8 @@ impl Default for Settings {
             show_mountains: true,
             trucks: TruckStyle::Japanese,
             tunnels: TunnelLighting::Mixed,
-            car_bodies: CarBodies::Transparent,
+            car_shapes: CarShapes::None,
+            car_color: CarColor::TranslucentBlack,
             language: Language::Auto,
             vary_speed: true,
             traffic_by_time: true,
@@ -143,12 +146,18 @@ impl Settings {
     /// A speed outside the range or off the step is not rounded to a nearby
     /// choice: it is a sign of a damaged or hand-edited value, so the default
     /// is used. A flag is valid only as 0 or 1, a truck style or language only as 0, 1 or 2,
-    /// a tunnel choice only as 0, 1, 2 or 3, a car body choice only as 0, 1 or 2,
-    /// a speedometer choice only as 0, 1, 2 or 3.
+    /// a tunnel choice only as 0, 1, 2 or 3, a car shape choice only as 0, 1 or 2,
+    /// a car color choice only as 0 or 1, a speedometer choice only as 0, 1, 2
+    /// or 3.
     ///
     /// Versions before 1.10 stored only whether to show the speedometer
     /// (`legacy_show_speedometer`). It is used when `speedometer` is not
     /// stored: 1 means the number only, anything else no speedometer.
+    ///
+    /// Versions before 1.11 stored one choice for the bodies of the cars
+    /// (`legacy_car_bodies`). It is used when `car_shapes` is not stored:
+    /// 0 means no bodies, 1 realistic shapes in translucent black, 2 realistic
+    /// shapes in black (see `legacy_car_bodies`).
     #[allow(clippy::too_many_arguments)]
     pub fn from_raw(
         speed_kmh: Option<u32>,
@@ -162,10 +171,20 @@ impl Settings {
         vary_speed: Option<u32>,
         traffic_by_time: Option<u32>,
         scenery_zones: Option<u32>,
-        car_bodies: Option<u32>,
+        legacy_car_bodies: Option<u32>,
         speedometer: Option<u32>,
+        car_shapes: Option<u32>,
+        car_color: Option<u32>,
     ) -> Self {
         let defaults = Self::default();
+        let (car_shapes, car_color) = match car_shapes {
+            Some(_) => (
+                CarShapes::from_raw(car_shapes).unwrap_or(defaults.car_shapes),
+                CarColor::from_raw(car_color).unwrap_or(defaults.car_color),
+            ),
+            None => from_legacy_car_bodies(legacy_car_bodies)
+                .unwrap_or((defaults.car_shapes, defaults.car_color)),
+        };
         Self {
             speed_kmh: speed_kmh
                 .filter(|&speed| is_valid_speed(speed))
@@ -184,7 +203,19 @@ impl Settings {
             vary_speed: flag(vary_speed).unwrap_or(defaults.vary_speed),
             traffic_by_time: flag(traffic_by_time).unwrap_or(defaults.traffic_by_time),
             scenery_zones: flag(scenery_zones).unwrap_or(defaults.scenery_zones),
-            car_bodies: CarBodies::from_raw(car_bodies).unwrap_or(defaults.car_bodies),
+            car_shapes,
+            car_color,
+        }
+    }
+
+    /// The value of the choice for the bodies of the cars that versions
+    /// before 1.11 read, so that going back to such a version keeps whether
+    /// the cars have bodies: 0 for none, 1 for translucent black, 2 for black.
+    pub fn legacy_car_bodies(&self) -> u32 {
+        match (self.car_shapes, self.car_color) {
+            (CarShapes::None, _) => 0,
+            (_, CarColor::TranslucentBlack) => 1,
+            (_, CarColor::Black) => 2,
         }
     }
 
@@ -203,13 +234,26 @@ impl Settings {
             mountains: self.show_mountains,
             trucks: self.trucks,
             tunnels: self.tunnels,
-            car_bodies: self.car_bodies,
+            car_shapes: self.car_shapes,
+            car_color: self.car_color,
             vary_speed: self.vary_speed,
             traffic_by_time: self.traffic_by_time,
             scenery_zones: self.scenery_zones,
             seed,
             ..SceneConfig::default()
         }
+    }
+}
+
+/// The shapes and the color for the choice for the bodies of the cars of
+/// versions before 1.11; `None` when the value is not valid. Realistic shapes
+/// are the closest: those versions drew trucks in their own shapes.
+fn from_legacy_car_bodies(raw: Option<u32>) -> Option<(CarShapes, CarColor)> {
+    match raw? {
+        0 => Some((CarShapes::None, CarColor::TranslucentBlack)),
+        1 => Some((CarShapes::Detailed, CarColor::TranslucentBlack)),
+        2 => Some((CarShapes::Detailed, CarColor::Black)),
+        _ => None,
     }
 }
 
@@ -250,7 +294,8 @@ mod tests {
         assert_eq!(settings.speedometer, SpeedometerStyle::None);
         assert_eq!(
             Settings::from_raw(
-                None, None, None, None, None, None, None, None, None, None, None, None, None
+                None, None, None, None, None, None, None, None, None, None, None, None, None, None,
+                None
             ),
             settings
         );
@@ -272,6 +317,8 @@ mod tests {
             None,
             Some(2),
             Some(3),
+            Some(1),
+            Some(1),
         );
         assert_eq!(
             settings,
@@ -283,7 +330,8 @@ mod tests {
                 show_mountains: false,
                 trucks: TruckStyle::NorthAmerican,
                 tunnels: TunnelLighting::Led,
-                car_bodies: CarBodies::Black,
+                car_shapes: CarShapes::Boxes,
+                car_color: CarColor::Black,
                 language: Language::Japanese,
                 vary_speed: true,
                 traffic_by_time: true,
@@ -293,6 +341,8 @@ mod tests {
         assert_eq!(
             Settings::from_raw(
                 Some(30),
+                None,
+                None,
                 None,
                 None,
                 None,
@@ -317,6 +367,8 @@ mod tests {
             assert_eq!(
                 Settings::from_raw(
                     Some(speed),
+                    None,
+                    None,
                     None,
                     None,
                     None,
@@ -354,6 +406,8 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
+                None,
             );
             assert_eq!(settings, Settings::default(), "{raw}");
         }
@@ -370,6 +424,8 @@ mod tests {
             None,
             None,
             Some(1),
+            None,
+            None,
             None,
             None,
             None,
@@ -394,7 +450,8 @@ mod tests {
             show_mountains: false,
             trucks: TruckStyle::None,
             tunnels: TunnelLighting::None,
-            car_bodies: CarBodies::Black,
+            car_shapes: CarShapes::Detailed,
+            car_color: CarColor::Black,
             language: Language::Auto,
             vary_speed: false,
             traffic_by_time: false,
@@ -424,6 +481,8 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
+                None,
                 None
             )
             .show_ufo
@@ -434,6 +493,8 @@ mod tests {
                 None,
                 None,
                 Some(0),
+                None,
+                None,
                 None,
                 None,
                 None,
@@ -453,6 +514,8 @@ mod tests {
                     None,
                     None,
                     Some(raw),
+                    None,
+                    None,
                     None,
                     None,
                     None,
@@ -497,6 +560,8 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
+                None,
                 None
             )
             .show_mountains
@@ -508,6 +573,8 @@ mod tests {
                 None,
                 None,
                 Some(0),
+                None,
+                None,
                 None,
                 None,
                 None,
@@ -534,6 +601,8 @@ mod tests {
                     None,
                     None,
                     None,
+                    None,
+                    None,
                     None
                 )
                 .show_mountains,
@@ -547,7 +616,8 @@ mod tests {
         let settings = Settings::default();
         assert!(settings.vary_speed && settings.traffic_by_time && settings.scenery_zones);
         let none = Settings::from_raw(
-            None, None, None, None, None, None, None, None, None, None, None, None, None,
+            None, None, None, None, None, None, None, None, None, None, None, None, None, None,
+            None,
         );
         assert!(none.vary_speed && none.traffic_by_time && none.scenery_zones);
     }
@@ -557,6 +627,7 @@ mod tests {
         let read = |vary, traffic, zones| {
             let s = Settings::from_raw(
                 None, None, None, None, None, None, None, None, vary, traffic, zones, None, None,
+                None, None,
             );
             (s.vary_speed, s.traffic_by_time, s.scenery_zones)
         };
@@ -599,6 +670,8 @@ mod tests {
             Some(0),
             None,
             None,
+            None,
+            None,
         );
         assert_eq!(settings.speed_kmh, 60);
         assert_eq!(settings.language, Language::English);
@@ -634,7 +707,8 @@ mod tests {
     fn trucks_are_japanese_style_by_default() {
         assert_eq!(Settings::default().trucks, TruckStyle::Japanese);
         let settings = Settings::from_raw(
-            None, None, None, None, None, None, None, None, None, None, None, None, None,
+            None, None, None, None, None, None, None, None, None, None, None, None, None, None,
+            None,
         );
         assert_eq!(settings.trucks, TruckStyle::Japanese);
     }
@@ -671,6 +745,8 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
+                None,
             );
             assert_eq!(settings.trucks, TruckStyle::Japanese, "{raw}");
         }
@@ -684,6 +760,8 @@ mod tests {
             Some(9),
             None,
             Some(1),
+            None,
+            None,
             None,
             None,
             None,
@@ -709,7 +787,8 @@ mod tests {
     fn tunnels_are_mixed_by_default() {
         assert_eq!(Settings::default().tunnels, TunnelLighting::Mixed);
         let settings = Settings::from_raw(
-            None, None, None, None, None, None, None, None, None, None, None, None, None,
+            None, None, None, None, None, None, None, None, None, None, None, None, None, None,
+            None,
         );
         assert_eq!(settings.tunnels, TunnelLighting::Mixed);
         assert_eq!(
@@ -760,6 +839,8 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
+                None,
             );
             assert_eq!(settings.tunnels, TunnelLighting::Mixed, "{raw}");
         }
@@ -773,6 +854,8 @@ mod tests {
             None,
             Some(9),
             Some(1),
+            None,
+            None,
             None,
             None,
             None,
@@ -794,38 +877,73 @@ mod tests {
         }
     }
 
-    #[test]
-    fn car_bodies_are_transparent_by_default() {
-        assert_eq!(Settings::default().car_bodies, CarBodies::Transparent);
-        assert_eq!(SceneConfig::default().car_bodies, CarBodies::Transparent);
+    /// The settings read from stored values of the bodies of the cars only:
+    /// the legacy choice, the shapes and the color.
+    fn bodies_from_raw(
+        legacy: Option<u32>,
+        shapes: Option<u32>,
+        color: Option<u32>,
+    ) -> (CarShapes, CarColor) {
         let settings = Settings::from_raw(
-            None, None, None, None, None, None, None, None, None, None, None, None, None,
+            None, None, None, None, None, None, None, None, None, None, None, legacy, None, shapes,
+            color,
         );
-        assert_eq!(settings.car_bodies, CarBodies::Transparent);
-        assert_eq!(
-            Settings::default().scene_config(0).car_bodies,
-            CarBodies::Transparent
-        );
+        (settings.car_shapes, settings.car_color)
     }
 
     #[test]
-    fn car_body_values_map_to_the_choices() {
-        assert_eq!(CarBodies::from_raw(Some(0)), Some(CarBodies::Transparent));
+    fn car_bodies_are_off_and_translucent_black_by_default() {
+        assert_eq!(Settings::default().car_shapes, CarShapes::None);
+        assert_eq!(Settings::default().car_color, CarColor::TranslucentBlack);
+        assert_eq!(SceneConfig::default().car_shapes, CarShapes::None);
+        assert_eq!(SceneConfig::default().car_color, CarColor::TranslucentBlack);
         assert_eq!(
-            CarBodies::from_raw(Some(1)),
-            Some(CarBodies::TranslucentBlack)
+            bodies_from_raw(None, None, None),
+            (CarShapes::None, CarColor::TranslucentBlack)
         );
-        assert_eq!(CarBodies::from_raw(Some(2)), Some(CarBodies::Black));
-        for bodies in CarBodies::ALL {
-            assert_eq!(CarBodies::from_raw(Some(bodies.to_raw())), Some(bodies));
+        let config = Settings::default().scene_config(0);
+        assert_eq!(config.car_shapes, CarShapes::None);
+        assert_eq!(config.car_color, CarColor::TranslucentBlack);
+    }
+
+    #[test]
+    fn car_shape_and_color_values_map_to_the_choices() {
+        assert_eq!(CarShapes::from_raw(Some(0)), Some(CarShapes::None));
+        assert_eq!(CarShapes::from_raw(Some(1)), Some(CarShapes::Boxes));
+        assert_eq!(CarShapes::from_raw(Some(2)), Some(CarShapes::Detailed));
+        assert_eq!(
+            CarColor::from_raw(Some(0)),
+            Some(CarColor::TranslucentBlack)
+        );
+        assert_eq!(CarColor::from_raw(Some(1)), Some(CarColor::Black));
+        for shapes in CarShapes::ALL {
+            assert_eq!(CarShapes::from_raw(Some(shapes.to_raw())), Some(shapes));
         }
+        for color in CarColor::ALL {
+            assert_eq!(CarColor::from_raw(Some(color.to_raw())), Some(color));
+        }
+        assert_eq!(CarColor::TranslucentBlack.opacity(), 0.9);
+        assert_eq!(CarColor::Black.opacity(), 1.0);
     }
 
     #[test]
-    fn an_invalid_car_body_choice_falls_back_to_the_default() {
-        assert_eq!(CarBodies::from_raw(None), None);
+    fn an_invalid_car_shape_or_color_falls_back_to_the_default() {
+        assert_eq!(CarShapes::from_raw(None), None);
+        assert_eq!(CarColor::from_raw(None), None);
         for raw in [3, 4, 100, u32::MAX] {
-            assert_eq!(CarBodies::from_raw(Some(raw)), None, "{raw}");
+            assert_eq!(CarShapes::from_raw(Some(raw)), None, "{raw}");
+            assert_eq!(CarColor::from_raw(Some(raw)), None, "{raw}");
+            // Each is judged by itself: the other one is kept.
+            assert_eq!(
+                bodies_from_raw(None, Some(raw), Some(1)),
+                (CarShapes::None, CarColor::Black),
+                "{raw}"
+            );
+            assert_eq!(
+                bodies_from_raw(None, Some(2), Some(raw)),
+                (CarShapes::Detailed, CarColor::TranslucentBlack),
+                "{raw}"
+            );
             let settings = Settings::from_raw(
                 Some(60),
                 None,
@@ -838,10 +956,13 @@ mod tests {
                 None,
                 None,
                 None,
-                Some(raw),
                 None,
+                None,
+                Some(raw),
+                Some(raw),
             );
-            assert_eq!(settings.car_bodies, CarBodies::Transparent, "{raw}");
+            assert_eq!(settings.car_shapes, CarShapes::None, "{raw}");
+            assert_eq!(settings.car_color, CarColor::TranslucentBlack, "{raw}");
             // The other settings are not affected.
             assert_eq!(settings.speed_kmh, 60);
             assert_eq!(settings.language, Language::English);
@@ -849,13 +970,76 @@ mod tests {
     }
 
     #[test]
-    fn scene_config_carries_the_car_body_choice() {
-        for car_bodies in CarBodies::ALL {
-            let settings = Settings {
-                car_bodies,
+    fn the_car_bodies_of_versions_before_1_11_are_carried_over() {
+        // Those versions drew trucks in their own shapes: realistic shapes.
+        assert_eq!(
+            bodies_from_raw(Some(0), None, None),
+            (CarShapes::None, CarColor::TranslucentBlack)
+        );
+        assert_eq!(
+            bodies_from_raw(Some(1), None, None),
+            (CarShapes::Detailed, CarColor::TranslucentBlack)
+        );
+        assert_eq!(
+            bodies_from_raw(Some(2), None, None),
+            (CarShapes::Detailed, CarColor::Black)
+        );
+        // A value that is not valid is the default, as for the other settings.
+        for raw in [3, 100, u32::MAX] {
+            assert_eq!(
+                bodies_from_raw(Some(raw), None, None),
+                (CarShapes::None, CarColor::TranslucentBlack),
+                "{raw}"
+            );
+        }
+        // The old color is not read when the new shapes are stored, and the
+        // color is not read from the old choice then either.
+        assert_eq!(
+            bodies_from_raw(Some(2), Some(1), None),
+            (CarShapes::Boxes, CarColor::TranslucentBlack)
+        );
+        assert_eq!(
+            bodies_from_raw(Some(2), Some(0), Some(0)),
+            (CarShapes::None, CarColor::TranslucentBlack)
+        );
+    }
+
+    #[test]
+    fn the_legacy_car_bodies_value_keeps_whether_there_are_bodies() {
+        for color in CarColor::ALL {
+            let none = Settings {
+                car_shapes: CarShapes::None,
+                car_color: color,
                 ..Settings::default()
             };
-            assert_eq!(settings.scene_config(1).car_bodies, car_bodies);
+            assert_eq!(none.legacy_car_bodies(), 0);
+        }
+        for shapes in [CarShapes::Boxes, CarShapes::Detailed] {
+            let settings = |car_color| Settings {
+                car_shapes: shapes,
+                car_color,
+                ..Settings::default()
+            };
+            assert_eq!(settings(CarColor::TranslucentBlack).legacy_car_bodies(), 1);
+            assert_eq!(settings(CarColor::Black).legacy_car_bodies(), 2);
+        }
+    }
+
+    #[test]
+    fn scene_config_carries_the_car_shape_and_color() {
+        for car_shapes in CarShapes::ALL {
+            for car_color in CarColor::ALL {
+                let settings = Settings {
+                    car_shapes,
+                    car_color,
+                    ..Settings::default()
+                };
+                let config = settings.scene_config(1);
+                assert_eq!(
+                    (config.car_shapes, config.car_color),
+                    (car_shapes, car_color)
+                );
+            }
         }
     }
 
@@ -926,6 +1110,8 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
+                None,
             );
             assert_eq!(settings.language, Language::Auto, "{raw}");
         }
@@ -970,6 +1156,8 @@ mod tests {
             None,
             None,
             speedometer,
+            None,
+            None,
         )
         .speedometer
     }
