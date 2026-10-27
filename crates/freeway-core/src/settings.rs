@@ -251,8 +251,8 @@ impl Settings {
 fn from_legacy_car_bodies(raw: Option<u32>) -> Option<(CarShapes, CarColor)> {
     match raw? {
         0 => Some((CarShapes::None, CarColor::TranslucentBlack)),
-        1 => Some((CarShapes::Detailed, CarColor::TranslucentBlack)),
-        2 => Some((CarShapes::Detailed, CarColor::Black)),
+        1 => Some((CarShapes::Blocks, CarColor::TranslucentBlack)),
+        2 => Some((CarShapes::Blocks, CarColor::Black)),
         _ => None,
     }
 }
@@ -450,7 +450,7 @@ mod tests {
             show_mountains: false,
             trucks: TruckStyle::None,
             tunnels: TunnelLighting::None,
-            car_shapes: CarShapes::Detailed,
+            car_shapes: CarShapes::Blocks,
             car_color: CarColor::Black,
             language: Language::Auto,
             vary_speed: false,
@@ -910,7 +910,8 @@ mod tests {
     fn car_shape_and_color_values_map_to_the_choices() {
         assert_eq!(CarShapes::from_raw(Some(0)), Some(CarShapes::None));
         assert_eq!(CarShapes::from_raw(Some(1)), Some(CarShapes::Boxes));
-        assert_eq!(CarShapes::from_raw(Some(2)), Some(CarShapes::Detailed));
+        assert_eq!(CarShapes::from_raw(Some(2)), Some(CarShapes::Blocks));
+        assert_eq!(CarShapes::from_raw(Some(3)), Some(CarShapes::Detailed));
         assert_eq!(
             CarColor::from_raw(Some(0)),
             Some(CarColor::TranslucentBlack)
@@ -930,7 +931,7 @@ mod tests {
     fn an_invalid_car_shape_or_color_falls_back_to_the_default() {
         assert_eq!(CarShapes::from_raw(None), None);
         assert_eq!(CarColor::from_raw(None), None);
-        for raw in [3, 4, 100, u32::MAX] {
+        for raw in [4, 5, 100, u32::MAX] {
             assert_eq!(CarShapes::from_raw(Some(raw)), None, "{raw}");
             assert_eq!(CarColor::from_raw(Some(raw)), None, "{raw}");
             // Each is judged by itself: the other one is kept.
@@ -941,7 +942,7 @@ mod tests {
             );
             assert_eq!(
                 bodies_from_raw(None, Some(2), Some(raw)),
-                (CarShapes::Detailed, CarColor::TranslucentBlack),
+                (CarShapes::Blocks, CarColor::TranslucentBlack),
                 "{raw}"
             );
             let settings = Settings::from_raw(
@@ -978,11 +979,11 @@ mod tests {
         );
         assert_eq!(
             bodies_from_raw(Some(1), None, None),
-            (CarShapes::Detailed, CarColor::TranslucentBlack)
+            (CarShapes::Blocks, CarColor::TranslucentBlack)
         );
         assert_eq!(
             bodies_from_raw(Some(2), None, None),
-            (CarShapes::Detailed, CarColor::Black)
+            (CarShapes::Blocks, CarColor::Black)
         );
         // A value that is not valid is the default, as for the other settings.
         for raw in [3, 100, u32::MAX] {
@@ -1014,7 +1015,7 @@ mod tests {
             };
             assert_eq!(none.legacy_car_bodies(), 0);
         }
-        for shapes in [CarShapes::Boxes, CarShapes::Detailed] {
+        for shapes in [CarShapes::Boxes, CarShapes::Blocks, CarShapes::Detailed] {
             let settings = |car_color| Settings {
                 car_shapes: shapes,
                 car_color,

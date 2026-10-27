@@ -2777,7 +2777,7 @@ mod tests {
     /// A scene whose cars have bodies of realistic shapes.
     fn bodies_config(seed: u64, car_color: CarColor) -> SceneConfig {
         SceneConfig {
-            car_shapes: CarShapes::Detailed,
+            car_shapes: CarShapes::Blocks,
             car_color,
             ..plain_config(seed)
         }
@@ -3045,7 +3045,7 @@ mod tests {
     #[test]
     fn no_body_of_an_oncoming_car_is_seen_through_a_tunnel() {
         let (mut scene, _) = near_first_tunnel(TunnelLighting::Led, 300.0);
-        scene.config.car_shapes = CarShapes::Detailed;
+        scene.config.car_shapes = CarShapes::Blocks;
         scene.config.car_color = CarColor::Black;
         let mut same_direction = false;
         for _ in 0..600 {
@@ -3443,7 +3443,7 @@ mod tests {
     #[test]
     fn there_are_no_shadows_inside_a_tunnel() {
         let (mut scene, tunnel) = near_first_tunnel(TunnelLighting::Led, -300.0);
-        scene.config.car_shapes = CarShapes::Detailed;
+        scene.config.car_shapes = CarShapes::Blocks;
         scene.config.car_color = CarColor::Black;
         assert!(scene.in_tunnel());
         let mut cars_seen = 0;
@@ -3612,7 +3612,7 @@ mod tests {
             let (none_bodies, none_shadows) = drawn(CarShapes::None);
             assert_eq!((none_bodies, none_shadows), (0, 0), "{seed}");
             let (boxes_bodies, boxes_shadows) = drawn(CarShapes::Boxes);
-            let (detailed_bodies, detailed_shadows) = drawn(CarShapes::Detailed);
+            let (detailed_bodies, detailed_shadows) = drawn(CarShapes::Blocks);
             assert!(boxes_bodies > 5, "{seed}");
             // The same cars in the same places: a detailed car is made of more
             // faces, and casts one shadow, as the box of a simple car does.

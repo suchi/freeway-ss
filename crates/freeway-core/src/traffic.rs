@@ -337,13 +337,21 @@ pub enum CarShapes {
     /// Each car is one box.
     Boxes,
     /// Cars have the shapes of sedans, minivans and so on, and trucks their
-    /// own shapes.
+    /// own shapes, made of boxes.
+    Blocks,
+    /// The same shapes with the outlines of real cars: a hood, a windshield, a
+    /// roof that tapers, windows.
     Detailed,
 }
 
 impl CarShapes {
-    /// Every choice, in the order of the stored values 0, 1, 2.
-    pub const ALL: [CarShapes; 3] = [CarShapes::None, CarShapes::Boxes, CarShapes::Detailed];
+    /// Every choice, in the order of the stored values 0, 1, 2, 3.
+    pub const ALL: [CarShapes; 4] = [
+        CarShapes::None,
+        CarShapes::Boxes,
+        CarShapes::Blocks,
+        CarShapes::Detailed,
+    ];
 
     /// The choice for a stored value; `None` when the value is not valid.
     pub fn from_raw(raw: Option<u32>) -> Option<Self> {
@@ -355,7 +363,8 @@ impl CarShapes {
         match self {
             CarShapes::None => 0,
             CarShapes::Boxes => 1,
-            CarShapes::Detailed => 2,
+            CarShapes::Blocks => 2,
+            CarShapes::Detailed => 3,
         }
     }
 
@@ -1943,7 +1952,7 @@ mod tests {
 
     fn lights_of(car: &Car, style: TruckStyle) -> Vec<CarLight> {
         let mut out = Vec::new();
-        car.push_lights(style, CarShapes::Detailed, &mut out);
+        car.push_lights(style, CarShapes::Blocks, &mut out);
         out
     }
 
@@ -2437,7 +2446,7 @@ mod tests {
                         car.lateral = lateral;
                     }
                     let mut boxes = Vec::new();
-                    car.push_boxes(CarShapes::Detailed, &mut boxes);
+                    car.push_boxes(CarShapes::Blocks, &mut boxes);
                     for light in lights_of(&car, style_of(shape)) {
                         let (distance, inside) = lamp_clearance(&boxes, &light);
                         assert!(!inside, "{shape:?} {id}: {light:?}");
@@ -2531,7 +2540,7 @@ mod tests {
             Kind::Oncoming => ONCOMING_LANES[0],
         };
         let mut boxes = Vec::new();
-        car.push_boxes(CarShapes::Detailed, &mut boxes);
+        car.push_boxes(CarShapes::Blocks, &mut boxes);
         boxes
     }
 
@@ -2754,14 +2763,14 @@ mod tests {
             .is_empty()
         );
         let truck = Some(TruckShape::JapaneseBox);
-        assert!(!body_of(PASSING_ID, truck, CarShapes::Detailed, -10.0).is_empty());
-        assert!(body_of(PASSING_ID, truck, CarShapes::Detailed, -12.0).is_empty());
+        assert!(!body_of(PASSING_ID, truck, CarShapes::Blocks, -10.0).is_empty());
+        assert!(body_of(PASSING_ID, truck, CarShapes::Blocks, -12.0).is_empty());
         // The parts of a truck that are past the camera are gone, the others cut.
         let boxes_at = |rel: f32| {
             let mut car = shaped(PASSING_ID, TruckShape::JapaneseBox, rel);
             let mut boxes = Vec::new();
             car.lateral = PASSING_LANE;
-            car.push_boxes(CarShapes::Detailed, &mut boxes);
+            car.push_boxes(CarShapes::Blocks, &mut boxes);
             boxes
         };
         let (whole, partly) = (boxes_at(100.0), boxes_at(-8.0));
@@ -2778,7 +2787,7 @@ mod tests {
         for rel in [VIEW_DISTANCE - 3.0, VIEW_DISTANCE - 0.005, VIEW_DISTANCE] {
             for truck in [None, Some(TruckShape::AmericanSemi)] {
                 for id in [LEAD_ID, PASSING_ID, ONCOMING_ID] {
-                    for face in body_of(id, truck, CarShapes::Detailed, rel) {
+                    for face in body_of(id, truck, CarShapes::Blocks, rel) {
                         assert!(
                             face.corners
                                 .iter()
@@ -2852,7 +2861,7 @@ mod tests {
         ] {
             for seed in 0..4 {
                 let mut traffic =
-                    Traffic::with_shapes(seed, style, TrafficLevel::FULL, CarShapes::Detailed);
+                    Traffic::with_shapes(seed, style, TrafficLevel::FULL, CarShapes::Blocks);
                 assert!(
                     least_gap(&traffic) >= LANE_GAP - 1e-3,
                     "{style:?} {seed} start"
@@ -2888,7 +2897,7 @@ mod tests {
         for style in [TruckStyle::None, TruckStyle::Japanese] {
             for seed in 0..3 {
                 let mut traffic =
-                    Traffic::with_shapes(seed, style, TrafficLevel::FULL, CarShapes::Detailed);
+                    Traffic::with_shapes(seed, style, TrafficLevel::FULL, CarShapes::Blocks);
                 // The position, the speed (0 if not known) and the generation of each car.
                 let mut last: Vec<(f32, f32, u32)> = traffic
                     .cars
@@ -2930,7 +2939,7 @@ mod tests {
         };
         for style in [TruckStyle::Japanese, TruckStyle::NorthAmerican] {
             for seed in 0..2 {
-                let mut traffic = Traffic::with_shapes(seed, style, level, CarShapes::Detailed);
+                let mut traffic = Traffic::with_shapes(seed, style, level, CarShapes::Blocks);
                 assert!(traffic.cars.iter().all(|c| c.truck.is_some()));
                 let mut worst = f32::MAX;
                 run(&mut traffic, 72_000, |t| worst = worst.min(least_gap(t)));
@@ -2958,7 +2967,7 @@ mod tests {
             3,
             TruckStyle::Japanese,
             TrafficLevel::FULL,
-            CarShapes::Detailed,
+            CarShapes::Blocks,
         );
         run(&mut traffic, 72_000, |t| {
             visible += t
@@ -3070,7 +3079,7 @@ mod tests {
             let spec = model.spec();
             for id in [LEAD_ID, PASSING_ID, ONCOMING_ID] {
                 let car = model_car(id, model, 100.0);
-                let boxes = model_boxes(&car, CarShapes::Detailed);
+                let boxes = model_boxes(&car, CarShapes::Blocks);
                 assert_eq!(boxes.len(), 6, "{model:?} {id}");
                 for b in &boxes {
                     let values = [b.near, b.far, b.left, b.right, b.bottom, b.top];
@@ -3122,13 +3131,13 @@ mod tests {
         let spec = CarModel::Pickup.spec();
         let oncoming = model_boxes(
             &model_car(ONCOMING_ID, CarModel::Pickup, 100.0),
-            CarShapes::Detailed,
+            CarShapes::Blocks,
         );
         let (near, far) = (oncoming[1].near, oncoming[1].far);
         assert!((near - 101.9).abs() < 1e-4 && (far - 103.6).abs() < 1e-4);
         assert_eq!(oncoming[0].covered, Some((101.9, 103.6)));
         for id in [LEAD_ID, PASSING_ID] {
-            let boxes = model_boxes(&model_car(id, CarModel::Pickup, 100.0), CarShapes::Detailed);
+            let boxes = model_boxes(&model_car(id, CarModel::Pickup, 100.0), CarShapes::Blocks);
             let (near, far) = (boxes[1].near, boxes[1].far);
             let (from, to) = (100.0 + spec.length - 3.6, 100.0 + spec.length - 1.9);
             assert!(
@@ -3144,7 +3153,7 @@ mod tests {
         for model in CarModel::ALL {
             let spec = model.spec();
             let car = model_car(PASSING_ID, model, 100.0);
-            let boxes = model_boxes(&car, CarShapes::Detailed);
+            let boxes = model_boxes(&car, CarShapes::Blocks);
             let (hole_from, hole_to) = boxes[0].covered.unwrap();
             let roofs: Vec<BodyFace> = boxes[0]
                 .faces()
@@ -3293,7 +3302,7 @@ mod tests {
                 let mut boxes =
                     Traffic::with_shapes(seed, style, TrafficLevel::FULL, CarShapes::Boxes);
                 let mut detailed =
-                    Traffic::with_shapes(seed, style, TrafficLevel::FULL, CarShapes::Detailed);
+                    Traffic::with_shapes(seed, style, TrafficLevel::FULL, CarShapes::Blocks);
                 for step in 0..4000 {
                     boxes.update(DT, OWN_SPEED);
                     detailed.update(DT, OWN_SPEED);
@@ -3317,9 +3326,9 @@ mod tests {
                 for braking in [0.0, 1.0] {
                     let mut car = model_car(id, model, 20.0);
                     car.braking_left = braking;
-                    let boxes = model_boxes(&car, CarShapes::Detailed);
+                    let boxes = model_boxes(&car, CarShapes::Blocks);
                     let mut lights = Vec::new();
-                    car.push_lights(TruckStyle::Japanese, CarShapes::Detailed, &mut lights);
+                    car.push_lights(TruckStyle::Japanese, CarShapes::Blocks, &mut lights);
                     assert!(lights.len() >= 2, "{model:?} {id}");
                     for light in &lights {
                         let (distance, inside) = lamp_clearance(&boxes, light);
@@ -3372,7 +3381,7 @@ mod tests {
         for style in TruckStyle::ALL {
             for seed in 0..3 {
                 let mut traffic =
-                    Traffic::with_shapes(seed, style, TrafficLevel::FULL, CarShapes::Detailed);
+                    Traffic::with_shapes(seed, style, TrafficLevel::FULL, CarShapes::Blocks);
                 run(&mut traffic, 12_000, |t| {
                     let mut lanes: Vec<Vec<(f32, f32)>> = vec![Vec::new(); 4];
                     for car in t.cars.iter().filter(|c| c.active) {
@@ -3380,7 +3389,7 @@ mod tests {
                             .iter()
                             .position(|&l| l == car.lateral)
                             .unwrap();
-                        let boxes = model_boxes(car, CarShapes::Detailed);
+                        let boxes = model_boxes(car, CarShapes::Blocks);
                         if boxes.is_empty() {
                             continue;
                         }

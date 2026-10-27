@@ -100,9 +100,10 @@ const SPEEDOMETER_TEXTS: [Text; 4] = [
 ];
 
 /// The items of the car shapes drop-down, in the order of `CarShapes::ALL`.
-const CAR_SHAPE_TEXTS: [Text; 3] = [
+const CAR_SHAPE_TEXTS: [Text; 4] = [
     Text::CarShapesNone,
     Text::CarShapesBoxes,
+    Text::CarShapesBlocks,
     Text::CarShapesDetailed,
 ];
 
