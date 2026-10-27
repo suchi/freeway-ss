@@ -3081,15 +3081,22 @@ mod tests {
         }
     }
     /// A hash of the commands drawn over a drive, which tests that a picture
-    /// without car bodies is that of v1.10.0.
-    fn commands_hash(config: SceneConfig) -> u64 {
+    /// without car bodies is that of v1.10.0. With `exact`, the numbers of the
+    /// commands count; otherwise only which commands are drawn in which order.
+    fn commands_hash(config: SceneConfig, exact: bool) -> u64 {
         let mut scene = Scene::new(config);
         let mut hash = 0xcbf2_9ce4_8422_2325u64;
         for step in 0..900 {
             scene.update(0.05);
             if step % 150 == 149 {
                 for command in record(&scene, VIEWPORT) {
-                    for byte in format!("{command:?}").bytes() {
+                    let text = format!("{command:?}");
+                    let text = if exact {
+                        text.as_str()
+                    } else {
+                        text.split([' ', '{']).next().unwrap_or_default()
+                    };
+                    for byte in text.bytes() {
                         hash = (hash ^ u64::from(byte)).wrapping_mul(0x100_0000_01b3);
                     }
                 }
@@ -3112,7 +3119,12 @@ mod tests {
         }
     }
 
+    /// The exact hashes were taken on Linux from v1.10.0. The sine and the
+    /// like give other last digits elsewhere (Windows differs in two of the
+    /// nine), so the exact test is for Linux, and the other one holds
+    /// everywhere.
     #[test]
+    #[cfg(target_os = "linux")]
     fn without_car_bodies_the_commands_are_those_of_v1_10_0() {
         for (trucks, golden) in [
             (
@@ -3141,7 +3153,7 @@ mod tests {
             ),
         ] {
             let hashes: Vec<u64> = (0..3)
-                .map(|seed| commands_hash(golden_config(seed, trucks)))
+                .map(|seed| commands_hash(golden_config(seed, trucks), true))
                 .collect();
             assert_eq!(hashes, golden, "{trucks:?}");
             // The color means nothing without bodies.
@@ -3149,9 +3161,39 @@ mod tests {
                 car_color: CarColor::Black,
                 ..golden_config(0, trucks)
             };
-            assert_eq!(commands_hash(black), golden[0], "{trucks:?}");
+            assert_eq!(commands_hash(black, true), golden[0], "{trucks:?}");
         }
     }
+
+    #[test]
+    fn without_car_bodies_the_commands_are_those_of_v1_10_0_in_kind_and_order() {
+        for (trucks, golden) in [
+            (TruckStyle::None, KINDS_NONE),
+            (TruckStyle::Japanese, KINDS_JAPANESE),
+            (TruckStyle::NorthAmerican, KINDS_NORTH_AMERICAN),
+        ] {
+            let hashes: Vec<u64> = (0..3)
+                .map(|seed| commands_hash(golden_config(seed, trucks), false))
+                .collect();
+            assert_eq!(hashes, golden, "{trucks:?}");
+        }
+    }
+
+    const KINDS_NONE: [u64; 3] = [
+        468_534_814_160_060_606,
+        8_137_298_111_563_663_754,
+        12_072_154_355_330_509_400,
+    ];
+    const KINDS_JAPANESE: [u64; 3] = [
+        7_114_710_342_343_259_971,
+        3_605_832_487_212_935_424,
+        14_851_655_165_617_784_221,
+    ];
+    const KINDS_NORTH_AMERICAN: [u64; 3] = [
+        4_942_396_396_457_689_779,
+        14_159_349_977_691_203_828,
+        16_922_474_812_910_385_076,
+    ];
 
     #[test]
     fn the_shapes_of_car_bodies_draw_what_they_should() {
