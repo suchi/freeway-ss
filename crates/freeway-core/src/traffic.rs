@@ -2383,6 +2383,23 @@ mod tests {
     }
 
     #[test]
+    fn cars_keep_apart_even_when_every_car_is_a_long_truck() {
+        let level = TrafficLevel {
+            active: 1.0,
+            trucks: 1.0,
+        };
+        for style in [TruckStyle::Japanese, TruckStyle::NorthAmerican] {
+            for seed in 0..2 {
+                let mut traffic = Traffic::with_spacing(seed, style, level, true);
+                assert!(traffic.cars.iter().all(|c| c.truck.is_some()));
+                let mut worst = f32::MAX;
+                run(&mut traffic, 72_000, |t| worst = worst.min(least_gap(t)));
+                assert!(worst >= LANE_GAP - 1e-3, "{style:?} {seed}: {worst}");
+            }
+        }
+    }
+
+    #[test]
     fn cars_that_do_not_keep_apart_overlap_as_before() {
         // Without bodies the traffic is not changed: its cars pass through each other.
         let mut traffic = Traffic::new(3, TruckStyle::Japanese);
