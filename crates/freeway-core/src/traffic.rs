@@ -466,7 +466,7 @@ impl CarModel {
                 (CarModel::Hatchback, 0.25),
                 (CarModel::Minivan, 0.25),
                 (CarModel::Suv, 0.20),
-                (CarModel::Sedan, 0.0),
+                (CarModel::Suv, 0.0),
             ],
             TruckStyle::Japanese => [
                 (CarModel::Sedan, 0.25),
@@ -3253,6 +3253,15 @@ mod tests {
         assert_eq!(CarModel::pick(TruckStyle::Japanese, 0.999), CarModel::Kei);
         assert_eq!(
             CarModel::pick(TruckStyle::NorthAmerican, 0.999),
+            CarModel::Pickup
+        );
+        // The roll just below 1 is the last model, even where rounding of the
+        // shares leaves a sliver.
+        let last = f32::from_bits(1.0f32.to_bits() - 1);
+        assert_eq!(CarModel::pick(TruckStyle::None, last), CarModel::Suv);
+        assert_eq!(CarModel::pick(TruckStyle::Japanese, last), CarModel::Kei);
+        assert_eq!(
+            CarModel::pick(TruckStyle::NorthAmerican, last),
             CarModel::Pickup
         );
         // Whatever the roll, the model exists.
