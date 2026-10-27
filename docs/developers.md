@@ -7,7 +7,7 @@ Night Freeway SSの構成・ビルド・テスト・配布物の作り方・設�
 | パス | 内容 |
 | --- | --- |
 | `crates/freeway-core` | OS非依存のシーン計算(道路の形・投影・道路の光・空・山並み・トンネル・他車と車体(`traffic.rs`が車と箱、`solid.rs`が輪郭の立体)・設定値の検証・画面の文字列)。すべてのプラットフォームでテストできる |
-| `crates/freeway-scr` | Windows固有の部分(引数の処理・ウィンドウ・Direct2Dでの描画・設定画面とレジストリへの保存。ダイアログ・マニフェスト・表示名・アイコンは`freeway.rc`から`build.rs`で埋め込む)。配布物の`.scr`になる |
+| `crates/freeway-scr` | Windows固有の部分(引数の処理・ウィンドウの位置と大きさ(`placement.rs`)・ウィンドウ・Direct2Dでの描画・設定画面とレジストリへの保存。ダイアログ・マニフェスト・表示名・アイコンは`freeway.rc`から`build.rs`で埋め込む)。配布物の`.scr`になる |
 | `packaging/` | 配布用のzipに入れる、利用者向けの説明書(`README.md`。日本語と英語)と、`.scr`に組み込まれる第三者のソフトウェアの著作権表示(`THIRD-PARTY-NOTICES.txt`)。リポジトリの最上位の`README.md`は、zipには入れない |
 | `xtask` | 開発用のコマンド(`cargo xtask dist`: 配布物の作成、`cargo xtask icon`: アイコンの生成)。標準ライブラリだけで書いている |
 | `.github/workflows/` | CI(`ci.yml`)と、`v*`のタグのプッシュで成果物をGitHub Releaseに公開するワークフロー(`release.yml`。手順は`AGENTS.md`の「リリース」) |
@@ -50,6 +50,9 @@ ARM64向けは`cargo xtask dist --target aarch64-pc-windows-msvc`で作る。`.s
 
 - `NightFreewaySS.scr /s`: 全画面で実行する。キー入力・クリック・マウスの移動で終了する
 - `NightFreewaySS.scr /c`(または`.scr`のダブルクリック): 設定画面を開く
+- `NightFreewaySS.scr /window`: 大きさを変えられるウィンドウで流す(既定は1280×720、作業領域の中央)。入力では終わらず、閉じるボタン・Alt+F4・Escで終わる
+- `NightFreewaySS.scr /play`: すべてのモニターで全画面で流す。EscかAlt+F4だけで終わる。カーソルは、マウスを動かしてから2秒だけ見せる
+- `/minutes:<n>`: `/window`か`/play`と一緒に使い、n分(1〜1440)で閉じる。例: `NightFreewaySS.scr /window /minutes:30`。流しているあいだは`SetThreadExecutionState`でスリープを止める。設定画面の「流しておく」の欄の「開始」は、設定を保存してから、自分自身をこの引数で別のプロセスとして起動する(この選択は保存しない)
 - `.scr`を右クリックして「インストール」: スクリーンセーバーの設定画面に加わり、プレビューと、待機時間の後の起動を確かめられる。Windowsの「インストール」はファイルをコピーせず、展開した場所の`.scr`をそのまま登録する(`HKEY_CURRENT_USER\Control Panel\Desktop`の`SCRNSAVE.EXE`)
 
 UFOは、設定をオンにしても平均10分に1回しか現れない。実機で確かめるときは、Cargoのフィーチャー`ufo-demo`を付けてビルドする(`cargo build --release -p freeway-scr --features ufo-demo`)。平均の間隔が20秒になる。配布物(`cargo xtask dist`)とリリースには使わない。
