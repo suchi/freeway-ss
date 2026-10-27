@@ -281,7 +281,10 @@ mod tests {
             let view = RoadView::curved(bend, 0.0);
             let mut seen = [0usize; 2];
             faces_seen(&view, left_hand_traffic, |face, seen_now, right| {
-                if face.part == FacePart::Side && face.lateral == -1.75 && seen_now {
+                // The inner faces of the wheels, under the car, are seen from the
+                // other side too: only the sides of the body count.
+                let on_body = face.corners.iter().all(|c| c.2 >= 0.2);
+                if face.part == FacePart::Side && face.lateral == -1.75 && on_body && seen_now {
                     seen[usize::from(right)] += 1;
                 }
             });

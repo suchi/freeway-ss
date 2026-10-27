@@ -65,9 +65,10 @@ pub const TRUCK_RATIO: f32 = 0.2;
 const TRUCK_HALF_WIDTH: f32 = 1.25;
 /// Boxes of a body no higher than this cast no shadow of their own.
 pub(crate) const LOW_BOX: f32 = 1.25;
-/// The wheels of a car are boxes across the body, this much narrower than it
-/// on each side.
+/// The wheels of a car are boxes of this width at both sides, this much in
+/// from the side of the body.
 const CAR_WHEEL_INSET: f32 = 0.05;
+const CAR_WHEEL_WIDTH: f32 = 0.22;
 /// The cabin of a car is this much narrower than its body on each side.
 const CABIN_INSET: f32 = 0.1;
 /// The lamps of a car stand this far in from the side of the body.
@@ -1176,15 +1177,22 @@ impl Car {
                 shadow: None,
                 covered: None,
             });
-            // One box across the car for the wheels at each axle.
+            // A wheel at each side of each axle; the light of the road shows
+            // between them.
+            let edge = half - CAR_WHEEL_INSET;
             for axle in [spec.axles.0, spec.axles.1] {
-                push(Part {
-                    along: along(axle - spec.wheel * 0.5, axle + spec.wheel * 0.5),
-                    across: (-(half - CAR_WHEEL_INSET), half - CAR_WHEEL_INSET),
-                    up: (0.0, spec.wheel),
-                    shadow: None,
-                    covered: None,
-                });
+                for across in [
+                    (-edge, CAR_WHEEL_WIDTH - edge),
+                    (edge - CAR_WHEEL_WIDTH, edge),
+                ] {
+                    push(Part {
+                        along: along(axle - spec.wheel * 0.5, axle + spec.wheel * 0.5),
+                        across,
+                        up: (0.0, spec.wheel),
+                        shadow: None,
+                        covered: None,
+                    });
+                }
             }
             return;
         };
@@ -3057,13 +3065,13 @@ mod tests {
     }
 
     #[test]
-    fn a_detailed_car_is_a_body_a_cabin_and_two_axles_inside_its_size() {
+    fn a_detailed_car_is_a_body_a_cabin_and_four_wheels_inside_its_size() {
         for model in CarModel::ALL {
             let spec = model.spec();
             for id in [LEAD_ID, PASSING_ID, ONCOMING_ID] {
                 let car = model_car(id, model, 100.0);
                 let boxes = model_boxes(&car, CarShapes::Detailed);
-                assert_eq!(boxes.len(), 4, "{model:?} {id}");
+                assert_eq!(boxes.len(), 6, "{model:?} {id}");
                 for b in &boxes {
                     let values = [b.near, b.far, b.left, b.right, b.bottom, b.top];
                     assert!(values.iter().all(|v| v.is_finite()), "{model:?} {id}");
@@ -3094,6 +3102,12 @@ mod tests {
                         .iter()
                         .all(|w| w.bottom == 0.0 && w.top == spec.wheel)
                 );
+                // The two wheels of an axle leave the road between them open.
+                for pair in boxes[2..].chunks(2) {
+                    assert_eq!((pair[0].near, pair[0].far), (pair[1].near, pair[1].far));
+                    assert!(pair[1].left - pair[0].right > 0.5, "{model:?} {id}");
+                    assert!((pair[0].right - pair[0].left - CAR_WHEEL_WIDTH).abs() < 1e-4);
+                }
                 // Only the body casts the shadow, and it is the shadow of the whole car.
                 assert_eq!(body.shadow, Some((0.0, spec.roof)));
                 assert!(boxes[1..].iter().all(|b| b.shadow.is_none()));
