@@ -686,6 +686,24 @@ impl Scene {
         if faces.is_empty() {
             return;
         }
+        // The part of the screen each face takes, a pixel wider than its corners.
+        let bounds: Vec<Option<(f32, f32, f32, f32)>> = faces
+            .iter()
+            .map(|&(_, corners, _)| {
+                let mut found = (f32::MAX, f32::MIN, f32::MAX, f32::MIN);
+                for (d, lateral, height) in corners {
+                    let (bend, rise) = view.offset(d);
+                    let p = projector.project(d, lateral + bend, height + rise)?;
+                    found = (
+                        found.0.min(p.x - 1.0),
+                        found.1.max(p.x + 1.0),
+                        found.2.min(p.y - 1.0),
+                        found.3.max(p.y + 1.0),
+                    );
+                }
+                Some(found)
+            })
+            .collect();
         let mut hidden = vec![false; lights.len()];
         for (light, hidden) in lights.iter_mut().zip(&mut hidden) {
             if matches!(light.kind, Kind::Body { .. }) {
@@ -703,8 +721,12 @@ impl Scene {
             else {
                 continue;
             };
-            for &(car, corners, near) in &faces {
-                if Some(car) == light.car || light.d < near {
+            for (&(car, corners, near), bounds) in faces.iter().zip(&bounds) {
+                // Most lights are far from a face on the screen; skip them quickly.
+                let outside = bounds.is_none_or(|(left, right, top, bottom)| {
+                    p.x < left || p.x > right || p.y < top || p.y > bottom
+                });
+                if outside || Some(car) == light.car || light.d < near {
                     continue;
                 }
                 let Some(depth) = depth_at(&corners, projector, view, (p.x, p.y)) else {
