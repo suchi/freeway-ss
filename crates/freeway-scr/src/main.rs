@@ -25,10 +25,20 @@ fn main() -> ExitCode {
     match args::parse(args) {
         Ok(line) => run(line),
         Err(error) => {
-            report_error(&error.to_string());
+            report_error(&error.message(message_language()));
             ExitCode::FAILURE
         }
     }
+}
+
+#[cfg(windows)]
+fn message_language() -> freeway_core::DisplayLanguage {
+    win::message_language()
+}
+
+#[cfg(not(windows))]
+fn message_language() -> freeway_core::DisplayLanguage {
+    freeway_core::DisplayLanguage::English
 }
 
 #[cfg(windows)]

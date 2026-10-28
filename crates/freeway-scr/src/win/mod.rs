@@ -212,10 +212,14 @@ pub fn resolve_language(language: Language) -> DisplayLanguage {
 
 /// The message for a run that ended with `error`, in the saved language.
 pub fn stopped_message(error: &windows::core::Error) -> String {
+    Text::Stopped.with_error(message_language(), error)
+}
+
+/// The language of a message shown before or after the run.
+pub fn message_language() -> DisplayLanguage {
     // Why: the error may happen before the settings are read, so they are read
     // here; a missing or invalid value gives the default language.
-    let language = display_language(&settings_store::load());
-    Text::Stopped.with_error(language, error)
+    display_language(&settings_store::load())
 }
 
 /// Shows an error to the user; a screensaver has no console to print to.
