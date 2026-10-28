@@ -26,6 +26,6 @@ pub mod ufo;
 pub use canvas::{Canvas, Clip, Rgb, ShiftCanvas};
 pub use i18n::{DisplayLanguage, Text};
 pub use scene::{Scene, SceneConfig, Span, Viewport};
-pub use settings::{Language, Settings, SpeedometerStyle};
+pub use settings::{Language, SceneMode, Settings, SpeedometerStyle};
 pub use traffic::{CarColor, CarShapes, LaneChanges, TruckStyle};
 pub use tunnel::TunnelLighting;
