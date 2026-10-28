@@ -77,6 +77,22 @@ if has 'git[[:space:]]+branch[^|;&]*[[:space:]]-D([[:space:]]|$)'; then
   emit ask "Force-deleting a branch. Confirm with the user first (AGENTS.md)."
 fi
 
+if [ "$is_push" = true ] && { has 'git[[:space:]]+push[^|;&]*[[:space:]](--delete|-d)([[:space:]]|$)' || has 'git[[:space:]]+push[^|;&]*[[:space:]]:[[:alnum:]_./-]+'; }; then
+  emit ask "Deleting a remote branch or tag. Confirm with the user first (AGENTS.md)."
+fi
+
+# Why: a pushed v* tag starts the release workflow, which publishes the
+# release; AGENTS.md requires the user's approval for every tag push.
+if [ "$is_push" = true ] && { has 'git[[:space:]]+push[^|;&]*[[:space:]]--tags([[:space:]]|$)' || has 'git[[:space:]]+push[^|;&]*[[:space:]](refs/tags/)?v[0-9]+\.[0-9]+\.[0-9]+'; }; then
+  emit ask "Pushing a tag publishes a release. Confirm with the user first (AGENTS.md: release)."
+fi
+
+# Why: merging needs the user's approval (AGENTS.md). Merges through the
+# GitHub MCP tools do not run through this Bash hook.
+if has 'gh[[:space:]]+pr[[:space:]]+merge'; then
+  emit ask "Merging a pull request needs the user's approval (AGENTS.md). Confirm with the user first."
+fi
+
 if has 'git[[:space:]]+commit'; then
   current_branch=$(git branch --show-current 2>/dev/null || true)
   if [ "$current_branch" = "main" ] || [ "$current_branch" = "master" ]; then
