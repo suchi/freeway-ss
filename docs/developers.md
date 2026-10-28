@@ -6,8 +6,8 @@ Night Freeway SSの構成・ビルド・テスト・配布物の作り方・設�
 
 | パス | 内容 |
 | --- | --- |
-| `crates/freeway-core` | OS非依存のシーン計算(道路の形・投影・道路の光・空・山並み・トンネル・他車と車体(`traffic.rs`が車と箱、`solid.rs`が輪郭の立体)・自車の追い越し(`ego.rs`)・設定値の検証・画面の文字列。複数のモニターにまたがる絵の1つの窓の分は`Scene::draw_span`で描く)。すべてのプラットフォームでテストできる |
-| `crates/freeway-scr` | Windows固有の部分(引数の処理・ウィンドウの位置と大きさ、複数のモニターを1つの画面として描くときの配置(`placement.rs`)・キーの判定と操作の案内の時間(`input.rs`)・ウィンドウ・Direct2Dでの描画・設定画面とレジストリへの保存。ダイアログ・マニフェスト・表示名・アイコン・版の情報は`freeway.rc`から`build.rs`で埋め込む)。配布物の`.scr`になる |
+| `crates/freeway-core` | OS非依存のシーン計算(道路の形・投影・道路の光・空・山並み・トンネル・他車と車体(`traffic.rs`が車と箱、`solid.rs`が輪郭の立体)・自車の追い越し(`ego.rs`)・巡航速度のゆらぎ(`cruise.rs`)・景色の区間(`scenery.rs`)・UFO(`ufo.rs`)・設定値の検証(`settings.rs`)・画面の文字列(`i18n.rs`)。複数のモニターにまたがる絵の1つの窓の分は`Scene::draw_span`で描く)。すべてのプラットフォームでテストできる |
+| `crates/freeway-scr` | Windows固有の部分(引数の処理・ウィンドウの位置と大きさ、複数のモニターを1つの画面として描くときの配置(`placement.rs`)・キーの判定と操作の案内の時間(`input.rs`)・速度計の配置(`speedometer.rs`)・ウィンドウ・Direct2Dでの描画(ダッシュボードは`win/dashboard.rs`、操作の案内は`win/hint.rs`)・設定画面とレジストリへの保存。ダイアログ・マニフェスト・表示名・アイコン・版の情報は`freeway.rc`から`build.rs`で埋め込む)。配布物の`.scr`になる |
 | `packaging/` | 配布用のzipに入れる、利用者向けの説明書(`README.md`。日本語と英語)と、`.scr`に組み込まれる第三者のソフトウェアの著作権表示(`THIRD-PARTY-NOTICES.txt`)。リポジトリの最上位の`README.md`は、zipには入れない |
 | `xtask` | 開発用のコマンド(`cargo xtask dist`: 配布物の作成、`cargo xtask icon`: アイコンの生成)。標準ライブラリだけで書いている |
 | `.github/workflows/` | CI(`ci.yml`)と、`v*`のタグのプッシュで成果物をGitHub Releaseに公開するワークフロー(`release.yml`。手順は`AGENTS.md`の「リリース」) |
@@ -24,6 +24,9 @@ rustup toolchain install
 cargo test --workspace
 cargo fmt --all --check
 cargo clippy --workspace --all-targets -- -D warnings
+cargo clippy --workspace --all-targets --target x86_64-pc-windows-msvc -- -D warnings
+cargo clippy -p freeway-scr --all-targets --features ufo-demo --target x86_64-pc-windows-msvc -- -D warnings
+cargo check --workspace --all-targets
 cargo check --workspace --all-targets --target x86_64-pc-windows-msvc
 cargo build --release -p freeway-scr
 ```
@@ -50,7 +53,8 @@ ARM64向けは`cargo xtask dist --target aarch64-pc-windows-msvc`で作る。`.s
 
 - `NightFreewaySS.scr /s`: 全画面で実行する。キー入力・クリック・マウスの移動で終了する
 - `NightFreewaySS.scr /c`(または`.scr`のダブルクリック): 設定画面を開く
-- `NightFreewaySS.scr /window`: 大きさを変えられるウィンドウで流す(既定は1280×720、作業領域の中央)。入力では終わらず、閉じるボタン・Alt+F4・Escで終わる
+- `NightFreewaySS.scr /p <hwnd>`(または`/p:<hwnd>`): 指定した窓の子ウィンドウとして、プレビューを描く(スクリーンセーバーの設定画面の小さな画面)
+- `NightFreewaySS.scr /window`: 大きさを変えられるウィンドウで流す(既定は96 DPIで1280×720で、DPIに合わせて大きくする。作業領域の中央)。入力では終わらず、閉じるボタン・Alt+F4・Escで終わる
 - `NightFreewaySS.scr /play`: すべてのモニターで全画面で流す。EscかAlt+F4だけで終わる。カーソルは、マウスを動かしてから2秒だけ見せる
 - `/span`・`/nospan`: `/s`か`/play`と一緒に使い、その回だけ、設定`SpanMonitors`にかかわらず、すべてのモニターを1つの画面として描く(`/span`)か、モニターごとに独立した場面を描く(`/nospan`)。例: `NightFreewaySS.scr /play /span`。仕組みは次の「複数のモニターを1つの画面として描く」にある
 - `/original`・`/kitchensink`: `/s`・`/window`・`/play`と一緒に使い、その回だけ、設定`Mode`にかかわらず、Originalのモードか、KitchenSinkのモードで描く(0024の3.3節)。順序は問わず、`/`と`-`のどちらでも始められ、大文字と小文字を区別しない。両方の指定、`/c`・`/p`との組み合わせ、単独の指定は、引数の誤りとして扱う。例: `NightFreewaySS.scr /play /original`。仕組みは次の「モード」にある
@@ -106,6 +110,8 @@ UFOは、設定をオンにしても平均10分に1回しか現れない。実�
 | 車線変更 | `LaneChanges` | なしは0、自車だけは1、自車と他車は2 | 2 |
 | 複数のモニターを1つの画面として描く | `SpanMonitors` | オンは1、オフは0 | 1 |
 | 表示言語 | `Language` | 自動は0、Englishは1、日本語は2 | 0 |
+| (旧形式、読み書きする) | `ShowSpeedometer` | 表示は1、非表示は0(1.10より前の速度計) | なし |
+| (旧形式、読み書きする) | `CarBodies` | 透明は0、半透明の黒は1、黒は2(1.11より前の車体) | なし |
 
 `Speedometer`がないときは、前の版(1.10より前)の`ShowSpeedometer`が1なら数字だけ、それ以外はなしとして読む。`Speedometer`が範囲外のときは既定値で動く。保存するときは、前の版に戻したときにも表示のオン・オフが残るよう、`ShowSpeedometer`も「なし以外なら1」で書く。
 
