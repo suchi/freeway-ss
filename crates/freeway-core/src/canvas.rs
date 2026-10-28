@@ -31,6 +31,8 @@ pub trait Canvas {
     /// `shadows`, polygons through points of the screen where something stands
     /// in the way of the light. A renderer that cannot cut the shadows out draws
     /// the whole pool.
+    // Why: the arguments are those of `light_pool` plus the shadows; grouping
+    // them would make this one call differ from the other drawing calls.
     #[allow(clippy::too_many_arguments)]
     fn shaded_light_pool(
         &mut self,
@@ -62,6 +64,8 @@ pub trait Canvas {
     /// from `top_y` to `bottom_y`, centered on `center_x`, with half the
     /// width at each end given by `top_half_width` and `bottom_half_width`.
     /// Its opacity changes evenly from `top_alpha` to `bottom_alpha`.
+    // Why: each argument is one number of the trapezoid, as in the other
+    // drawing calls, which take plain numbers rather than structs.
     #[allow(clippy::too_many_arguments)]
     fn beam(
         &mut self,
