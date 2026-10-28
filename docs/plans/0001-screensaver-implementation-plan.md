@@ -233,6 +233,7 @@ MVPの項目は、本家の実行中の操作と表示(速度・通行方向・H
 | v1.16.0: 複数のモニターを1つの画面として描く | 完了(実機確認済み) | [0023](0023-v1-16-span-monitors.md) | [#32](https://github.com/suchi/freeway-ss/pull/32) | [v1.16.0](https://github.com/suchi/freeway-ss/releases/tag/v1.16.0) |
 | v1.17.0: 複数のモニターを1つの画面として描くのを既定にする | 完了(実機確認済み) | -(D27) | [#33](https://github.com/suchi/freeway-ss/pull/33) | [v1.17.0](https://github.com/suchi/freeway-ss/releases/tag/v1.17.0) |
 | v1.18.0: OriginalモードとKitchenSinkモード | 完了(実機確認済み) | [0024](0024-v1-18-original-and-kitchensink-modes.md) | [#36](https://github.com/suchi/freeway-ss/pull/36) | [v1.18.0](https://github.com/suchi/freeway-ss/releases/tag/v1.18.0) |
+| v1.18.1: 第一次開発の区切りの点検(文書の整合性・規則の遵守・引き継ぎ) | 実装中 | -(D29)、[引き継ぎメモ](../handoff.md) | - | - |
 
 ```mermaid
 flowchart LR
@@ -379,6 +380,7 @@ flowchart LR
 | D26 | 複数のモニターを1つの画面として描く | 設定とコマンドライン(`/span`・`/nospan`)で、`/s`と`/play`のときに、すべてのモニターを1枚の大きな画面とみなして1つの場面を描けるようにする。消失点は主モニターの中央、速度計と操作の案内は主モニターだけ。既定はオフ(モニターごとに独立した場面、ADR-0003)。既定はD27でオンに変えた。2026-10-27のユーザーの依頼と判断 | [0023](0023-v1-16-span-monitors.md) |
 | D27 | 複数のモニターを1つの画面として描くのを既定にする | 設定`SpanMonitors`の既定をオンにする(値がない・範囲外のときもオン)。v1.16.0で設定を保存した環境には0が書かれているので、その値を書き換えることはせず、オフのまま残す(利用者が選んだ値として扱う)。モニターが1台のとき、プレビュー、`/window`の動きは変わらない。2026-10-27のユーザーの依頼 | [0023](0023-v1-16-span-monitors.md) |
 | D28 | OriginalモードとKitchenSinkモード | 追加した機能を一度に切り替えるトップレベルの設定「モード」を加える。Originalは本家に近い光点だけの表現(追加した機能をすべてオフにし、街灯の間隔を45 mに戻し、速度計を出さず、UFOを自動では出さない)、KitchenSinkは追加した機能を設定どおりに使う。既定はKitchenSink。設定画面・コマンドライン(`/original`・`/kitchensink`)・流しているあいだのMキーで切り替える。2026-10-28のユーザーの依頼と判断 | [0024](0024-v1-18-original-and-kitchensink-modes.md)、[ADR-0009](../adr/0009-switch-added-features-with-a-scene-mode.md) |
+| D29 | 第一次開発の区切りの点検 | 中断の前に、文書とコードの整合性、`AGENTS.md`の遵守、使っている技術の新しさを点検して直し、引き継ぎメモ(`docs/handoff.md`)を置く。コマンドラインの引数の誤りを表示言語で出す。PRのコミットの1行目をCIで確かめ、承認の要る操作をフックで確認する。公開のジョブのランナーをubuntu-26.04に上げる。作業環境が割り当てるブランチ名を規則の例外とする。免責事項から特定の開発手法の呼び名を外す。v1.18.1として公開する。2026-10-28のユーザーの依頼と判断 | [引き継ぎメモ](../handoff.md)、[ADR-0009](../adr/0009-switch-added-features-with-a-scene-mode.md) |
 
 検討時の選択肢:
 
