@@ -18,7 +18,7 @@ GitHub Copilot・Claude Code・Codexすべてに対する指示の単一ソー�
 | -------------------- | -------- |
 | セットアップ         | `rustup toolchain install`(`rust-toolchain.toml`のツールチェーンとWindowsターゲットを導入) |
 | テスト               | `cargo test --workspace` |
-| リント・フォーマット | `cargo fmt --all --check` と `cargo clippy --workspace --all-targets -- -D warnings` |
+| リント・フォーマット | `cargo fmt --all --check` と `cargo clippy --workspace --all-targets -- -D warnings`。Windowsターゲット(`--target x86_64-pc-windows-msvc`)と、`-p freeway-scr --features ufo-demo --target x86_64-pc-windows-msvc`のclippyも実行する(CIと同じ) |
 | 型チェック           | `cargo check --workspace --all-targets` と `cargo check --workspace --all-targets --target x86_64-pc-windows-msvc` |
 | ビルド               | `cargo build --release -p freeway-scr`(配布用バイナリはWindows上でビルドする) |
 | 配布物の作成         | `cargo xtask dist [--target aarch64-pc-windows-msvc]`(Windowsのみ。`target/dist/`に`.scr`・zip・チェックサムを作る) |
@@ -125,9 +125,9 @@ feat: add todo filter feature      ← 1行目: 英語・命令形・50文字以
 成果物はGitHub Releaseで公開する。ワークフロー`.github/workflows/release.yml`が、`v*`のタグのプッシュで動く。
 
 - バージョンとタグ: `vMAJOR.MINOR.PATCH`。Ver.1.0以降は、不具合の修正でPATCHを、機能の追加でMINORを上げる。リリースするPRの最初のコミットで`Cargo.toml`の`workspace.package.version`を上げ(`Cargo.lock`のワークスペースクレートも`cargo`で更新して同じコミットに含める)、タグと一致させる。ワークフローはzipの名前で一致を確かめる。Phase 1〜5は`v0.N.0`のプレリリースとして公開した(`v0.`で始まるタグはプレリリースになる)。
-- 成果物: x64とARM64それぞれのzip(`NightFreewaySS.scr`・LICENSE・`THIRD-PARTY-NOTICES.txt`・利用者向けの説明書`README.md`)と、`SHA256SUMS.txt`。`cargo xtask dist`で作る。zipの中身は`packaging/`にある。
+- 成果物: x64とARM64それぞれのzip(`NightFreewaySS.scr`・LICENSE・`THIRD-PARTY-NOTICES.txt`・利用者向けの説明書`README.md`)と、`SHA256SUMS.txt`。`cargo xtask dist`で作る。zipに入れる説明書と第三者の著作権表示は`packaging/`に、LICENSEはリポジトリの最上位にある。
 - リリース前の点検: 正式版を公開する前に、文書と実装の整合性、コードとワークフローのセキュリティ、使っている技術の新しさ(クールダウンを満たす最新版か)を点検する(2026-10-26のユーザー指示)。
-- 手順: リリースするPRをマージしたら、ユーザーの承認を得てから、`main`のマージコミットにタグを付けてプッシュする(`git tag vX.Y.Z <SHA>`、`git push origin vX.Y.Z`)。`main`に含まれないコミットのタグは公開されない。ワークフローが失敗したときは、Actionsの「Release」を`workflow_dispatch`で、既存のタグを指定して再実行する。
+- 手順: リリースするPRをマージしたら、ユーザーの承認を得てから、`main`のマージコミットにタグを付けてプッシュする(`git tag vX.Y.Z <SHA>`、`git push origin vX.Y.Z`)。クラウドの作業環境からはタグのプッシュが通らないことがあり、その場合はコマンドを示してユーザーが手元からプッシュする。公開されたら、`docs/handoff.md`の「リリースの検証の手順」で成果物を確かめる。`main`に含まれないコミットのタグは公開されない。ワークフローが失敗したときは、Actionsの「Release」を`workflow_dispatch`で、既存のタグを指定して再実行する。
 - ワークフローの構成: ビルドするジョブは読み取り専用のトークンで動き、公開するジョブ(書き込み権限)はリポジトリや依存のコードを実行しない。この分離を崩さない。
 - タグのプッシュは公開操作なので、実行前に必ずユーザーの承認を取る。作成済みのタグ・リリースを削除・上書きする場合も同様。
 
@@ -160,5 +160,5 @@ feat: add todo filter feature      ← 1行目: 英語・命令形・50文字以
 | ツール         | 読み込み                              | 補足                                                    |
 | -------------- | ------------------------------------- | ------------------------------------------------------- |
 | Claude Code    | `CLAUDE.md`(`@AGENTS.md`でインポート) | commands・skills・hooksは`.claude/`配下                 |
-| GitHub Copilot | `AGENTS.md`をネイティブサポート       | `.github/copilot-instructions.md`はレビュー言語指定のみ |
+| GitHub Copilot | `AGENTS.md`をネイティブサポート       | `.github/copilot-instructions.md`はレビュー言語指定のみ(`.github/copilot-code-review.yml`も同じ目的の互換用) |
 | OpenAI Codex   | `AGENTS.md`をネイティブサポート       | グローバル設定は`~/.codex/AGENTS.md`                    |
