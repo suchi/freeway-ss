@@ -1,6 +1,6 @@
 # v1.18.0 詳細設計: OriginalモードとKitchenSinkモード
 
-- ステータス: 実装済み(実機確認待ち)
+- ステータス: 完了(実機確認済み。[#36](https://github.com/suchi/freeway-ss/pull/36))
 - 日付: 2026-10-28
 - 親計画: [実装計画](0001-screensaver-implementation-plan.md)の6章
 
