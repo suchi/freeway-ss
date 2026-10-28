@@ -111,6 +111,7 @@ pub fn is_fullscreen() -> bool {
 fn key_of(code: usize) -> Key {
     const D: usize = 0x44;
     const F: usize = 0x46;
+    const M: usize = 0x4D;
     const A: usize = 0x41;
     const B: usize = 0x42;
     match code {
@@ -121,6 +122,7 @@ fn key_of(code: usize) -> Key {
         c if c == usize::from(VK_SPACE.0) => Key::Space,
         D => Key::D,
         F => Key::F,
+        M => Key::M,
         A => Key::A,
         B => Key::B,
         _ => Key::Other,
@@ -729,6 +731,7 @@ mod tests {
         assert_eq!(key_of(usize::from(VK_SPACE.0)), Key::Space);
         assert_eq!(key_of(0x44), Key::D);
         assert_eq!(key_of(0x46), Key::F);
+        assert_eq!(key_of(0x4D), Key::M);
         assert_eq!(key_of(0x41), Key::A);
         assert_eq!(key_of(0x42), Key::B);
         assert_eq!(key_of(0x43), Key::Other);
@@ -796,7 +799,13 @@ mod tests {
         BEHAVIOR.set(Behavior::Preview);
         let hwnd = create_hidden_window(320, 180).expect("a hidden window");
         let _ = take_input();
-        for key in [usize::from(VK_SPACE.0), usize::from(VK_UP.0), 0x44, 0x46] {
+        for key in [
+            usize::from(VK_SPACE.0),
+            usize::from(VK_UP.0),
+            0x44,
+            0x46,
+            0x4D,
+        ] {
             send(hwnd, WM_KEYDOWN, key, 0);
         }
         send(hwnd, WM_MOUSEMOVE, 0, 0);

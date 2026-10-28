@@ -12,8 +12,13 @@
 //!
 //! `/span` and `/nospan` with `/s` or `/play` choose, for that run only,
 //! whether the monitors are drawn as one screen, whatever the saved setting is.
+//!
+//! `/original` and `/kitchensink` with `/s`, `/window` or `/play` choose, for
+//! that run only, the mode the road is drawn in, whatever the saved setting is.
 
 use std::fmt;
+
+use freeway_core::SceneMode;
 
 /// How the screensaver was asked to run.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -35,6 +40,14 @@ pub enum Mode {
         minutes: Option<u32>,
         span: Option<bool>,
     },
+}
+
+/// What the command line asks for: how to run, and the mode to draw in if the
+/// command line chose one (`None` follows the settings).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CommandLine {
+    pub mode: Mode,
+    pub scene_mode: Option<SceneMode>,
 }
 
 /// The fewest and the most minutes that `/minutes` accepts: a day.
@@ -94,6 +107,10 @@ pub enum ArgsError {
     ConflictingSpan,
     /// `/span` or `/nospan` without `/s` or `/play`.
     SpanWithoutRun,
+    /// Both `/original` and `/kitchensink`.
+    ConflictingSceneMode,
+    /// `/original` or `/kitchensink` without `/s`, `/window` or `/play`.
+    SceneModeWithoutRun,
 }
 
 impl fmt::Display for ArgsError {
@@ -116,6 +133,14 @@ impl fmt::Display for ArgsError {
             Self::SpanWithoutRun => {
                 write!(f, "The /span and /nospan options go with /s or /play")
             }
+            Self::ConflictingSceneMode => write!(
+                f,
+                "The /original and /kitchensink options cannot be combined"
+            ),
+            Self::SceneModeWithoutRun => write!(
+                f,
+                "The /original and /kitchensink options go with /s, /window or /play"
+            ),
         }
     }
 }
@@ -129,21 +154,66 @@ impl std::error::Error for ArgsError {}
 /// (`/p 1234`). Arguments after the option of Windows are ignored. `/window`,
 /// `/play` and `/minutes:<n>` may come in any order, and nothing else may
 /// come with them. `/span` and `/nospan` may come anywhere, and only with `/s`
-/// or `/play`.
-pub fn parse<I, S>(args: I) -> Result<Mode, ArgsError>
+/// or `/play`. `/original` and `/kitchensink` may come anywhere too, and only
+/// with `/s`, `/window` or `/play`.
+pub fn parse<I, S>(args: I) -> Result<CommandLine, ArgsError>
 where
     I: IntoIterator<Item = S>,
     S: AsRef<str>,
 {
-    // Why: the options for the monitors are taken out first, so that every
-    // mode reads the rest as it always did, wherever they stood.
-    let (span, rest) = take_span(args)?;
-    let mode = parse_mode(rest)?;
-    match (mode, span) {
-        (mode, None) => Ok(mode),
-        (Mode::Fullscreen { .. }, span) => Ok(Mode::Fullscreen { span }),
-        (Mode::Play { minutes, .. }, span) => Ok(Mode::Play { minutes, span }),
-        _ => Err(ArgsError::SpanWithoutRun),
+    // Why: the options for the mode and for the monitors are taken out first,
+    // so that every mode reads the rest as it always did, wherever they stood.
+    let (scene_mode, rest) = take_scene_mode(args)?;
+    let (span, rest) = take_span(rest)?;
+    let mode = match (parse_mode(rest)?, span) {
+        (mode, None) => mode,
+        (Mode::Fullscreen { .. }, span) => Mode::Fullscreen { span },
+        (Mode::Play { minutes, .. }, span) => Mode::Play { minutes, span },
+        _ => return Err(ArgsError::SpanWithoutRun),
+    };
+    if scene_mode.is_some()
+        && !matches!(
+            mode,
+            Mode::Fullscreen { .. } | Mode::Window { .. } | Mode::Play { .. }
+        )
+    {
+        return Err(ArgsError::SceneModeWithoutRun);
+    }
+    Ok(CommandLine { mode, scene_mode })
+}
+
+/// Takes `/original` and `/kitchensink` out of `args`: the mode the run was
+/// told to draw in, and the other arguments.
+fn take_scene_mode<I, S>(args: I) -> Result<(Option<SceneMode>, Vec<String>), ArgsError>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+{
+    let (mut original, mut kitchen_sink) = (false, false);
+    let mut rest = Vec::new();
+    for arg in args {
+        let arg = arg.as_ref();
+        let name = arg
+            .trim()
+            .strip_prefix(['/', '-'])
+            .map(str::to_ascii_lowercase);
+        match name.as_deref() {
+            Some("original") => original = true,
+            Some("kitchensink") => kitchen_sink = true,
+            _ => rest.push(arg.to_owned()),
+        }
+    }
+    match (original, kitchen_sink) {
+        (true, true) => Err(ArgsError::ConflictingSceneMode),
+        (false, false) => Ok((None, rest)),
+        (original, _) => Ok((
+            Some(if original {
+                SceneMode::Original
+            } else {
+                SceneMode::KitchenSink
+            }),
+            rest,
+        )),
     }
 }
 
@@ -271,7 +341,11 @@ mod tests {
     use super::*;
 
     fn parse_args(args: &[&str]) -> Result<Mode, ArgsError> {
-        parse(args.iter().copied())
+        parse(args.iter().copied()).map(|line| line.mode)
+    }
+
+    fn parse_scene_mode(args: &[&str]) -> Result<Option<SceneMode>, ArgsError> {
+        parse(args.iter().copied()).map(|line| line.scene_mode)
     }
 
     #[test]
@@ -459,7 +533,14 @@ mod tests {
             },
         ];
         for mode in modes {
-            assert_eq!(parse(mode.arguments()), Ok(mode), "{mode:?}");
+            assert_eq!(
+                parse(mode.arguments()),
+                Ok(CommandLine {
+                    mode,
+                    scene_mode: None
+                }),
+                "{mode:?}"
+            );
         }
         assert_eq!(
             Mode::Window { minutes: Some(30) }.arguments(),
@@ -480,7 +561,7 @@ mod tests {
         }
         .arguments();
         assert_eq!(
-            parse(arguments),
+            parse(arguments).map(|line| line.mode),
             Ok(Mode::Window {
                 minutes: Some(1440)
             })
@@ -605,5 +686,131 @@ mod tests {
         assert!(both.contains("/span") && both.contains("/nospan"), "{both}");
         let alone = ArgsError::SpanWithoutRun.to_string();
         assert!(alone.contains("/s") && alone.contains("/play"), "{alone}");
+    }
+
+    #[test]
+    fn the_mode_is_chosen_for_one_run() {
+        let kitchen_sink = Ok(Some(SceneMode::KitchenSink));
+        let original = Ok(Some(SceneMode::Original));
+        assert_eq!(parse_scene_mode(&["/s", "/original"]), original);
+        assert_eq!(parse_scene_mode(&["/s", "/kitchensink"]), kitchen_sink);
+        assert_eq!(parse_scene_mode(&["/window", "/original"]), original);
+        assert_eq!(parse_scene_mode(&["/play", "/kitchensink"]), kitchen_sink);
+        // Any order, either prefix, any case.
+        assert_eq!(parse_scene_mode(&["/original", "/s"]), original);
+        assert_eq!(parse_scene_mode(&["-KitchenSink", "-Play"]), kitchen_sink);
+        assert_eq!(parse_scene_mode(&[" /ORIGINAL ", "/window"]), original);
+        assert_eq!(
+            parse_scene_mode(&["/minutes:5", "/kitchensink", "/window"]),
+            kitchen_sink
+        );
+        // Without them the settings decide.
+        assert_eq!(parse_scene_mode(&["/s"]), Ok(None));
+        assert_eq!(parse_scene_mode(&["/window", "/minutes:3"]), Ok(None));
+        assert_eq!(parse_scene_mode(&[]), Ok(None));
+    }
+
+    #[test]
+    fn the_mode_goes_with_the_other_options_of_a_run() {
+        assert_eq!(
+            parse(["/play", "/original", "/nospan", "/minutes:30"]),
+            Ok(CommandLine {
+                mode: Mode::Play {
+                    minutes: Some(30),
+                    span: Some(false)
+                },
+                scene_mode: Some(SceneMode::Original)
+            })
+        );
+        assert_eq!(
+            parse(["/kitchensink", "/span", "/s"]),
+            Ok(CommandLine {
+                mode: Mode::Fullscreen { span: Some(true) },
+                scene_mode: Some(SceneMode::KitchenSink)
+            })
+        );
+        // Arguments after the option of Windows are still ignored.
+        assert_eq!(
+            parse_args(&["/s", "extra", "/original"]),
+            Ok(Mode::Fullscreen { span: None })
+        );
+    }
+
+    #[test]
+    fn the_mode_options_do_not_mix_and_need_a_run() {
+        for args in [
+            &["/s", "/original", "/kitchensink"][..],
+            &["/kitchensink", "/play", "/original"],
+            &["/original", "/original", "/kitchensink"],
+        ] {
+            assert_eq!(
+                parse_args(args),
+                Err(ArgsError::ConflictingSceneMode),
+                "{args:?}"
+            );
+        }
+        for args in [
+            &["/original"][..],
+            &["/kitchensink"],
+            &["/c", "/original"],
+            &["/c:7", "/kitchensink"],
+            &["/p", "9", "/original"],
+            &["/minutes:5", "/original"],
+        ] {
+            assert!(
+                matches!(
+                    parse_args(args),
+                    Err(ArgsError::SceneModeWithoutRun | ArgsError::MinutesWithoutRun)
+                ),
+                "{args:?}"
+            );
+        }
+        assert_eq!(
+            parse_args(&["/original"]),
+            Err(ArgsError::SceneModeWithoutRun)
+        );
+        assert_eq!(
+            parse_args(&["/p", "9", "/kitchensink"]),
+            Err(ArgsError::SceneModeWithoutRun)
+        );
+    }
+
+    #[test]
+    fn the_mode_options_take_no_value_and_leave_other_errors_alone() {
+        for arg in ["/original:1", "/kitchensink:0", "/originals", "original"] {
+            assert!(
+                matches!(
+                    parse_args(&["/play", arg]),
+                    Err(ArgsError::UnknownOption(_))
+                ),
+                "{arg}"
+            );
+        }
+        assert_eq!(
+            parse_args(&["/play", "/original", "/minutes:0"]),
+            Err(ArgsError::InvalidMinutes("0".to_owned()))
+        );
+        assert_eq!(
+            parse_args(&["/window", "/play", "/original"]),
+            Err(ArgsError::ConflictingRuns)
+        );
+        assert_eq!(
+            parse_args(&["/window", "/original", "/span"]),
+            Err(ArgsError::SpanWithoutRun)
+        );
+    }
+
+    #[test]
+    fn the_messages_of_the_mode_options_name_them() {
+        let both = ArgsError::ConflictingSceneMode.to_string();
+        assert!(
+            both.contains("/original") && both.contains("/kitchensink"),
+            "{both}"
+        );
+        let alone = ArgsError::SceneModeWithoutRun.to_string();
+        assert!(
+            alone.contains("/s") && alone.contains("/window") && alone.contains("/play"),
+            "{alone}"
+        );
     }
 }
