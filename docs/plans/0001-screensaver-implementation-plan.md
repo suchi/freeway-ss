@@ -233,7 +233,7 @@ MVPの項目は、本家の実行中の操作と表示(速度・通行方向・H
 | v1.16.0: 複数のモニターを1つの画面として描く | 完了(実機確認済み) | [0023](0023-v1-16-span-monitors.md) | [#32](https://github.com/suchi/freeway-ss/pull/32) | [v1.16.0](https://github.com/suchi/freeway-ss/releases/tag/v1.16.0) |
 | v1.17.0: 複数のモニターを1つの画面として描くのを既定にする | 完了(実機確認済み) | -(D27) | [#33](https://github.com/suchi/freeway-ss/pull/33) | [v1.17.0](https://github.com/suchi/freeway-ss/releases/tag/v1.17.0) |
 | v1.18.0: OriginalモードとKitchenSinkモード | 完了(実機確認済み) | [0024](0024-v1-18-original-and-kitchensink-modes.md) | [#36](https://github.com/suchi/freeway-ss/pull/36) | [v1.18.0](https://github.com/suchi/freeway-ss/releases/tag/v1.18.0) |
-| v1.18.1: 第一次開発の区切りの点検(文書の整合性・規則の遵守・引き継ぎ) | 実装中 | -(D29)、[引き継ぎメモ](../handoff.md) | - | - |
+| v1.18.1: 第一次開発の区切りの点検(文書の整合性・規則の遵守・引き継ぎ) | 完了(実機確認済み) | -(D29)、[引き継ぎメモ](../handoff.md) | [#37](https://github.com/suchi/freeway-ss/pull/37) | [v1.18.1](https://github.com/suchi/freeway-ss/releases/tag/v1.18.1) |
 
 ```mermaid
 flowchart LR

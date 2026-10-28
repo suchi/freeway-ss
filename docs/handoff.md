@@ -6,11 +6,11 @@
 
 ## 1. 中断の時点の状態
 
-- 最新のリリース: [v1.18.0](https://github.com/suchi/freeway-ss/releases/tag/v1.18.0)(2026-10-28公開。正式版、immutable)。区切りの点検の修正を含むv1.18.1は、このPRのマージの後に公開する予定(実装計画の進捗表で確かめる)
+- 最新のリリース: [v1.18.0](https://github.com/suchi/freeway-ss/releases/tag/v1.18.0)(2026-10-28公開。正式版、immutable)。区切りの点検の修正を含むv1.18.1は、PR #37のマージの後に公開した(公開されたことは、GitHubのAPIで確かめる)
 - 機能の一覧と、リリースごとの詳細設計: [実装計画](plans/0001-screensaver-implementation-plan.md)の6章の進捗表と、11章の決定事項(D1〜D29)。0010と0012(v1.5.0)以降の詳細設計(`docs/plans/00NN-*.md`)の7章に、実装で決めた値と確かめたことがある
 - 技術判断: [ADR](adr/README.md)(0001〜0009)
 - 開いているIssue: [suchi/freeway-ss#34](https://github.com/suchi/freeway-ss/issues/34)(Authenticodeの署名。検討済み・未着手)
-- 開いているPR: なし(この文書を加えたPRのマージの後)
+- 開いているPR: なし(PR #37のマージの後)
 
 ## 2. 未完了・保留の事項
 
