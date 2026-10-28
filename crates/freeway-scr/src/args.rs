@@ -18,7 +18,7 @@
 
 use std::fmt;
 
-use freeway_core::SceneMode;
+use freeway_core::{DisplayLanguage, SceneMode, Text};
 
 /// How the screensaver was asked to run.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -113,35 +113,28 @@ pub enum ArgsError {
     SceneModeWithoutRun,
 }
 
+impl ArgsError {
+    /// The message in `language`, from the table of strings (ADR-0007).
+    pub fn message(&self, language: DisplayLanguage) -> String {
+        let with = |text: Text, value: &str| text.with_error(language, value);
+        match self {
+            Self::UnknownOption(arg) => with(Text::ArgUnknownOption, arg),
+            Self::MissingWindowHandle => Text::ArgMissingWindowHandle.get(language).to_owned(),
+            Self::InvalidWindowHandle(value) => with(Text::ArgInvalidWindowHandle, value),
+            Self::InvalidMinutes(value) => with(Text::ArgInvalidMinutes, value),
+            Self::MinutesWithoutRun => Text::ArgMinutesWithoutRun.get(language).to_owned(),
+            Self::ConflictingRuns => Text::ArgConflictingRuns.get(language).to_owned(),
+            Self::ConflictingSpan => Text::ArgConflictingSpan.get(language).to_owned(),
+            Self::SpanWithoutRun => Text::ArgSpanWithoutRun.get(language).to_owned(),
+            Self::ConflictingSceneMode => Text::ArgConflictingSceneMode.get(language).to_owned(),
+            Self::SceneModeWithoutRun => Text::ArgSceneModeWithoutRun.get(language).to_owned(),
+        }
+    }
+}
+
 impl fmt::Display for ArgsError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::UnknownOption(arg) => write!(f, "Unknown option: {arg}"),
-            Self::MissingWindowHandle => write!(f, "The /p option requires a window handle"),
-            Self::InvalidWindowHandle(value) => write!(f, "Invalid window handle: {value}"),
-            Self::InvalidMinutes(value) => write!(
-                f,
-                "Invalid number of minutes: \"{value}\" (the /minutes option takes {} to {}, as in /minutes:30)",
-                MINUTES_RANGE.start(),
-                MINUTES_RANGE.end()
-            ),
-            Self::MinutesWithoutRun => {
-                write!(f, "The /minutes option goes with /window or /play")
-            }
-            Self::ConflictingRuns => write!(f, "The /window and /play options cannot be combined"),
-            Self::ConflictingSpan => write!(f, "The /span and /nospan options cannot be combined"),
-            Self::SpanWithoutRun => {
-                write!(f, "The /span and /nospan options go with /s or /play")
-            }
-            Self::ConflictingSceneMode => write!(
-                f,
-                "The /original and /kitchensink options cannot be combined"
-            ),
-            Self::SceneModeWithoutRun => write!(
-                f,
-                "The /original and /kitchensink options go with /s, /window or /play"
-            ),
-        }
+        f.write_str(&self.message(DisplayLanguage::English))
     }
 }
 
@@ -570,8 +563,37 @@ mod tests {
 
     #[test]
     fn the_messages_of_the_run_options_name_the_range() {
-        let message = ArgsError::InvalidMinutes("0".to_owned()).to_string();
-        assert!(message.contains("1 to 1440"), "{message}");
+        let error = ArgsError::InvalidMinutes("0".to_owned());
+        let (start, end) = (MINUTES_RANGE.start(), MINUTES_RANGE.end());
+        let message = error.to_string();
+        assert!(message.contains(&format!("{start} to {end}")), "{message}");
+        let message = error.message(DisplayLanguage::Japanese);
+        assert!(message.contains(&format!("{start}〜{end}")), "{message}");
+    }
+
+    #[test]
+    fn every_error_has_a_message_in_both_languages() {
+        let errors = [
+            ArgsError::UnknownOption("/x".to_owned()),
+            ArgsError::MissingWindowHandle,
+            ArgsError::InvalidWindowHandle("abc".to_owned()),
+            ArgsError::InvalidMinutes("0".to_owned()),
+            ArgsError::MinutesWithoutRun,
+            ArgsError::ConflictingRuns,
+            ArgsError::ConflictingSpan,
+            ArgsError::SpanWithoutRun,
+            ArgsError::ConflictingSceneMode,
+            ArgsError::SceneModeWithoutRun,
+        ];
+        for error in errors {
+            let english = error.message(DisplayLanguage::English);
+            let japanese = error.message(DisplayLanguage::Japanese);
+            assert_eq!(english, error.to_string());
+            assert_ne!(english, japanese, "{error:?}");
+            assert!(!japanese.contains("{error}"), "{japanese}");
+        }
+        let unknown = ArgsError::UnknownOption("/x".to_owned());
+        assert!(unknown.message(DisplayLanguage::Japanese).contains("/x"));
     }
 
     #[test]

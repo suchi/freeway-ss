@@ -146,7 +146,7 @@
 - 場面の構成: `SceneConfig`に`lamp_spacing`(KitchenSinkは70 m、Originalは45 m)を加え、`SceneConfig::original`が3.1節の表の値に置き換える。`Settings::scene_config`がモードに応じて呼ぶ。設定の値そのものは書き換えない
 - 街灯の間隔: 定数`LAMP_SPACING`をなくし、街灯の列と路面の光の列(`scene.rs`の`rows`。`const fn`で、場面ごとに持つ)と、影の計算(`shadows_by_lamp`)が、同じ`config.lamp_spacing`を使う。街灯の番号(影と光を結ぶ鍵)も、同じ間隔で決まる
 - 速度計: `Settings::effective_speedometer`が、Originalでは`None`を返す。ホストの描画はこれを使う(設定の値は`speedometer`のまま残る)
-- UFO: Originalでは`ufo_mean_interval`が`None`になり、時々は現れない。D(`CallUfo`)の操作は、本家にある操作として、Originalでも使える(3.1節)。`ufo-demo`のフィーチャーは、`None`のままにする
+- UFO: Originalでは`ufo_mean_interval`が`None`になり、時々は現れない。コナミコマンド(`CallUfo`)の操作は、本家にある操作として、Originalでも使える(3.1節)。`ufo-demo`のフィーチャーは、`None`のままにする
 - 引数: `args::parse`が`CommandLine { mode, scene_mode }`を返す。`/original`・`/kitchensink`は、`/span`・`/nospan`と同じく、先に取り除いてから残りを今までどおり読む。両方の指定は`ConflictingSceneMode`、`/s`・`/window`・`/play`がないとき(単独、`/c`・`/p`と一緒)は`SceneModeWithoutRun`で、メッセージは英語である(今の引数の誤りと同じ扱い)。`Mode::arguments`(設定画面の「開始」が使う)は変えていない。「開始」は設定を保存してから起動するので、モードの引数は付けない
 - Mキー: 流している`animate`が、モードをその回の設定に持ち(`settings.mode`。保存しない)、切り替えると`Scene::reconfigure`で場面を作り直す。モードの引数(`/original`など)は、起動のときにこの設定へ入れる
 - 場面の作り直し(`Scene::reconfigure`): 走った距離・時刻・向き・選んだ速度・通行方向・一時停止は続ける。他車・トンネル・車線変更の状態・空(流れ星の予定)・UFOの予定は、設定の種(シード)から作り直す。理由は、他車の数や形、トンネルの有無、車線変更が、構成によって最初から違い、変換するより作り直すほうが、場面の内部の状態を保つ複雑さを避けられるため。そのため、切り替えの瞬間に、他車の並びが変わり、自車は元の車線に戻り、速度のゆらぎは選んだ速度からやり直す(切り替えの前後で見え方が違うのは、モードの違いでもあるので、不自然ではない)。複数のモニターを1つの画面として描くときも、場面は1つなので同じ

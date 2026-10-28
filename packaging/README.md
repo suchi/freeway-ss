@@ -33,9 +33,9 @@ Windowsの「インストール」はファイルをコピーせず、展開し�
 
 スクリーンセーバーの設定画面で「Night Freeway SS」を選び、「設定」ボタンを押すと、次の項目を変えられます。
 
-| 項目 | 設定画面の表示 | 範囲 | 既定値 |
+| 項目 | 設定画面の表示(英語) | 範囲 | 既定値 |
 | --- | --- | --- | --- |
-| モード | Mode | オリジナル(Original) / KitchenSink(オリジナルは、光の点だけで描く本家に近い見え方です。山並み・トンネル・トラック・他車の車体と影・車線変更・3つの時間的な変化(巡航速度のゆらぎ・時刻に応じた交通量・景色の区間)・速度計を使わず、中央分離帯の街灯の間隔も本家と同じ45 mになります。KitchenSinkは、以下の項目の設定どおりに描きます。オリジナルのあいだは、設定画面でこれらの項目が灰色になりますが、値はそのまま保存され、KitchenSinkに戻すと使われます。巡航速度・通行方向・複数のモニターの扱い・表示言語は、どちらのモードでも設定どおりです) | KitchenSink |
+| モード | Mode | KitchenSink / オリジナル(Original)(オリジナルは、光の点だけで描く本家に近い見え方です。山並み・トンネル・トラック・他車の車体と影・車線変更・3つの時間的な変化(巡航速度のゆらぎ・時刻に応じた交通量・景色の区間)・速度計を使わず、中央分離帯の街灯の間隔も本家と同じ45 mになります。KitchenSinkは、以下の項目の設定どおりに描きます。オリジナルのあいだは、設定画面でこれらの項目が灰色になりますが、値はそのまま保存され、KitchenSinkに戻すと使われます。巡航速度・通行方向・複数のモニターの扱い・表示言語は、どちらのモードでも設定どおりです) | KitchenSink |
 | 巡航速度 | Cruising speed | 30〜160 km/h(10 km/h刻み) | 100 km/h |
 | 通行方向 | Driving side | 左側通行 / 右側通行 | 左側通行 |
 | 速度計 | Speedometer | なし / 数字だけ / ダッシュボード(シンプル) / ダッシュボード(作り込み)(数字だけは左下に速さの数字を表示する。ダッシュボード(シンプル)は円弧のゲージと数字、ダッシュボード(作り込み)は目盛りと針のある速度計・回転計・時刻・走った距離・シフトの位置を表示する。前の版で速度計を表示する設定にしていた場合は、数字だけになる) | なし |
@@ -51,7 +51,7 @@ Windowsの「インストール」はファイルをコピーせず、展開し�
 | 複数のモニターを1つの画面として描く | Span all monitors as one screen | オン / オフ(オンのとき、スクリーンセーバーと`/play`で、すべてのモニターを1つの大きな画面とみなして、景色がモニターにまたがってつながるように描く。道路の先の消失点は、Windowsのメインディスプレイ(主モニター)の中央に置き、速度計と操作の案内は主モニターにだけ出す。主モニターが並びの端にあるときは、消失点から遠い側の絵が広く、近い側の絵は画面の外になる。オフのときは、モニターごとに別の景色を描く。モニターが1台のとき、プレビュー、`/window`には関係しない) | オン |
 | 表示言語 | Language | 自動(Windowsの表示言語) / English / 日本語 | 自動 |
 
-表示言語は、設定画面とエラーメッセージの言語です。「自動」のときは、Windowsの表示言語が日本語なら日本語、それ以外は英語で表示します。設定画面で言語を選ぶと、その場で表示が切り替わります(保存するには「OK」を押します)。
+表示言語は、設定画面・流しているあいだの操作の案内・エラーメッセージの言語です。「自動」のときは、Windowsの表示言語が日本語なら日本語、それ以外は英語で表示します。設定画面で言語を選ぶと、その場で表示が切り替わります(保存するには「OK」を押します)。
 
 設定は、レジストリの`HKEY_CURRENT_USER\Software\NightFreewaySS`に保存されます。
 
@@ -64,7 +64,7 @@ Windowsの「インストール」はファイルをコピーせず、展開し�
 
 | 引数 | 動き |
 | --- | --- |
-| `/window` | 大きさを変えられる普通のウィンドウで流します(既定は1280×720。画面の中央に開き、収まらないときは縮みます)。閉じるボタン・Alt+F4・Escで終わります |
+| `/window` | 大きさを変えられる普通のウィンドウで流します(既定は1280×720で、画面の拡大率に合わせて大きくなります。画面の中央に開き、収まらないときは縮みます)。閉じるボタン・Alt+F4・Escで終わります |
 | `/play` | すべてのモニターに全画面で流します。EscかAlt+F4で終わります。マウスのカーソルは、動かしてから2秒だけ見えます |
 | `/minutes:<n>` | `/window`か`/play`と一緒に使います。n分(1〜1440)たつと閉じます |
 | `/span` | `/s`か`/play`と一緒に使います。その回だけ、設定にかかわらず、すべてのモニターを1つの画面として描きます |
@@ -84,7 +84,7 @@ Windowsの「インストール」はファイルをコピーせず、展開し�
 | ↑ / ↓ | 押しているあいだ、速度を上げ下げします。範囲は設定画面と同じ30〜160 km/hで、巡航速度のゆらぎは、新しい速度のまわりで続きます |
 | Space | 一時停止と再開 |
 | D | 左側通行と右側通行を切り替えます(画面が左右に反転します) |
-| F | ウィンドウと全画面を切り替えます。`/play`でウィンドウにするときは、Fを押した画面のウィンドウだけが残ります。ウィンドウから全画面に戻すときは、モニターを1つの画面として描く設定(または`/span`)がオンなら、すべてのモニターの全画面に戻ります |
+| F | ウィンドウと全画面を切り替えます。`/play`でウィンドウにするときは、Fを押した画面のウィンドウだけが残ります。`/play`で始めた回で、ウィンドウから全画面に戻すときは、モニターを1つの画面として描く設定(または`/span`)がオンなら、すべてのモニターの全画面に戻ります。`/window`で始めた回の全画面は、そのウィンドウのある画面だけです |
 | M | オリジナルとKitchenSinkのモードを切り替えます(走っている道はそのまま続き、他の車などは作り直されます) |
 
 キーによる変更はその回だけのもので、設定には保存されません。複数のモニターに流しているときは、すべての画面に同じように効きます。画面の下の中央には、終わり方と今のモードを含む操作の案内が出ます(モニターを1つの画面として描いているときは、主モニターにだけ出ます)。始めたときと、マウスを動かしたときやキーを押したときに出て、入力がないまま4秒たつと消えます。一時停止しているあいだは出たままになります。
@@ -107,7 +107,7 @@ Windowsの「インストール」はファイルをコピーせず、展開し�
 
 ### 免責事項
 
-本ソフトウェアは、AIコーディングエージェントにコードの作成の大部分を任せる、いわゆるVibe Codingで開発しました。作者は設計の判断と実機での動作確認を行っていますが、すべてのコードを詳細に検証しているわけではありません。
+本ソフトウェアは、コードの作成の大部分をAIコーディングエージェントに任せて開発しました。作者は設計の判断と実機での動作確認を行っていますが、すべてのコードを詳細に検証しているわけではありません。
 
 そのため、作者は本ソフトウェアの品質・安全性・動作を保証せず、本ソフトウェアの利用によって生じた不具合・損害・トラブルについて責任を負いません。これは[MITライセンス](LICENSE)の無保証の条項を、改めて明示するものです。
 
@@ -146,7 +146,7 @@ Select "Night Freeway SS" in the screensaver settings and click "Settings" to ch
 
 | Item | Range | Default |
 | --- | --- | --- |
-| Mode | Original / KitchenSink (Original is drawn with points of light only, close to the original animation: it uses no mountains, tunnels, trucks, car bodies and shadows, lane changes, the three slow variations (the drifting speed, the traffic that follows the time of day and the alternating scenery) or speedometer, and the street lamps on the median stand 45 m apart, as in the original; KitchenSink draws as the items below say; while Original is chosen, those items are grayed out in the settings dialog, but their values are kept and used again when you go back to KitchenSink; the cruising speed, the driving side, the monitors and the language are as set in both modes) | KitchenSink |
+| Mode | KitchenSink / Original (Original is drawn with points of light only, close to the original animation: it uses no mountains, tunnels, trucks, car bodies and shadows, lane changes, the three slow variations (the drifting speed, the traffic that follows the time of day and the alternating scenery) or speedometer, and the street lamps on the median stand 45 m apart, as in the original; KitchenSink draws as the items below say; while Original is chosen, those items are grayed out in the settings dialog, but their values are kept and used again when you go back to KitchenSink; the cruising speed, the driving side, the monitors and the language are as set in both modes) | KitchenSink |
 | Cruising speed | 30 to 160 km/h (in steps of 10 km/h) | 100 km/h |
 | Driving side | Left-hand traffic / Right-hand traffic | Left-hand traffic |
 | Speedometer | None / Digits only / Dashboard (simple) / Dashboard (detailed) (digits only shows the speed as a number in the lower left corner; the simple dashboard shows an arc gauge with the speed; the detailed dashboard shows a speedometer with a scale and a needle, a tachometer, the time, the distance driven and the gear; a setting that showed the speedometer in an earlier version becomes digits only) | None |
@@ -159,10 +159,10 @@ Select "Night Freeway SS" in the screensaver settings and click "Settings" to ch
 | Car bodies | None (lights only) / Simple boxes / Blocks / Detailed shapes (with None, only the lights of the cars are drawn; with Simple boxes, Blocks or Detailed shapes, the bodies of the cars ahead, the passing cars and the oncoming cars, trucks included, are drawn as blackish surfaces, with a different shade for the end, the sides and the roof, that hide the lights behind them; Simple boxes draws every vehicle as one box that holds its whole shape; Blocks draws cars as sedans, hatchbacks, minivans and SUVs out of boxes (with the Japanese trucks setting, kei cars are added; with the North American one, pickup trucks), and trucks with a cab, a cargo area and wheels; Detailed shapes draws the same cars with outlines close to those of real ones, with a hood, a raked windshield and windows (a slightly bluer dark color than the body) and sides that narrow toward the roof, and the cabs of trucks with outlines too (cars far away are drawn as blocks); with bodies, the cars also cast shadows on the pools of light of the street lamps on the median and of the lamps in tunnels, each shadow shades only the pool of its own lamp and has a soft edge; if a version before 1.11 had the bodies on, they are Blocks) | None |
 | Body color | Translucent black / Black (the color of the bodies when they are drawn; translucent black lets a tenth of the light behind them through, and black hides it completely; it is not used, and cannot be chosen in the settings dialog, while the car bodies are None) | Translucent black |
 | Lane changes | None / Own car only / Own car and other cars (with own car only, when your car catches up with a slower car ahead, it signals for 3 seconds, moves into the passing lane if that is free, passes, and returns to its lane; if the passing lane is not free, it keeps a distance behind the car ahead and passes when the lane is free; with own car and other cars, the other cars change lanes in the same way; a car that changes lanes blinks an amber turn signal on the rear corner on the side it moves to; while your car moves between lanes, the view turns slightly in the direction of the move; no car starts a lane change inside a tunnel or where it could not finish before the entrance; the speedometer shows the actual speed, which falls behind the car ahead; with none, no car changes lanes) | Own car and other cars |
-| Span all monitors as one screen | Span all monitors as one screen | On / Off (when on, the screensaver and `/play` treat all the monitors as one large screen and draw the scenery so that it continues across them; the vanishing point at the end of the road is in the middle of the primary monitor, the main display of Windows, and the speedometer and the line about the keys appear only on the primary monitor; when the primary monitor is at the end of the row, the picture on the side farther from the vanishing point is wider, and that on the nearer side is outside the screen; when off, each monitor draws its own scenery; it has no effect with one monitor, in the preview or with `/window`) | On |
+| Span all monitors as one screen | On / Off (when on, the screensaver and `/play` treat all the monitors as one large screen and draw the scenery so that it continues across them; the vanishing point at the end of the road is in the middle of the primary monitor, the main display of Windows, and the speedometer and the line about the keys appear only on the primary monitor; when the primary monitor is at the end of the row, the picture on the side farther from the vanishing point is wider, and that on the nearer side is outside the screen; when off, each monitor draws its own scenery; it has no effect with one monitor, in the preview or with `/window`) | On |
 | Language | Automatic (Windows display language) / English / 日本語 | Automatic |
 
-The language is used for the settings dialog and error messages. With "Automatic", Japanese is shown when the Windows display language is Japanese, and English otherwise. When you choose a language in the dialog, the display changes at once (click "OK" to save it).
+The language is used for the settings dialog, the line about the keys while it runs, and error messages. With "Automatic", Japanese is shown when the Windows display language is Japanese, and English otherwise. When you choose a language in the dialog, the display changes at once (click "OK" to save it).
 
 The settings are saved in the registry under `HKEY_CURRENT_USER\Software\NightFreewaySS`.
 
@@ -175,7 +175,7 @@ There are two ways to keep the road running as something other than a screensave
 
 | Argument | Behavior |
 | --- | --- |
-| `/window` | Runs in an ordinary window that can be resized (1280 by 720 by default; it opens in the middle of the screen and shrinks if it does not fit). The close button, Alt+F4 and Esc end it |
+| `/window` | Runs in an ordinary window that can be resized (1280 by 720 by default, enlarged with the display scaling; it opens in the middle of the screen and shrinks if it does not fit). The close button, Alt+F4 and Esc end it |
 | `/play` | Runs full screen on every monitor. Esc and Alt+F4 end it. The mouse cursor is seen for 2 seconds after the mouse moved |
 | `/minutes:<n>` | Goes with `/window` or `/play`. Closes it after n minutes (1 to 1440) |
 | `/span` | Goes with `/s` or `/play`. For that run only, draws all the monitors as one screen, whatever the setting is |
@@ -195,7 +195,7 @@ While it runs, these keys work.
 | Up / Down | Raise or lower the speed while the key is held. The range is 30 to 160 km/h, as in the settings dialog, and the slow variation of the speed goes on around the new speed |
 | Space | Pauses and resumes |
 | D | Switches between left-hand and right-hand traffic (the picture turns over from left to right) |
-| F | Switches between a window and full screen. When going from `/play` to a window, only the window of the screen where F was pressed stays. When going back to full screen, it takes all the monitors again if the setting to draw the monitors as one screen (or `/span`) is on |
+| F | Switches between a window and full screen. When going from `/play` to a window, only the window of the screen where F was pressed stays. In a run started with `/play`, going back to full screen takes all the monitors again if the setting to draw the monitors as one screen (or `/span`) is on. In a run started with `/window`, full screen covers only the screen of the window |
 | M | Switches between the Original and the KitchenSink mode (the road goes on, and the other cars and the rest are made again) |
 
 The changes made with the keys last only for that run and are not saved in the settings. With several monitors, they act on every screen alike. A line about the keys, including how to end it and the current mode, appears at the bottom center of the picture (only on the primary monitor when the monitors are drawn as one screen). It appears when the run starts and when the mouse moves or a key is pressed, and goes away after 4 seconds without input. While paused, it stays.
@@ -218,6 +218,6 @@ The behavior and appearance of this software are based on [nightfreeway](https:/
 
 ### Disclaimer
 
-This software was developed by so-called vibe coding, in which most of the code is written by AI coding agents. The author made the design decisions and tested the software on real machines, but has not reviewed all of the code in detail.
+Most of the code of this software was written by AI coding agents. The author made the design decisions and tested the software on real machines, but has not reviewed all of the code in detail.
 
 Therefore, the author does not guarantee the quality, safety, or operation of this software, and is not responsible for any defects, damage, or trouble caused by its use. This restates the warranty disclaimer of the [MIT License](LICENSE).

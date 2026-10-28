@@ -18,7 +18,7 @@ GitHub Copilot・Claude Code・Codexすべてに対する指示の単一ソー�
 | -------------------- | -------- |
 | セットアップ         | `rustup toolchain install`(`rust-toolchain.toml`のツールチェーンとWindowsターゲットを導入) |
 | テスト               | `cargo test --workspace` |
-| リント・フォーマット | `cargo fmt --all --check` と `cargo clippy --workspace --all-targets -- -D warnings` |
+| リント・フォーマット | `cargo fmt --all --check` と `cargo clippy --workspace --all-targets -- -D warnings`。Windowsターゲット(`--target x86_64-pc-windows-msvc`)と、`-p freeway-scr --features ufo-demo --target x86_64-pc-windows-msvc`のclippyも実行する(CIと同じ) |
 | 型チェック           | `cargo check --workspace --all-targets` と `cargo check --workspace --all-targets --target x86_64-pc-windows-msvc` |
 | ビルド               | `cargo build --release -p freeway-scr`(配布用バイナリはWindows上でビルドする) |
 | 配布物の作成         | `cargo xtask dist [--target aarch64-pc-windows-msvc]`(Windowsのみ。`target/dist/`に`.scr`・zip・チェックサムを作る) |
@@ -88,7 +88,7 @@ Qiita、Zenn、note、AI生成記事、SEO目的の記事は、特定の記事�
 ## 開発フロー
 
 - GitHub Flow。`main`への直接コミット・プッシュは禁止。
-- ブランチ名は英語kebab-caseで`feature/xxx`・`fix/xxx`・`docs/xxx`・`chore/xxx`。
+- ブランチ名は英語kebab-caseで`feature/xxx`・`fix/xxx`・`docs/xxx`・`chore/xxx`・`ci/xxx`。作業環境(クラウドのセッションなど)がブランチ名を割り当てるときは、その名前を使う(2026-10-28のユーザー判断)。
 - 1コミット=1論理変更。節目ごとにプッシュする。
 - 先回りで機能・抽象化を追加しない(YAGNI)。
 
@@ -125,15 +125,15 @@ feat: add todo filter feature      ← 1行目: 英語・命令形・50文字以
 成果物はGitHub Releaseで公開する。ワークフロー`.github/workflows/release.yml`が、`v*`のタグのプッシュで動く。
 
 - バージョンとタグ: `vMAJOR.MINOR.PATCH`。Ver.1.0以降は、不具合の修正でPATCHを、機能の追加でMINORを上げる。リリースするPRの最初のコミットで`Cargo.toml`の`workspace.package.version`を上げ(`Cargo.lock`のワークスペースクレートも`cargo`で更新して同じコミットに含める)、タグと一致させる。ワークフローはzipの名前で一致を確かめる。Phase 1〜5は`v0.N.0`のプレリリースとして公開した(`v0.`で始まるタグはプレリリースになる)。
-- 成果物: x64とARM64それぞれのzip(`NightFreewaySS.scr`・LICENSE・`THIRD-PARTY-NOTICES.txt`・利用者向けの説明書`README.md`)と、`SHA256SUMS.txt`。`cargo xtask dist`で作る。zipの中身は`packaging/`にある。
+- 成果物: x64とARM64それぞれのzip(`NightFreewaySS.scr`・LICENSE・`THIRD-PARTY-NOTICES.txt`・利用者向けの説明書`README.md`)と、`SHA256SUMS.txt`。`cargo xtask dist`で作る。zipに入れる説明書と第三者の著作権表示は`packaging/`に、LICENSEはリポジトリの最上位にある。
 - リリース前の点検: 正式版を公開する前に、文書と実装の整合性、コードとワークフローのセキュリティ、使っている技術の新しさ(クールダウンを満たす最新版か)を点検する(2026-10-26のユーザー指示)。
-- 手順: リリースするPRをマージしたら、ユーザーの承認を得てから、`main`のマージコミットにタグを付けてプッシュする(`git tag vX.Y.Z <SHA>`、`git push origin vX.Y.Z`)。`main`に含まれないコミットのタグは公開されない。ワークフローが失敗したときは、Actionsの「Release」を`workflow_dispatch`で、既存のタグを指定して再実行する。
+- 手順: リリースするPRをマージしたら、ユーザーの承認を得てから、`main`のマージコミットにタグを付けてプッシュする(`git tag vX.Y.Z <SHA>`、`git push origin vX.Y.Z`)。クラウドの作業環境からはタグのプッシュが通らないことがあり、その場合はコマンドを示してユーザーが手元からプッシュする。公開されたら、`docs/handoff.md`の「リリースの検証の手順」で成果物を確かめる。`main`に含まれないコミットのタグは公開されない。ワークフローが失敗したときは、Actionsの「Release」を`workflow_dispatch`で、既存のタグを指定して再実行する。
 - ワークフローの構成: ビルドするジョブは読み取り専用のトークンで動き、公開するジョブ(書き込み権限)はリポジトリや依存のコードを実行しない。この分離を崩さない。
 - タグのプッシュは公開操作なので、実行前に必ずユーザーの承認を取る。作成済みのタグ・リリースを削除・上書きする場合も同様。
 
 ## ドキュメント
 
-- 文書の役割: 最上位の`README.md`は概要と利用者への案内だけを書く。開発者向けの情報は`docs/developers.md`(構成・ビルド・テスト・配布物・設定の保存先)、開発に加わる人が最初に読む情報は`docs/onboarding.md`に書く(2026-10-27のユーザー指示)。
+- 文書の役割: 最上位の`README.md`は概要と利用者への案内だけを書く。開発者向けの情報は`docs/developers.md`(構成・ビルド・テスト・配布物・設定の保存先)、開発に加わる人が最初に読む情報は`docs/onboarding.md`に書く(2026-10-27のユーザー指示)。中断と再開のための情報(その時点の状態・未完了の事項・実際の運用の手順)は`docs/handoff.md`に書き、状態が変わるたびに更新する(2026-10-28のユーザー指示)。
 - README・本ファイル・`docs/`の記載を、コードの実態(コマンド名・構成・依存関係)と常に一致させる。ファイルの追加・削除・リネーム時は同じ変更の中でドキュメントも更新する。
 - ADR: 技術選択・設計判断は`docs/adr/`に記録する。運用ルール(上書き禁止・非推奨化手順・`Why:`コメント)は`docs/adr/README.md`に従う。
 - 利用者向けの文書(README・リリースノートなど)では、保証しないことは明示するが、利用者に行動や責任を求める表現(「〜してほしい」「自己責任で」など)は書かない。
@@ -160,5 +160,5 @@ feat: add todo filter feature      ← 1行目: 英語・命令形・50文字以
 | ツール         | 読み込み                              | 補足                                                    |
 | -------------- | ------------------------------------- | ------------------------------------------------------- |
 | Claude Code    | `CLAUDE.md`(`@AGENTS.md`でインポート) | commands・skills・hooksは`.claude/`配下                 |
-| GitHub Copilot | `AGENTS.md`をネイティブサポート       | `.github/copilot-instructions.md`はレビュー言語指定のみ |
+| GitHub Copilot | `AGENTS.md`をネイティブサポート       | `.github/copilot-instructions.md`はレビュー言語指定のみ(`.github/copilot-code-review.yml`も同じ目的の互換用) |
 | OpenAI Codex   | `AGENTS.md`をネイティブサポート       | グローバル設定は`~/.codex/AGENTS.md`                    |

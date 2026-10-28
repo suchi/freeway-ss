@@ -36,3 +36,4 @@
 | [0006](0006-build-release-artifacts-with-cargo-xtask.md) | build-release-artifacts-with-cargo-xtask | 採用 | 2026-10-26 |
 | [0007](0007-localize-ui-strings-in-code.md) | localize-ui-strings-in-code | 採用 | 2026-10-26 |
 | [0008](0008-span-monitors-as-one-scene.md) | span-monitors-as-one-scene | 採用 | 2026-10-27 |
+| [0009](0009-switch-added-features-with-a-scene-mode.md) | switch-added-features-with-a-scene-mode | 採用 | 2026-10-28 |

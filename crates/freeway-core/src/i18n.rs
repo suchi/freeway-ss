@@ -114,11 +114,23 @@ pub enum Text {
     Stopped,
     /// Contains `{error}`; use `with_error`.
     RunFailed,
+    /// The errors of the command line. Those that name a value contain
+    /// `{error}` for it; use `with_error`.
+    ArgUnknownOption,
+    ArgMissingWindowHandle,
+    ArgInvalidWindowHandle,
+    ArgInvalidMinutes,
+    ArgMinutesWithoutRun,
+    ArgConflictingRuns,
+    ArgConflictingSpan,
+    ArgSpanWithoutRun,
+    ArgConflictingSceneMode,
+    ArgSceneModeWithoutRun,
 }
 
 impl Text {
     /// Every key, so that tests can check all of them.
-    pub const ALL: [Text; 61] = [
+    pub const ALL: [Text; 71] = [
         Text::DialogTitle,
         Text::ModeLabel,
         Text::ModeOriginal,
@@ -180,6 +192,16 @@ impl Text {
         Text::SaveFailed,
         Text::Stopped,
         Text::RunFailed,
+        Text::ArgUnknownOption,
+        Text::ArgMissingWindowHandle,
+        Text::ArgInvalidWindowHandle,
+        Text::ArgInvalidMinutes,
+        Text::ArgMinutesWithoutRun,
+        Text::ArgConflictingRuns,
+        Text::ArgConflictingSpan,
+        Text::ArgSpanWithoutRun,
+        Text::ArgConflictingSceneMode,
+        Text::ArgSceneModeWithoutRun,
     ];
 
     /// The string in `language`.
@@ -291,6 +313,43 @@ impl Text {
                 "Night Freeway SS could not be started: {error}",
                 "Night Freeway SS を起動できませんでした: {error}",
             ),
+            Text::ArgUnknownOption => ("Unknown option: {error}", "不明なオプションです: {error}"),
+            Text::ArgMissingWindowHandle => (
+                "The /p option requires a window handle",
+                "/p オプションにはウィンドウのハンドルが必要です",
+            ),
+            Text::ArgInvalidWindowHandle => (
+                "Invalid window handle: {error}",
+                "ウィンドウのハンドルが正しくありません: {error}",
+            ),
+            Text::ArgInvalidMinutes => (
+                "Invalid number of minutes: \"{error}\" (the /minutes option takes 1 to 1440, as in /minutes:30)",
+                "分数が正しくありません: \"{error}\"(/minutes には 1〜1440 を指定します。例: /minutes:30)",
+            ),
+            Text::ArgMinutesWithoutRun => (
+                "The /minutes option goes with /window or /play",
+                "/minutes オプションは /window か /play と一緒に使います",
+            ),
+            Text::ArgConflictingRuns => (
+                "The /window and /play options cannot be combined",
+                "/window と /play は同時に指定できません",
+            ),
+            Text::ArgConflictingSpan => (
+                "The /span and /nospan options cannot be combined",
+                "/span と /nospan は同時に指定できません",
+            ),
+            Text::ArgSpanWithoutRun => (
+                "The /span and /nospan options go with /s or /play",
+                "/span と /nospan は /s か /play と一緒に使います",
+            ),
+            Text::ArgConflictingSceneMode => (
+                "The /original and /kitchensink options cannot be combined",
+                "/original と /kitchensink は同時に指定できません",
+            ),
+            Text::ArgSceneModeWithoutRun => (
+                "The /original and /kitchensink options go with /s, /window or /play",
+                "/original と /kitchensink は /s・/window・/play と一緒に使います",
+            ),
         }
     }
 }
@@ -359,7 +418,12 @@ mod tests {
                 let count = text.get(language).matches(ERROR_PLACEHOLDER).count();
                 let expected = usize::from(matches!(
                     text,
-                    Text::SaveFailed | Text::Stopped | Text::RunFailed
+                    Text::SaveFailed
+                        | Text::Stopped
+                        | Text::RunFailed
+                        | Text::ArgUnknownOption
+                        | Text::ArgInvalidWindowHandle
+                        | Text::ArgInvalidMinutes
                 ));
                 assert_eq!(count, expected, "{text:?} {language:?}");
             }

@@ -192,10 +192,10 @@ impl Settings {
     ///
     /// A speed outside the range or off the step is not rounded to a nearby
     /// choice: it is a sign of a damaged or hand-edited value, so the default
-    /// is used. A flag is valid only as 0 or 1, a truck style or language only as 0, 1 or 2,
-    /// a tunnel choice only as 0, 1, 2 or 3, a car shape choice only as 0, 1 or 2,
-    /// a car color choice only as 0 or 1, a speedometer choice only as 0, 1, 2
-    /// or 3.
+    /// is used. A flag is valid only as 0 or 1, a truck style, language or
+    /// lane changes choice only as 0, 1 or 2, a tunnel, car shape or
+    /// speedometer choice only as 0, 1, 2 or 3, and a car color choice only
+    /// as 0 or 1.
     ///
     /// Versions before 1.10 stored only whether to show the speedometer
     /// (`legacy_show_speedometer`). It is used when `speedometer` is not
@@ -203,8 +203,10 @@ impl Settings {
     ///
     /// Versions before 1.11 stored one choice for the bodies of the cars
     /// (`legacy_car_bodies`). It is used when `car_shapes` is not stored:
-    /// 0 means no bodies, 1 realistic shapes in translucent black, 2 realistic
-    /// shapes in black (see `legacy_car_bodies`).
+    /// 0 means no bodies, 1 blocks in translucent black, 2 blocks in black
+    /// (see `legacy_car_bodies`).
+    // Why: one argument per stored value keeps the reading of the registry a
+    // plain list; a struct would only repeat the names of `Settings`.
     #[allow(clippy::too_many_arguments)]
     pub fn from_raw(
         speed_kmh: Option<u32>,
@@ -272,7 +274,7 @@ impl Settings {
     }
 
     /// These settings with `span_monitors` read from its stored value: valid
-    /// only as 0 or 1, and the default (off) where it is not stored.
+    /// only as 0 or 1, and the default (on) where it is not stored.
     ///
     /// Why: a separate step, not another argument of `from_raw`, which has
     /// more arguments than it can have in a readable call already.
