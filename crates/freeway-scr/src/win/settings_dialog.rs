@@ -5,8 +5,8 @@
 
 use freeway_core::settings::{SPEED_CHOICES, position_to_speed, speed_to_position};
 use freeway_core::{
-    CarColor, CarShapes, DisplayLanguage, LaneChanges, Language, Settings, SpeedometerStyle, Text,
-    TruckStyle, TunnelLighting,
+    CarColor, CarShapes, DisplayLanguage, LaneChanges, Language, SceneMode, Settings,
+    SpeedometerStyle, Text, TruckStyle, TunnelLighting,
 };
 use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
@@ -63,12 +63,15 @@ const RUN_END_NOTE: i32 = 130;
 const LANE_CHANGES_LABEL: i32 = 131;
 const LANE_CHANGES: i32 = 132;
 const SPAN_MONITORS: i32 = 133;
+const MODE_LABEL: i32 = 134;
+const MODE: i32 = 135;
 
 /// How many characters the minutes may have: `MINUTES_RANGE` ends at 1440.
 const MINUTES_DIGITS: usize = 4;
 
 /// The texts of the controls that are set from the string table, by ID.
-const CONTROL_TEXTS: [(i32, Text); 20] = [
+const CONTROL_TEXTS: [(i32, Text); 21] = [
+    (MODE_LABEL, Text::ModeLabel),
     (SPEED_LABEL, Text::SpeedLabel),
     (SIDE_LABEL, Text::DrivingSideLabel),
     (LEFT_HAND, Text::LeftHandTraffic),
@@ -90,6 +93,29 @@ const CONTROL_TEXTS: [(i32, Text); 20] = [
     // OK and Cancel use the IDs of the standard buttons.
     (IDOK.0, Text::Ok),
     (IDCANCEL.0, Text::Cancel),
+];
+
+/// The items of the mode drop-down, in the order of `SceneMode::ALL`.
+const MODE_TEXTS: [Text; 2] = [Text::ModeKitchenSink, Text::ModeOriginal];
+
+/// The controls that the Original mode does not use, by ID: what the settings
+/// of the added features are for. Their values are kept and saved.
+const ADDED_FEATURE_CONTROLS: [i32; 15] = [
+    SPEEDOMETER_LABEL,
+    SPEEDOMETER,
+    UFO,
+    MOUNTAINS,
+    VARY_SPEED,
+    TRAFFIC_BY_TIME,
+    SCENERY_ZONES,
+    TRUCKS_LABEL,
+    TRUCKS,
+    TUNNELS_LABEL,
+    TUNNELS,
+    CAR_SHAPES_LABEL,
+    CAR_SHAPES,
+    LANE_CHANGES_LABEL,
+    LANE_CHANGES,
 ];
 
 /// The items of the language drop-down, in the order of `Language::ALL`.
@@ -225,8 +251,9 @@ unsafe extern "system" fn dialog_proc(
                 select_car_shapes(hwnd, state.settings.car_shapes);
                 select_car_color(hwnd, state.settings.car_color);
                 select_lane_changes(hwnd, state.settings.lane_changes);
-                update_car_color_enabled(hwnd);
                 select_speedometer(hwnd, state.settings.speedometer);
+                select_mode(hwnd, state.settings.mode);
+                update_enabled(hwnd);
             }
             // Let the dialog manager give the focus to the first control.
             1
@@ -244,9 +271,10 @@ unsafe extern "system" fn dialog_proc(
                     apply_language(hwnd, selected_language(hwnd));
                     1
                 }
-                CAR_SHAPES if (wparam.0 >> 16) as u32 == CBN_SELCHANGE => {
-                    // The color means nothing while the cars have no bodies.
-                    update_car_color_enabled(hwnd);
+                MODE | CAR_SHAPES if (wparam.0 >> 16) as u32 == CBN_SELCHANGE => {
+                    // The Original mode uses none of the added features, and
+                    // the color means nothing while the cars have no bodies.
+                    update_enabled(hwnd);
                     1
                 }
                 id if id == IDOK.0 => {
@@ -424,14 +452,46 @@ fn select_lane_changes(hwnd: HWND, lane_changes: LaneChanges) {
     }
 }
 
-/// Grays out the color of the car bodies while the cars have no bodies.
-fn update_car_color_enabled(hwnd: HWND) {
-    let enabled = selected_car_shapes(hwnd).has_bodies();
-    for id in [CAR_COLOR_LABEL, CAR_COLOR] {
+/// The mode selected in the drop-down; the default while the drop-down is
+/// still empty.
+fn selected_mode(hwnd: HWND) -> SceneMode {
+    let index = unsafe { SendDlgItemMessageW(hwnd, MODE, CB_GETCURSEL, WPARAM(0), LPARAM(0)) }.0;
+    // CB_ERR (-1) means nothing is selected.
+    u32::try_from(index)
+        .ok()
+        .and_then(|index| SceneMode::from_raw(Some(index)))
+        .unwrap_or_default()
+}
+
+fn select_mode(hwnd: HWND, mode: SceneMode) {
+    unsafe {
+        SendDlgItemMessageW(
+            hwnd,
+            MODE,
+            CB_SETCURSEL,
+            WPARAM(mode.to_raw() as usize),
+            LPARAM(0),
+        );
+    }
+}
+
+/// Grays out what the choices made do not use: the controls of the added
+/// features in the Original mode, and the color of the car bodies while the
+/// cars have no bodies. The values stay as they are.
+fn update_enabled(hwnd: HWND) {
+    let kitchen_sink = selected_mode(hwnd) == SceneMode::KitchenSink;
+    let bodies = kitchen_sink && selected_car_shapes(hwnd).has_bodies();
+    let set = |id, enabled| {
         // A control that is missing is left as it is.
         if let Ok(control) = unsafe { GetDlgItem(Some(hwnd), id) } {
             let _ = unsafe { EnableWindow(control, enabled) };
         }
+    };
+    for id in ADDED_FEATURE_CONTROLS {
+        set(id, kitchen_sink);
+    }
+    for id in [CAR_COLOR_LABEL, CAR_COLOR] {
+        set(id, bodies);
     }
 }
 
@@ -476,6 +536,8 @@ fn apply_language(hwnd: HWND, selected: Language) {
     let car_color = selected_car_color(hwnd);
     let lane_changes = selected_lane_changes(hwnd);
     let speedometer = selected_speedometer(hwnd);
+    let mode = selected_mode(hwnd);
+    fill_dropdown(hwnd, MODE, &MODE_TEXTS, language, mode.to_raw());
     fill_dropdown(hwnd, LANGUAGE, &LANGUAGE_TEXTS, language, selected.to_raw());
     fill_dropdown(hwnd, TRUCKS, &TRUCK_TEXTS, language, trucks.to_raw());
     fill_dropdown(hwnd, TUNNELS, &TUNNEL_TEXTS, language, tunnels.to_raw());
@@ -679,6 +741,7 @@ fn read_run_mode(hwnd: HWND) -> Mode {
 
 fn read_controls(hwnd: HWND) -> Settings {
     Settings {
+        mode: selected_mode(hwnd),
         speed_kmh: position_to_speed(slider_position(hwnd)),
         left_hand_traffic: unsafe { IsDlgButtonChecked(hwnd, LEFT_HAND) } == BST_CHECKED.0,
         speedometer: selected_speedometer(hwnd),
