@@ -1,6 +1,6 @@
 # v1.18.0 詳細設計: OriginalモードとKitchenSinkモード
 
-- ステータス: 実装中
+- ステータス: 実装済み(実機確認待ち)
 - 日付: 2026-10-28
 - 親計画: [実装計画](0001-screensaver-implementation-plan.md)の6章
 
@@ -138,4 +138,40 @@
 
 ## 7. 実装で決めた値
 
-(実装用セッションが記入する)
+設計(3章)と実装の食い違いはない。設計が決めていなかった点を、次のとおり決めた。
+
+### 7.1 実装で決めたこと
+
+- 型と名前: `freeway-core`の`SceneMode`(`KitchenSink`=0、`Original`=1。`ALL`・`from_raw`・`to_raw`・`toggled`)を、`Settings::mode`と`lib.rs`の公開に加えた。ホストの`args::Mode`(実行の形)と別の名前にするため、`SceneMode`とした。レジストリ値`Mode`は`Settings::with_mode_raw`で読む(`with_span_monitors_raw`と同じ形。`from_raw`の引数が増えるのを避けた)
+- 場面の構成: `SceneConfig`に`lamp_spacing`(KitchenSinkは70 m、Originalは45 m)を加え、`SceneConfig::original`が3.1節の表の値に置き換える。`Settings::scene_config`がモードに応じて呼ぶ。設定の値そのものは書き換えない
+- 街灯の間隔: 定数`LAMP_SPACING`をなくし、街灯の列と路面の光の列(`scene.rs`の`rows`。`const fn`で、場面ごとに持つ)と、影の計算(`shadows_by_lamp`)が、同じ`config.lamp_spacing`を使う。街灯の番号(影と光を結ぶ鍵)も、同じ間隔で決まる
+- 速度計: `Settings::effective_speedometer`が、Originalでは`None`を返す。ホストの描画はこれを使う(設定の値は`speedometer`のまま残る)
+- UFO: Originalでは`ufo_mean_interval`が`None`になり、時々は現れない。D(`CallUfo`)の操作は、本家にある操作として、Originalでも使える(3.1節)。`ufo-demo`のフィーチャーは、`None`のままにする
+- 引数: `args::parse`が`CommandLine { mode, scene_mode }`を返す。`/original`・`/kitchensink`は、`/span`・`/nospan`と同じく、先に取り除いてから残りを今までどおり読む。両方の指定は`ConflictingSceneMode`、`/s`・`/window`・`/play`がないとき(単独、`/c`・`/p`と一緒)は`SceneModeWithoutRun`で、メッセージは英語である(今の引数の誤りと同じ扱い)。`Mode::arguments`(設定画面の「開始」が使う)は変えていない。「開始」は設定を保存してから起動するので、モードの引数は付けない
+- Mキー: 流している`animate`が、モードをその回の設定に持ち(`settings.mode`。保存しない)、切り替えると`Scene::reconfigure`で場面を作り直す。モードの引数(`/original`など)は、起動のときにこの設定へ入れる
+- 場面の作り直し(`Scene::reconfigure`): 走った距離・時刻・向き・選んだ速度・通行方向・一時停止は続ける。他車・トンネル・車線変更の状態・空(流れ星の予定)・UFOの予定は、設定の種(シード)から作り直す。理由は、他車の数や形、トンネルの有無、車線変更が、構成によって最初から違い、変換するより作り直すほうが、場面の内部の状態を保つ複雑さを避けられるため。そのため、切り替えの瞬間に、他車の並びが変わり、自車は元の車線に戻り、速度のゆらぎは選んだ速度からやり直す(切り替えの前後で見え方が違うのは、モードの違いでもあるので、不自然ではない)。複数のモニターを1つの画面として描くときも、場面は1つなので同じ
+- 案内: 操作の案内の末尾に、` · M <今のモード>`を足す(英語は`M Original`・`M KitchenSink`、日本語は`M オリジナル`・`M KitchenSink`)。案内が長くなり、幅に収まらないときは、今までと同じ処理(幅の92%に収まる大きさまで文字を縮める)に任せた
+- 設定画面: 一番上に「モード」のドロップダウン(KitchenSink・Original)を置いた。Originalのあいだ、灰色にするのは、速度計・UFO・山並み・巡航速度のゆらぎ・時刻に応じた交通量・景色の区間・トラック・トンネル・他車の車体・車体の色・車線変更の欄である(`settings_dialog.rs`の`ADDED_FEATURE_CONTROLS`と、車体の色)。巡航速度・通行方向・複数のモニターの扱い・言語は、灰色にしない。車体の色は、KitchenSinkで、車体の形がなしのときも灰色である(今までどおり)。灰色の欄の値も、読んで保存する
+- ダイアログの大きさ: 高さを320から322(ダイアログ単位)にした。モードの行(16)を加え、ほかの行の間隔を18から16に詰めて、増えた分をほぼ打ち消した。DPI 150%・1080pでは、Segoe UI 9ptの1ダイアログ単位が約2.8画素なので、高さは約905画素と見積もる(作業領域は約1000画素)。実機での確認は、5章の項目に含まれる
+- 将来の機能: Originalでオフにする規則を`docs/developers.md`の「モード」に書いた
+
+### 7.2 確かめたこと
+
+- `scene.rs`の描画命令のハッシュのテストは、変えずに通る(変えたテストは街灯の間隔のテストだけで、70 mと45 mの両方を確かめる形にした)
+- Originalの構成が3.1節の表のとおりになり、巡航速度・通行方向・開始の時刻・シードが設定どおりであること(`freeway-core`のテスト)。設定の値がどうであっても同じであること(`settings.rs`のテスト)
+- 街灯の路面の光と影が、70 mと45 mのどちらでも、同じ番号と間隔で一致し、影が実際に出ること
+- `Scene::reconfigure`が、走った距離・時刻・向き・選んだ速度・通行方向・一時停止を保ち、トンネルのないOriginalへ移ったあとも走り続け、KitchenSinkへ戻ること
+- `Mode`の読み書き(ないとき・範囲外は既定値のKitchenSink。v1.17.0までの設定がそのままKitchenSinkになる)。文字列の表(英語・日本語の両方に、KitchenSinkが訳されずに入っていること)
+- 引数: `/original`・`/kitchensink`の組み合わせ・順序・大文字と小文字・`-`・誤りになる組み合わせと、今の引数の動きが変わらないこと。Mキーの判定
+- Windowsでだけ動くテスト(`win/`のレジストリ・窓・描画)は、この環境では実行できない。型は`x86_64-pc-windows-msvc`で検査し、clippyも通した。差分を読み、既定値(KitchenSink)に依存する既存のテストが変わらないことを確かめた: `create_scenes`・`draw_frame`・`switch_fullscreen`のテストは、`Settings::default()`(KitchenSink)を使い、描画の内容は変わらない。`Run::keep`の引数が増えたので、そのテストを直した。新しいテストを足した(レジストリの`Mode`の読み戻し、モードに応じた場面の構成と作り直し、Mキーの判定を窓へ渡す部分)
+- `cargo fmt --all --check`・`cargo clippy`(Linux、Windowsターゲット、`ufo-demo`付き)・`cargo test --workspace`・`cargo check`(Windowsターゲット)
+
+### 7.3 図
+
+OriginalとKitchenSinkの同じ場面(同じ位置、同じ時刻)を、描画命令から描いた近似の図である。実際の画面のキャプチャではなく、光のにじみや色は実機と違う。KitchenSinkでは、山並みとトンネルの入口の丘があり、街灯の間隔が広い。Originalでは、光の点だけになり、街灯が密になる。
+
+![OriginalとKitchenSinkの同じ場面(描画命令から描いた近似)](../images/original-and-kitchensink-modes.png)
+
+設定画面の新しい欄。`freeway.rc`の座標から描いた図で、画面のキャプチャではない。新しい欄を赤で囲んである。Originalのあいだ(左、英語)は、追加した機能の欄が灰色になる。KitchenSink(右、日本語)では、今までどおり選べる。
+
+![設定画面のモードの欄。Originalのときの灰色の欄(英語)と、KitchenSink(日本語)](../images/settings-mode-field.svg)

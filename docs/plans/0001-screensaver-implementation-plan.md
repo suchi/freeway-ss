@@ -185,6 +185,7 @@ sequenceDiagram
 
 | 項目 | 型・範囲 | 既定値 | 対象 |
 | --- | --- | --- | --- |
+| モード | Original / KitchenSink | KitchenSink | v1.18.0(実装済み。実機確認待ち) |
 | 巡航速度 | 30〜160 km/h | 100 km/h | MVP |
 | 通行方向 | 左側 / 右側 | 左側 | MVP |
 | 速度計 | なし / 数字だけ / ダッシュボード(シンプル) / ダッシュボード(作り込み) | なし | MVP(オン・オフ)、v1.10.0(4段階) |
@@ -230,7 +231,7 @@ MVPの項目は、本家の実行中の操作と表示(速度・通行方向・H
 | v1.15.0: 自車の追い越しと他車の車線変更 | 完了(実機確認済み) | [0022](0022-v1-15-overtaking-and-lane-changes.md) | [#31](https://github.com/suchi/freeway-ss/pull/31) | [v1.15.0](https://github.com/suchi/freeway-ss/releases/tag/v1.15.0) |
 | v1.16.0: 複数のモニターを1つの画面として描く | 完了(実機確認済み) | [0023](0023-v1-16-span-monitors.md) | [#32](https://github.com/suchi/freeway-ss/pull/32) | [v1.16.0](https://github.com/suchi/freeway-ss/releases/tag/v1.16.0) |
 | v1.17.0: 複数のモニターを1つの画面として描くのを既定にする | 完了(実機確認済み) | -(D27) | [#33](https://github.com/suchi/freeway-ss/pull/33) | [v1.17.0](https://github.com/suchi/freeway-ss/releases/tag/v1.17.0) |
-| v1.18.0: OriginalモードとKitchenSinkモード | 実装中 | [0024](0024-v1-18-original-and-kitchensink-modes.md) | - | - |
+| v1.18.0: OriginalモードとKitchenSinkモード | 実装済み(実機確認待ち) | [0024](0024-v1-18-original-and-kitchensink-modes.md) | [#36](https://github.com/suchi/freeway-ss/pull/36) | - |
 
 ```mermaid
 flowchart LR
