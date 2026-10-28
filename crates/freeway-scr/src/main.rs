@@ -23,7 +23,7 @@ fn main() -> ExitCode {
         .skip(1)
         .map(|arg| arg.to_string_lossy().into_owned());
     match args::parse(args) {
-        Ok(mode) => run(mode),
+        Ok(line) => run(line),
         Err(error) => {
             report_error(&error.to_string());
             ExitCode::FAILURE
@@ -32,8 +32,8 @@ fn main() -> ExitCode {
 }
 
 #[cfg(windows)]
-fn run(mode: args::Mode) -> ExitCode {
-    match win::run(mode) {
+fn run(line: args::CommandLine) -> ExitCode {
+    match win::run(line) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             report_error(&win::stopped_message(&error));
@@ -43,7 +43,7 @@ fn run(mode: args::Mode) -> ExitCode {
 }
 
 #[cfg(not(windows))]
-fn run(_mode: args::Mode) -> ExitCode {
+fn run(_line: args::CommandLine) -> ExitCode {
     report_error("Night Freeway SS runs only on Windows.");
     ExitCode::FAILURE
 }

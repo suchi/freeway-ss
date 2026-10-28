@@ -9,7 +9,9 @@ mod window;
 
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use freeway_core::{DisplayLanguage, Language, Scene, Settings, SpeedometerStyle, Text};
+use freeway_core::{
+    DisplayLanguage, Language, Scene, SceneConfig, SceneMode, Settings, SpeedometerStyle, Text,
+};
 
 use crate::input::{Command, Hint};
 
@@ -28,24 +30,26 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 use windows::core::{HSTRING, Result, w};
 
-use crate::args::Mode;
+use crate::args::{CommandLine, Mode};
 use crate::placement;
 use hint::Overlay;
 use renderer::{Part, Renderer, Target, is_device_lost};
 use settings_dialog::Outcome;
 
 /// Runs the screensaver in the requested mode until it should exit.
-pub fn run(mode: Mode) -> Result<()> {
+pub fn run(line: CommandLine) -> Result<()> {
     // Why: render at the monitor's physical resolution. This must happen
     // before any window exists; a failure only means the awareness was
     // already set, so it is ignored.
     let _ = unsafe { SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) };
 
+    let CommandLine { mode, scene_mode } = line;
     match mode {
         Mode::Fullscreen { span } => animate(
             &window::create_fullscreen_windows()?,
             Run {
                 spanning: Spanning::of(span),
+                scene_mode,
                 ..Run::default()
             },
         ),
@@ -65,11 +69,11 @@ pub fn run(mode: Mode) -> Result<()> {
         Mode::Configure { parent } => configure(parent.map(window::hwnd_from_handle)),
         Mode::Window { minutes } => animate(
             &[window::create_normal_window()?],
-            Run::keep(minutes, Spanning::Never),
+            Run::keep(minutes, Spanning::Never, scene_mode),
         ),
         Mode::Play { minutes, span } => animate(
             &window::create_play_windows()?,
-            Run::keep(minutes, Spanning::of(span)),
+            Run::keep(minutes, Spanning::of(span), scene_mode),
         ),
     }
 }
@@ -88,17 +92,21 @@ struct Run {
     controls: bool,
     /// Whether the monitors are drawn as one screen.
     spanning: Spanning,
+    /// The mode the command line chose for this run, if it did; otherwise the
+    /// settings decide.
+    scene_mode: Option<SceneMode>,
 }
 
 impl Run {
     /// A run that is meant to be left on, for the `/window` and `/play`
     /// modes: it keeps the machine awake, and ends after `minutes` if given.
-    fn keep(minutes: Option<u32>, spanning: Spanning) -> Self {
+    fn keep(minutes: Option<u32>, spanning: Spanning, scene_mode: Option<SceneMode>) -> Self {
         Self {
             duration: minutes.map(|minutes| Duration::from_secs(u64::from(minutes) * 60)),
             keep_awake: true,
             controls: true,
             spanning,
+            scene_mode,
             ..Self::default()
         }
     }
@@ -225,7 +233,11 @@ pub fn show_error(message: &str) {
 fn animate(windows: &[HWND], run: Run) -> Result<()> {
     let _keep_awake = run.keep_awake.then(KeepAwake::new);
     let deadline = run.duration.map(|duration| Instant::now() + duration);
-    let settings = settings_store::load();
+    // The mode of the command line is for this run only; it is not saved.
+    let mut settings = settings_store::load();
+    if let Some(mode) = run.scene_mode {
+        settings.mode = mode;
+    }
     let language = display_language(&settings);
     let mut windows = windows.to_vec();
     let mut renderer = Renderer::new()?;
@@ -272,6 +284,7 @@ fn animate(windows: &[HWND], run: Run) -> Result<()> {
         let dt = now.duration_since(last_frame).as_secs_f32();
         last_frame = now;
         let mut fullscreen_request = None;
+        let mut mode_changed = false;
         if run.controls {
             let input = window::take_input();
             if input.activity || input.speed_direction != 0.0 {
@@ -283,6 +296,18 @@ fn animate(windows: &[HWND], run: Run) -> Result<()> {
                     Command::ToggleSide => left_hand_traffic = !left_hand_traffic,
                     Command::CallUfo => scenes.iter_mut().for_each(Scene::call_ufo),
                     Command::ToggleFullscreen => fullscreen_request = Some(hwnd),
+                    Command::ToggleMode => {
+                        settings.mode = settings.mode.toggled();
+                        mode_changed = true;
+                    }
+                }
+            }
+            if mode_changed {
+                // Why: the journey goes on in the other mode; what the mode
+                // changes is made again (see `Scene::reconfigure`).
+                for scene in &mut scenes {
+                    let config = scene.config();
+                    scene.reconfigure(scene_config(&settings, config.seed, config.start_minute));
                 }
             }
             for scene in &mut scenes {
@@ -306,13 +331,24 @@ fn animate(windows: &[HWND], run: Run) -> Result<()> {
                 span,
             )?;
         }
-        let overlay = run.controls.then(|| Overlay {
-            text: if window::is_fullscreen() {
-                Text::HintFullscreen
-            } else {
-                Text::HintInWindow
-            }
-            .get(language),
+        let hint_text = run.controls.then(|| {
+            format!(
+                "{} · {}",
+                if window::is_fullscreen() {
+                    Text::HintFullscreen
+                } else {
+                    Text::HintInWindow
+                }
+                .get(language),
+                match settings.mode {
+                    SceneMode::Original => Text::HintModeOriginal,
+                    SceneMode::KitchenSink => Text::HintModeKitchenSink,
+                }
+                .get(language),
+            )
+        });
+        let overlay = hint_text.as_deref().map(|text| Overlay {
+            text,
             paused: paused.then(|| Text::Paused.get(language)),
             opacity: hint.opacity(paused),
             language,
@@ -323,7 +359,7 @@ fn animate(windows: &[HWND], run: Run) -> Result<()> {
             &windows,
             &scenes,
             spanning,
-            settings.speedometer,
+            settings.effective_speedometer(),
             overlay.as_ref(),
         ) {
             Ok(true) => {}
@@ -498,6 +534,21 @@ fn local_minute_of_day() -> u32 {
     u32::from(time.wHour) * 60 + u32::from(time.wMinute)
 }
 
+/// The configuration of a scene with the given `seed`, which starts at
+/// `start_minute` minutes after midnight.
+fn scene_config(settings: &Settings, seed: u64, start_minute: u32) -> SceneConfig {
+    let config = SceneConfig {
+        start_minute,
+        ..settings.scene_config(seed)
+    };
+    #[cfg(feature = "ufo-demo")]
+    let config = SceneConfig {
+        ufo_mean_interval: config.ufo_mean_interval.map(|_| UFO_DEMO_MEAN_SECONDS),
+        ..config
+    };
+    config
+}
+
 /// One scene per window, each with its own road.
 fn create_scenes(count: usize, settings: &Settings) -> Vec<Scene> {
     let start_minute = local_minute_of_day();
@@ -507,16 +558,7 @@ fn create_scenes(count: usize, settings: &Settings) -> Vec<Scene> {
     (0..count)
         .map(|index| {
             let seed = nanos ^ (index as u64 + 1).wrapping_mul(0x9E37_79B9_7F4A_7C15);
-            let config = freeway_core::SceneConfig {
-                start_minute,
-                ..settings.scene_config(seed)
-            };
-            #[cfg(feature = "ufo-demo")]
-            let config = freeway_core::SceneConfig {
-                ufo_mean_interval: config.ufo_mean_interval.map(|_| UFO_DEMO_MEAN_SECONDS),
-                ..config
-            };
-            Scene::new(config)
+            Scene::new(scene_config(settings, seed, start_minute))
         })
         .collect()
 }
@@ -644,12 +686,12 @@ mod tests {
 
     #[test]
     fn the_minutes_of_a_run_are_a_duration() {
-        assert_eq!(Run::keep(None, Spanning::Never).duration, None);
+        assert_eq!(Run::keep(None, Spanning::Never, None).duration, None);
         assert_eq!(
-            Run::keep(Some(30), Spanning::Never).duration,
+            Run::keep(Some(30), Spanning::Never, None).duration,
             Some(Duration::from_secs(30 * 60))
         );
-        assert!(Run::keep(None, Spanning::Never).keep_awake);
+        assert!(Run::keep(None, Spanning::Never, None).keep_awake);
         assert!(!Run::default().keep_awake);
     }
 
@@ -902,6 +944,28 @@ mod tests {
     }
 
     #[test]
+    fn the_scenes_follow_the_mode_and_a_switch_keeps_the_journey() {
+        let original = Settings {
+            mode: SceneMode::Original,
+            ..Settings::default()
+        };
+        let mut scene = create_scenes(1, &Settings::default()).remove(0);
+        assert_eq!(scene.config().lamp_spacing, 70.0);
+        for _ in 0..40 {
+            scene.update(0.05);
+        }
+        let (travelled, config) = (scene.track_s(), scene.config());
+        // What the key does: the same seed and start, the other mode.
+        scene.reconfigure(scene_config(&original, config.seed, config.start_minute));
+        assert_eq!(scene.config().lamp_spacing, 45.0);
+        assert_eq!(
+            (scene.config().seed, scene.track_s()),
+            (config.seed, travelled)
+        );
+        assert_eq!(create_scenes(2, &original)[1].config().lamp_spacing, 45.0);
+    }
+
+    #[test]
     fn the_monitors_are_spanned_as_the_settings_or_the_command_line_say() {
         let on = Settings {
             span_monitors: true,
@@ -920,7 +984,7 @@ mod tests {
         assert!(!Spanning::of(Some(false)).resolve(&on));
         assert_eq!(Run::default().spanning, Spanning::Never);
         assert_eq!(
-            Run::keep(None, Spanning::Settings).spanning,
+            Run::keep(None, Spanning::Settings, None).spanning,
             Spanning::Settings
         );
     }

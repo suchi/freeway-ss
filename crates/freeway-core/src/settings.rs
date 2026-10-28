@@ -93,8 +93,47 @@ impl SpeedometerStyle {
     }
 }
 
+/// How much of what was added to the road since the original is drawn
+/// (docs/plans/0024-v1-18-original-and-kitchensink-modes.md).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SceneMode {
+    /// Everything that the other settings turn on.
+    #[default]
+    KitchenSink,
+    /// Points of light only, as in the original: the other settings that
+    /// add something to the road are kept, but not used.
+    Original,
+}
+
+impl SceneMode {
+    /// Every choice, in the order of the stored values 0, 1.
+    pub const ALL: [SceneMode; 2] = [SceneMode::KitchenSink, SceneMode::Original];
+
+    /// The choice for a stored value; `None` when the value is not valid.
+    pub fn from_raw(raw: Option<u32>) -> Option<Self> {
+        Self::ALL.get(usize::try_from(raw?).ok()?).copied()
+    }
+
+    /// The value to store; `from_raw` reads it back.
+    pub fn to_raw(self) -> u32 {
+        match self {
+            SceneMode::KitchenSink => 0,
+            SceneMode::Original => 1,
+        }
+    }
+
+    /// The other mode.
+    pub fn toggled(self) -> Self {
+        match self {
+            SceneMode::KitchenSink => SceneMode::Original,
+            SceneMode::Original => SceneMode::KitchenSink,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Settings {
+    pub mode: SceneMode,
     /// Cruising speed in km/h, a multiple of `SPEED_STEP_KMH` within the range.
     pub speed_kmh: u32,
     pub left_hand_traffic: bool,
@@ -128,6 +167,7 @@ pub struct Settings {
 impl Default for Settings {
     fn default() -> Self {
         Self {
+            mode: SceneMode::KitchenSink,
             speed_kmh: DEFAULT_SPEED_KMH,
             left_hand_traffic: true,
             speedometer: SpeedometerStyle::None,
@@ -215,6 +255,19 @@ impl Settings {
             car_color,
             lane_changes: LaneChanges::from_raw(lane_changes).unwrap_or(defaults.lane_changes),
             span_monitors: defaults.span_monitors,
+            mode: defaults.mode,
+        }
+    }
+
+    /// These settings with `mode` read from its stored value: valid only as 0
+    /// or 1, and KitchenSink where it is not stored or not valid, which is
+    /// how the settings of versions before 1.18 draw.
+    ///
+    /// Why: a separate step, as for `with_span_monitors_raw`.
+    pub fn with_mode_raw(self, mode: Option<u32>) -> Self {
+        Self {
+            mode: SceneMode::from_raw(mode).unwrap_or(Self::default().mode),
+            ..self
         }
     }
 
@@ -246,10 +299,20 @@ impl Settings {
         DisplayLanguage::resolve(self.language, windows_ui_language)
     }
 
+    /// The speedometer to draw: none in the Original mode.
+    pub fn effective_speedometer(&self) -> SpeedometerStyle {
+        match self.mode {
+            SceneMode::KitchenSink => self.speedometer,
+            SceneMode::Original => SpeedometerStyle::None,
+        }
+    }
+
     /// The configuration of one scene; each window gets its own `seed`. The
-    /// host sets `start_minute` to the local time.
+    /// host sets `start_minute` to the local time. In the Original mode the
+    /// features that were added are off whatever their settings are; the
+    /// settings themselves are not changed.
     pub fn scene_config(&self, seed: u64) -> SceneConfig {
-        SceneConfig {
+        let config = SceneConfig {
             speed_kmh: self.speed_kmh as f32,
             left_hand_traffic: self.left_hand_traffic,
             ufo_mean_interval: self.show_ufo.then_some(UFO_MEAN_INTERVAL_SECONDS),
@@ -264,6 +327,10 @@ impl Settings {
             lane_changes: self.lane_changes,
             seed,
             ..SceneConfig::default()
+        };
+        match self.mode {
+            SceneMode::KitchenSink => config,
+            SceneMode::Original => config.original(),
         }
     }
 }
@@ -361,8 +428,9 @@ mod tests {
                 traffic_by_time: true,
                 scenery_zones: true,
                 lane_changes: LaneChanges::OwnCar,
-                // Not read by `from_raw`, so it is the default.
+                // Not read by `from_raw`, so they are the defaults.
                 span_monitors: true,
+                mode: SceneMode::KitchenSink,
             }
         );
         assert_eq!(
@@ -489,6 +557,7 @@ mod tests {
             scenery_zones: false,
             lane_changes: LaneChanges::None,
             span_monitors: true,
+            mode: SceneMode::KitchenSink,
         };
         let config = settings.scene_config(42);
         assert_eq!(config.lane_changes, LaneChanges::None);
@@ -1138,6 +1207,87 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn the_mode_is_kitchen_sink_by_default_and_checked_on_its_own() {
+        assert_eq!(Settings::default().mode, SceneMode::KitchenSink);
+        assert_eq!(SceneMode::default(), SceneMode::KitchenSink);
+        let read = |raw| Settings::default().with_mode_raw(raw).mode;
+        assert_eq!(read(Some(0)), SceneMode::KitchenSink);
+        assert_eq!(read(Some(1)), SceneMode::Original);
+        // Missing (a setting saved before 1.18) or out of range.
+        for raw in [None, Some(2), Some(3), Some(u32::MAX)] {
+            assert_eq!(read(raw), SceneMode::KitchenSink, "{raw:?}");
+        }
+        for mode in SceneMode::ALL {
+            assert_eq!(SceneMode::from_raw(Some(mode.to_raw())), Some(mode));
+            assert_ne!(mode.toggled(), mode);
+            assert_eq!(mode.toggled().toggled(), mode);
+        }
+        // Other settings are left as they are.
+        let before = Settings {
+            speed_kmh: 60,
+            ..Settings::default()
+        };
+        assert_eq!(before.with_mode_raw(Some(1)).speed_kmh, 60);
+    }
+
+    #[test]
+    fn the_kitchen_sink_mode_uses_the_settings_as_they_are() {
+        let settings = Settings {
+            speedometer: SpeedometerStyle::SimpleDashboard,
+            show_ufo: true,
+            car_shapes: CarShapes::Detailed,
+            ..Settings::default()
+        };
+        let config = settings.scene_config(3);
+        assert_eq!(config.ufo_mean_interval, Some(UFO_MEAN_INTERVAL_SECONDS));
+        assert!(config.mountains);
+        assert_eq!(config.car_shapes, CarShapes::Detailed);
+        assert_eq!(config.lamp_spacing, 70.0);
+        assert_eq!(
+            settings.effective_speedometer(),
+            SpeedometerStyle::SimpleDashboard
+        );
+    }
+
+    #[test]
+    fn the_original_mode_turns_the_added_features_off_whatever_the_settings_are() {
+        let settings = Settings {
+            mode: SceneMode::Original,
+            speed_kmh: 140,
+            left_hand_traffic: false,
+            speedometer: SpeedometerStyle::DetailedDashboard,
+            show_ufo: true,
+            trucks: TruckStyle::NorthAmerican,
+            tunnels: TunnelLighting::Led,
+            car_shapes: CarShapes::Detailed,
+            lane_changes: LaneChanges::All,
+            ..Settings::default()
+        };
+        let config = settings.scene_config(9);
+        assert_eq!(config.ufo_mean_interval, None);
+        assert!(!config.mountains);
+        assert_eq!(config.trucks, TruckStyle::None);
+        assert_eq!(config.tunnels, TunnelLighting::None);
+        assert_eq!(config.car_shapes, CarShapes::None);
+        assert_eq!(config.lane_changes, LaneChanges::None);
+        assert!(!config.vary_speed && !config.traffic_by_time && !config.scenery_zones);
+        assert_eq!(config.lamp_spacing, 45.0);
+        assert_eq!(settings.effective_speedometer(), SpeedometerStyle::None);
+        // The speed, the side of the traffic and the seed are as set.
+        assert_eq!(config.speed_kmh, 140.0);
+        assert!(!config.left_hand_traffic);
+        assert_eq!(config.seed, 9);
+        // The values of the settings are not touched: the KitchenSink mode
+        // finds them as they were.
+        assert_eq!(settings.trucks, TruckStyle::NorthAmerican);
+        let back = Settings {
+            mode: SceneMode::KitchenSink,
+            ..settings
+        };
+        assert_eq!(back.scene_config(9).trucks, TruckStyle::NorthAmerican);
     }
 
     #[test]

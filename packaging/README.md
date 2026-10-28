@@ -35,6 +35,7 @@ Windowsの「インストール」はファイルをコピーせず、展開し�
 
 | 項目 | 設定画面の表示 | 範囲 | 既定値 |
 | --- | --- | --- | --- |
+| モード | Mode | オリジナル(Original) / KitchenSink(オリジナルは、光の点だけで描く本家に近い見え方です。山並み・トンネル・トラック・他車の車体と影・車線変更・3つの時間的な変化(巡航速度のゆらぎ・時刻に応じた交通量・景色の区間)・速度計を使わず、中央分離帯の街灯の間隔も本家と同じ45 mになります。KitchenSinkは、以下の項目の設定どおりに描きます。オリジナルのあいだは、設定画面でこれらの項目が灰色になりますが、値はそのまま保存され、KitchenSinkに戻すと使われます。巡航速度・通行方向・複数のモニターの扱い・表示言語は、どちらのモードでも設定どおりです) | KitchenSink |
 | 巡航速度 | Cruising speed | 30〜160 km/h(10 km/h刻み) | 100 km/h |
 | 通行方向 | Driving side | 左側通行 / 右側通行 | 左側通行 |
 | 速度計 | Speedometer | なし / 数字だけ / ダッシュボード(シンプル) / ダッシュボード(作り込み)(数字だけは左下に速さの数字を表示する。ダッシュボード(シンプル)は円弧のゲージと数字、ダッシュボード(作り込み)は目盛りと針のある速度計・回転計・時刻・走った距離・シフトの位置を表示する。前の版で速度計を表示する設定にしていた場合は、数字だけになる) | なし |
@@ -68,6 +69,8 @@ Windowsの「インストール」はファイルをコピーせず、展開し�
 | `/minutes:<n>` | `/window`か`/play`と一緒に使います。n分(1〜1440)たつと閉じます |
 | `/span` | `/s`か`/play`と一緒に使います。その回だけ、設定にかかわらず、すべてのモニターを1つの画面として描きます |
 | `/nospan` | `/s`か`/play`と一緒に使います。その回だけ、設定にかかわらず、モニターごとに別の景色を描きます |
+| `/original` | `/s`・`/window`・`/play`と一緒に使います。その回だけ、設定にかかわらず、オリジナルのモードで描きます |
+| `/kitchensink` | `/s`・`/window`・`/play`と一緒に使います。その回だけ、設定にかかわらず、KitchenSinkのモードで描きます |
 
 例: `NightFreewaySS.scr /window /minutes:30`、`NightFreewaySS.scr /play /span`
 
@@ -82,8 +85,9 @@ Windowsの「インストール」はファイルをコピーせず、展開し�
 | Space | 一時停止と再開 |
 | D | 左側通行と右側通行を切り替えます(画面が左右に反転します) |
 | F | ウィンドウと全画面を切り替えます。`/play`でウィンドウにするときは、Fを押した画面のウィンドウだけが残ります。ウィンドウから全画面に戻すときは、モニターを1つの画面として描く設定(または`/span`)がオンなら、すべてのモニターの全画面に戻ります |
+| M | オリジナルとKitchenSinkのモードを切り替えます(走っている道はそのまま続き、他の車などは作り直されます) |
 
-キーによる変更はその回だけのもので、設定には保存されません。複数のモニターに流しているときは、すべての画面に同じように効きます。画面の下の中央には、終わり方を含む操作の案内が出ます(モニターを1つの画面として描いているときは、主モニターにだけ出ます)。始めたときと、マウスを動かしたときやキーを押したときに出て、入力がないまま4秒たつと消えます。一時停止しているあいだは出たままになります。
+キーによる変更はその回だけのもので、設定には保存されません。複数のモニターに流しているときは、すべての画面に同じように効きます。画面の下の中央には、終わり方と今のモードを含む操作の案内が出ます(モニターを1つの画面として描いているときは、主モニターにだけ出ます)。始めたときと、マウスを動かしたときやキーを押したときに出て、入力がないまま4秒たつと消えます。一時停止しているあいだは出たままになります。
 
 ### アンインストール
 
@@ -142,6 +146,7 @@ Select "Night Freeway SS" in the screensaver settings and click "Settings" to ch
 
 | Item | Range | Default |
 | --- | --- | --- |
+| Mode | Original / KitchenSink (Original is drawn with points of light only, close to the original animation: it uses no mountains, tunnels, trucks, car bodies and shadows, lane changes, the three slow variations (the drifting speed, the traffic that follows the time of day and the alternating scenery) or speedometer, and the street lamps on the median stand 45 m apart, as in the original; KitchenSink draws as the items below say; while Original is chosen, those items are grayed out in the settings dialog, but their values are kept and used again when you go back to KitchenSink; the cruising speed, the driving side, the monitors and the language are as set in both modes) | KitchenSink |
 | Cruising speed | 30 to 160 km/h (in steps of 10 km/h) | 100 km/h |
 | Driving side | Left-hand traffic / Right-hand traffic | Left-hand traffic |
 | Speedometer | None / Digits only / Dashboard (simple) / Dashboard (detailed) (digits only shows the speed as a number in the lower left corner; the simple dashboard shows an arc gauge with the speed; the detailed dashboard shows a speedometer with a scale and a needle, a tachometer, the time, the distance driven and the gear; a setting that showed the speedometer in an earlier version becomes digits only) | None |
@@ -175,6 +180,8 @@ There are two ways to keep the road running as something other than a screensave
 | `/minutes:<n>` | Goes with `/window` or `/play`. Closes it after n minutes (1 to 1440) |
 | `/span` | Goes with `/s` or `/play`. For that run only, draws all the monitors as one screen, whatever the setting is |
 | `/nospan` | Goes with `/s` or `/play`. For that run only, draws separate scenery on each monitor, whatever the setting is |
+| `/original` | Goes with `/s`, `/window` or `/play`. For that run only, draws in the Original mode, whatever the setting is |
+| `/kitchensink` | Goes with `/s`, `/window` or `/play`. For that run only, draws in the KitchenSink mode, whatever the setting is |
 
 Examples: `NightFreewaySS.scr /window /minutes:30`, `NightFreewaySS.scr /play /span`
 
@@ -189,8 +196,9 @@ While it runs, these keys work.
 | Space | Pauses and resumes |
 | D | Switches between left-hand and right-hand traffic (the picture turns over from left to right) |
 | F | Switches between a window and full screen. When going from `/play` to a window, only the window of the screen where F was pressed stays. When going back to full screen, it takes all the monitors again if the setting to draw the monitors as one screen (or `/span`) is on |
+| M | Switches between the Original and the KitchenSink mode (the road goes on, and the other cars and the rest are made again) |
 
-The changes made with the keys last only for that run and are not saved in the settings. With several monitors, they act on every screen alike. A line about the keys, including how to end it, appears at the bottom center of the picture (only on the primary monitor when the monitors are drawn as one screen). It appears when the run starts and when the mouse moves or a key is pressed, and goes away after 4 seconds without input. While paused, it stays.
+The changes made with the keys last only for that run and are not saved in the settings. With several monitors, they act on every screen alike. A line about the keys, including how to end it and the current mode, appears at the bottom center of the picture (only on the primary monitor when the monitors are drawn as one screen). It appears when the run starts and when the mouse moves or a key is pressed, and goes away after 4 seconds without input. While paused, it stays.
 
 ### Uninstallation
 

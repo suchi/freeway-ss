@@ -185,6 +185,7 @@ sequenceDiagram
 
 | 項目 | 型・範囲 | 既定値 | 対象 |
 | --- | --- | --- | --- |
+| モード | Original / KitchenSink | KitchenSink | v1.18.0 |
 | 巡航速度 | 30〜160 km/h | 100 km/h | MVP |
 | 通行方向 | 左側 / 右側 | 左側 | MVP |
 | 速度計 | なし / 数字だけ / ダッシュボード(シンプル) / ダッシュボード(作り込み) | なし | MVP(オン・オフ)、v1.10.0(4段階) |
@@ -230,6 +231,7 @@ MVPの項目は、本家の実行中の操作と表示(速度・通行方向・H
 | v1.15.0: 自車の追い越しと他車の車線変更 | 完了(実機確認済み) | [0022](0022-v1-15-overtaking-and-lane-changes.md) | [#31](https://github.com/suchi/freeway-ss/pull/31) | [v1.15.0](https://github.com/suchi/freeway-ss/releases/tag/v1.15.0) |
 | v1.16.0: 複数のモニターを1つの画面として描く | 完了(実機確認済み) | [0023](0023-v1-16-span-monitors.md) | [#32](https://github.com/suchi/freeway-ss/pull/32) | [v1.16.0](https://github.com/suchi/freeway-ss/releases/tag/v1.16.0) |
 | v1.17.0: 複数のモニターを1つの画面として描くのを既定にする | 完了(実機確認済み) | -(D27) | [#33](https://github.com/suchi/freeway-ss/pull/33) | [v1.17.0](https://github.com/suchi/freeway-ss/releases/tag/v1.17.0) |
+| v1.18.0: OriginalモードとKitchenSinkモード | 完了(実機確認済み) | [0024](0024-v1-18-original-and-kitchensink-modes.md) | [#36](https://github.com/suchi/freeway-ss/pull/36) | [v1.18.0](https://github.com/suchi/freeway-ss/releases/tag/v1.18.0) |
 
 ```mermaid
 flowchart LR
@@ -375,6 +377,7 @@ flowchart LR
 | D25 | 追い越しと車線変更 | 設定「車線変更」(なし・自車だけ・自車と他車。既定は自車と他車)を加える。自車は遅い前の車に追いつくと、追い越し車線が空いていれば追い越して戻り、空いていなければ減速して後ろにつく。車線を変える車はウインカーを点滅させ、トンネルの中では車線を変えない。自車が車線を変えるときは視点をわずかに振る。2026-10-27のユーザーの依頼と判断 | [0022](0022-v1-15-overtaking-and-lane-changes.md) |
 | D26 | 複数のモニターを1つの画面として描く | 設定とコマンドライン(`/span`・`/nospan`)で、`/s`と`/play`のときに、すべてのモニターを1枚の大きな画面とみなして1つの場面を描けるようにする。消失点は主モニターの中央、速度計と操作の案内は主モニターだけ。既定はオフ(モニターごとに独立した場面、ADR-0003)。2026-10-27のユーザーの依頼と判断 | [0023](0023-v1-16-span-monitors.md) |
 | D27 | 複数のモニターを1つの画面として描くのを既定にする | 設定`SpanMonitors`の既定をオンにする(値がない・範囲外のときもオン)。v1.16.0で設定を保存した環境には0が書かれているので、その値を書き換えることはせず、オフのまま残す(利用者が選んだ値として扱う)。モニターが1台のとき、プレビュー、`/window`の動きは変わらない。2026-10-27のユーザーの依頼 | [0023](0023-v1-16-span-monitors.md) |
+| D28 | OriginalモードとKitchenSinkモード | 追加した機能を一度に切り替えるトップレベルの設定「モード」を加える。Originalは本家に近い光点だけの表現(追加した機能をすべてオフにし、街灯の間隔を45 mに戻し、速度計とUFOを出さない)、KitchenSinkは追加した機能を設定どおりに使う。既定はKitchenSink。設定画面・コマンドライン(`/original`・`/kitchensink`)・流しているあいだのMキーで切り替える。2026-10-28のユーザーの依頼と判断 | [0024](0024-v1-18-original-and-kitchensink-modes.md) |
 
 検討時の選択肢:
 

@@ -42,6 +42,9 @@ impl DisplayLanguage {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Text {
     DialogTitle,
+    ModeLabel,
+    ModeOriginal,
+    ModeKitchenSink,
     SpeedLabel,
     DrivingSideLabel,
     LeftHandTraffic,
@@ -99,6 +102,10 @@ pub enum Text {
     HintInWindow,
     /// The keys of a run in full screen, shown on the picture.
     HintFullscreen,
+    /// The key that switches the mode of a run, and the mode now, shown on
+    /// the picture after the keys.
+    HintModeOriginal,
+    HintModeKitchenSink,
     /// Shown on the picture while time stands still.
     Paused,
     /// Contains `{error}`; use `with_error`.
@@ -111,8 +118,11 @@ pub enum Text {
 
 impl Text {
     /// Every key, so that tests can check all of them.
-    pub const ALL: [Text; 56] = [
+    pub const ALL: [Text; 61] = [
         Text::DialogTitle,
+        Text::ModeLabel,
+        Text::ModeOriginal,
+        Text::ModeKitchenSink,
         Text::SpeedLabel,
         Text::DrivingSideLabel,
         Text::LeftHandTraffic,
@@ -164,6 +174,8 @@ impl Text {
         Text::RunEndNote,
         Text::HintInWindow,
         Text::HintFullscreen,
+        Text::HintModeOriginal,
+        Text::HintModeKitchenSink,
         Text::Paused,
         Text::SaveFailed,
         Text::Stopped,
@@ -189,6 +201,10 @@ impl Text {
     fn translations(self) -> (&'static str, &'static str) {
         match self {
             Text::DialogTitle => ("Night Freeway SS Settings", "Night Freeway SS の設定"),
+            Text::ModeLabel => ("Mode:", "モード:"),
+            Text::ModeOriginal => ("Original", "オリジナル"),
+            // The name is not translated.
+            Text::ModeKitchenSink => ("KitchenSink", "KitchenSink"),
             Text::SpeedLabel => ("Cruising speed:", "巡航速度:"),
             Text::DrivingSideLabel => ("Driving side:", "通行方向:"),
             Text::LeftHandTraffic => ("Left-hand traffic", "左側通行"),
@@ -260,6 +276,8 @@ impl Text {
                 "Esc exit · ↑↓ speed · Space pause · D driving side · F window",
                 "Esc 終了 ・ ↑↓ 速度 ・ Space 一時停止 ・ D 通行方向 ・ F ウィンドウ",
             ),
+            Text::HintModeOriginal => ("M Original", "M オリジナル"),
+            Text::HintModeKitchenSink => ("M KitchenSink", "M KitchenSink"),
             Text::Paused => ("Paused", "一時停止中"),
             Text::SaveFailed => (
                 "The settings could not be saved: {error}",
@@ -390,6 +408,21 @@ mod tests {
                 Text::HintFullscreen.get(language)
             );
         }
+    }
+
+    #[test]
+    fn the_modes_are_named_and_the_hint_shows_the_key_of_the_mode() {
+        for language in LANGUAGES {
+            // KitchenSink is not translated, in either language.
+            assert_eq!(Text::ModeKitchenSink.get(language), "KitchenSink");
+            assert_eq!(Text::HintModeKitchenSink.get(language), "M KitchenSink");
+            assert!(Text::HintModeOriginal.get(language).starts_with("M "));
+        }
+        assert_eq!(Text::ModeOriginal.get(DisplayLanguage::English), "Original");
+        assert_eq!(
+            Text::ModeOriginal.get(DisplayLanguage::Japanese),
+            "オリジナル"
+        );
     }
 
     #[test]

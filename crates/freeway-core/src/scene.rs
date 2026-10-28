@@ -61,7 +61,34 @@ pub struct SceneConfig {
     /// The local time at the start of the journey, in minutes after
     /// midnight. The scene does not read a clock: the host gives the time.
     pub start_minute: u32,
+    /// Distance between the street lamps on the median, in meters. The pools
+    /// of light under them and the shadows in the pools follow the same value.
+    pub lamp_spacing: f64,
     pub seed: u64,
+}
+
+impl SceneConfig {
+    /// This configuration as the Original mode draws it: only the points of
+    /// light of the original, with every feature that was added since turned
+    /// off. The speed and the side of the traffic are kept.
+    ///
+    /// Why: a feature that is added later must be turned off here too, and
+    /// listed in the table of docs/plans/0024-v1-18-original-and-kitchensink-modes.md.
+    pub fn original(self) -> Self {
+        Self {
+            ufo_mean_interval: None,
+            mountains: false,
+            trucks: TruckStyle::None,
+            tunnels: TunnelLighting::None,
+            car_shapes: CarShapes::None,
+            lane_changes: LaneChanges::None,
+            vary_speed: false,
+            traffic_by_time: false,
+            scenery_zones: false,
+            lamp_spacing: ORIGINAL_LAMP_SPACING,
+            ..self
+        }
+    }
 }
 
 impl Default for SceneConfig {
@@ -84,6 +111,7 @@ impl Default for SceneConfig {
             traffic_by_time: false,
             scenery_zones: false,
             start_minute: 12 * 60,
+            lamp_spacing: KITCHEN_SINK_LAMP_SPACING,
             seed: 0,
         }
     }
@@ -169,10 +197,13 @@ const BODY_GLASS: Rgb = Rgb::new(12, 14, 20);
 
 /// The street lamps on the median: where they stand across the road, how
 /// high, how far apart along it, and how far their pools of light on the
-/// road reach.
+/// road reach. The distance between them is `SceneConfig::lamp_spacing`:
+/// 70 m in the KitchenSink mode and 45 m, as in the original, in the Original
+/// mode.
 const LAMP_LATERAL: f32 = 4.5;
 const LAMP_HEIGHT: f32 = 10.0;
-const LAMP_SPACING: f64 = 70.0;
+const KITCHEN_SINK_LAMP_SPACING: f64 = 70.0;
+const ORIGINAL_LAMP_SPACING: f64 = 45.0;
 const LAMP_POOL_RANGE: f32 = 350.0;
 /// The radius of the pools of light under the street lamps, in meters, and
 /// where across the road the two pools of a lamp are.
@@ -232,63 +263,65 @@ const fn dashed(lateral: f32, range: f32, alpha: f32) -> Row {
 
 // Lateral positions assume the camera is in the left lane of left-hand
 // traffic; right-hand traffic mirrors the picture on the screen.
-const ROWS: [Row; 11] = [
-    dashed(0.0, 150.0, 0.8),
-    row(-3.5, 0.0, 3.0, 110.0, WHITE, 0.7, Kind::Glow { size: 0.12 }),
-    row(3.5, 0.0, 3.0, 110.0, WHITE, 0.7, Kind::Glow { size: 0.12 }),
-    dashed(9.0, 80.0, 0.4),
-    row(-4.0, 0.9, 12.0, 420.0, WHITE, 0.8, Kind::Glow { size: 0.1 }),
-    row(3.9, 0.9, 12.0, 420.0, ORANGE, 0.8, Kind::Glow { size: 0.1 }),
-    row(
-        5.1,
-        0.9,
-        12.0,
-        250.0,
-        ORANGE,
-        0.45,
-        Kind::Glow { size: 0.1 },
-    ),
-    row(
-        13.0,
-        0.9,
-        12.0,
-        250.0,
-        WHITE,
-        0.45,
-        Kind::Glow { size: 0.1 },
-    ),
-    row(
-        LAMP_LATERAL,
-        LAMP_HEIGHT,
-        LAMP_SPACING,
-        VIEW_DISTANCE,
-        SODIUM,
-        1.0,
-        Kind::Glow { size: 0.3 },
-    ),
-    row(
-        LAMP_POOL_LATERALS[0],
-        0.0,
-        LAMP_SPACING,
-        LAMP_POOL_RANGE,
-        SODIUM,
-        0.3,
-        Kind::Pool {
-            radius: LAMP_POOL_RADIUS,
-        },
-    ),
-    row(
-        LAMP_POOL_LATERALS[1],
-        0.0,
-        LAMP_SPACING,
-        LAMP_POOL_RANGE,
-        SODIUM,
-        0.3,
-        Kind::Pool {
-            radius: LAMP_POOL_RADIUS,
-        },
-    ),
-];
+const fn rows(lamp_spacing: f64) -> [Row; 11] {
+    [
+        dashed(0.0, 150.0, 0.8),
+        row(-3.5, 0.0, 3.0, 110.0, WHITE, 0.7, Kind::Glow { size: 0.12 }),
+        row(3.5, 0.0, 3.0, 110.0, WHITE, 0.7, Kind::Glow { size: 0.12 }),
+        dashed(9.0, 80.0, 0.4),
+        row(-4.0, 0.9, 12.0, 420.0, WHITE, 0.8, Kind::Glow { size: 0.1 }),
+        row(3.9, 0.9, 12.0, 420.0, ORANGE, 0.8, Kind::Glow { size: 0.1 }),
+        row(
+            5.1,
+            0.9,
+            12.0,
+            250.0,
+            ORANGE,
+            0.45,
+            Kind::Glow { size: 0.1 },
+        ),
+        row(
+            13.0,
+            0.9,
+            12.0,
+            250.0,
+            WHITE,
+            0.45,
+            Kind::Glow { size: 0.1 },
+        ),
+        row(
+            LAMP_LATERAL,
+            LAMP_HEIGHT,
+            lamp_spacing,
+            VIEW_DISTANCE,
+            SODIUM,
+            1.0,
+            Kind::Glow { size: 0.3 },
+        ),
+        row(
+            LAMP_POOL_LATERALS[0],
+            0.0,
+            lamp_spacing,
+            LAMP_POOL_RANGE,
+            SODIUM,
+            0.3,
+            Kind::Pool {
+                radius: LAMP_POOL_RADIUS,
+            },
+        ),
+        row(
+            LAMP_POOL_LATERALS[1],
+            0.0,
+            lamp_spacing,
+            LAMP_POOL_RANGE,
+            SODIUM,
+            0.3,
+            Kind::Pool {
+                radius: LAMP_POOL_RADIUS,
+            },
+        ),
+    ]
+}
 
 /// Lamps of a tunnel are twice as dense this far from the entrance, in meters.
 const ENTRANCE_LENGTH: f64 = 100.0;
@@ -413,6 +446,8 @@ impl Light {
 
 pub struct Scene {
     config: SceneConfig,
+    /// The rows of lights along the road, with the lamps `config.lamp_spacing` apart.
+    rows: [Row; 11],
     /// The speed the user chose, in km/h, which the drift is around. It starts
     /// as `config.speed_kmh` and the speed keys of a run change it.
     base_kmh: f32,
@@ -484,6 +519,7 @@ impl Scene {
         sky.set_mountain_level(mountain_level);
         Self {
             config,
+            rows: rows(config.lamp_spacing),
             base_kmh: config.speed_kmh,
             paused: false,
             side: side_of(config.left_hand_traffic),
@@ -510,6 +546,44 @@ impl Scene {
             zones,
             mountain_level,
         }
+    }
+
+    /// The configuration the scene was made with.
+    pub fn config(&self) -> SceneConfig {
+        self.config
+    }
+
+    /// Continues the journey with another configuration, as when the mode
+    /// changes: the distance, the time, the heading, the chosen speed, the
+    /// side of the traffic and the pause are kept, and everything that the
+    /// configuration makes (the other cars, the tunnels, the sky, the UFO's
+    /// schedule) is made again from its seed.
+    ///
+    /// Why: the other cars and the lane changes depend on the configuration
+    /// from the start, so they begin anew rather than being converted; the
+    /// car is back in its lane, at the speed it had. The slow drift of the
+    /// speed begins again from the chosen speed.
+    pub fn reconfigure(&mut self, config: SceneConfig) {
+        // The speed the user chose goes on, not the one in `config`.
+        let mut next = Scene::new(SceneConfig {
+            speed_kmh: self.base_kmh,
+            ..config
+        });
+        next.ego = Ego::new(self.speed_kmh() / 3.6);
+        next.paused = self.paused;
+        next.side = self.side;
+        next.left_hand_traffic = self.left_hand_traffic;
+        next.track_s = self.track_s;
+        next.heading = self.heading;
+        next.time = self.time;
+        next.sky.update(next.time, next.heading);
+        next.ufo.update(next.time, next.heading, next.side);
+        next.traffic
+            .set_level(traffic_level(&next.config, next.time));
+        next.tunnels.update(next.track_s);
+        next.mountain_level = next.zones.mountain_level(next.track_s);
+        next.sky.set_mountain_level(next.mountain_level);
+        *self = next;
     }
 
     /// The speed the car would drive at on an empty road, in km/h: the chosen
@@ -844,7 +918,7 @@ impl Scene {
     /// far to near.
     fn lights_on(&self, view: &RoadView, projector: &Projector) -> Vec<Light> {
         let mut lights = Vec::new();
-        for row in ROWS.iter() {
+        for row in &self.rows {
             // Rows are anchored to the road, so they slide toward the car.
             let mut index = (self.track_s / row.spacing).ceil();
             loop {
@@ -1010,9 +1084,10 @@ impl Scene {
             // A lamp farther along the road than a pool is wide from the car
             // has no pool where the shadow falls.
             let (low, high) = (body.near - LAMP_POOL_RADIUS, body.far + LAMP_POOL_RADIUS);
-            let mut index = ((self.track_s + f64::from(low)) / LAMP_SPACING).ceil();
+            let spacing = self.config.lamp_spacing;
+            let mut index = ((self.track_s + f64::from(low)) / spacing).ceil();
             loop {
-                let s = index * LAMP_SPACING;
+                let s = index * spacing;
                 let lamp = (s - self.track_s) as f32;
                 if lamp > high {
                     break;
@@ -4264,22 +4339,121 @@ mod tests {
 
     #[test]
     fn the_street_lamps_and_their_shadows_use_the_same_spacing() {
-        let scene = driven(bodies_config(2, CarColor::Black), 40);
-        let lamps: Vec<_> = scene
-            .lights()
-            .into_iter()
-            .filter_map(|l| l.lamp.map(|k| (k, l.d)))
-            .collect();
-        assert!(lamps.len() > 4);
-        for (key, d) in lamps {
-            let along = scene.track_s + f64::from(d);
-            assert!(
-                (along - key as f64 * LAMP_SPACING).abs() < 1e-3,
-                "{key} {d}"
-            );
+        // The lamps stand 70 m apart in the KitchenSink mode and 45 m apart,
+        // as in the original, in the Original mode.
+        assert_eq!(SceneConfig::default().lamp_spacing, 70.0);
+        assert_eq!(SceneConfig::default().original().lamp_spacing, 45.0);
+        for spacing in [70.0, 45.0] {
+            let mut shaded = 0;
+            for seed in 1..=3 {
+                let mut scene = driven(
+                    SceneConfig {
+                        lamp_spacing: spacing,
+                        ..bodies_config(seed, CarColor::Black)
+                    },
+                    40,
+                );
+                for _ in 0..200 {
+                    scene.update(0.05);
+                    let lamps: Vec<_> = scene
+                        .lights()
+                        .into_iter()
+                        .filter_map(|l| l.lamp.map(|k| (k, l.d, l.shadows.len())))
+                        .collect();
+                    assert!(lamps.len() > 4);
+                    for (key, d, shadows) in lamps {
+                        let along = scene.track_s + f64::from(d);
+                        assert!((along - key as f64 * spacing).abs() < 1e-3, "{key} {d}");
+                        shaded += shadows;
+                    }
+                }
+            }
+            // The cars do shade the pools: the shadows are found by the same
+            // numbers of the lamps as the pools are made with.
+            assert!(shaded > 0, "{spacing}");
         }
-        // The lamps stand 70 m apart.
-        assert_eq!(LAMP_SPACING, 70.0);
+    }
+
+    #[test]
+    fn the_original_config_turns_every_added_feature_off() {
+        let all_on = SceneConfig {
+            speed_kmh: 130.0,
+            left_hand_traffic: false,
+            ufo_mean_interval: Some(600.0),
+            mountains: true,
+            trucks: TruckStyle::NorthAmerican,
+            tunnels: TunnelLighting::Led,
+            car_shapes: CarShapes::Detailed,
+            car_color: CarColor::Black,
+            lane_changes: LaneChanges::All,
+            vary_speed: true,
+            traffic_by_time: true,
+            scenery_zones: true,
+            start_minute: 3 * 60,
+            lamp_spacing: 70.0,
+            seed: 7,
+        };
+        let original = all_on.original();
+        assert_eq!(original.ufo_mean_interval, None);
+        assert!(!original.mountains);
+        assert_eq!(original.trucks, TruckStyle::None);
+        assert_eq!(original.tunnels, TunnelLighting::None);
+        assert_eq!(original.car_shapes, CarShapes::None);
+        assert_eq!(original.lane_changes, LaneChanges::None);
+        assert!(!original.vary_speed && !original.traffic_by_time && !original.scenery_zones);
+        assert_eq!(original.lamp_spacing, 45.0);
+        // What the modes share is kept.
+        assert_eq!(original.speed_kmh, 130.0);
+        assert!(!original.left_hand_traffic);
+        assert_eq!((original.start_minute, original.seed), (3 * 60, 7));
+        // The original draws no bodies, tunnels or mountains, and no shadows.
+        let mut scene = Scene::new(original);
+        for _ in 0..2400 {
+            scene.update(0.05);
+            assert!(!scene.in_tunnel() && !scene.mountains_ahead());
+        }
+        assert_eq!(scene.target_kmh(), 130.0);
+    }
+
+    #[test]
+    fn reconfiguring_keeps_the_journey() {
+        let all_on = SceneConfig {
+            ufo_mean_interval: Some(600.0),
+            trucks: TruckStyle::Japanese,
+            tunnels: TunnelLighting::Mixed,
+            lane_changes: LaneChanges::All,
+            vary_speed: true,
+            traffic_by_time: true,
+            scenery_zones: true,
+            ..bodies_config(5, CarColor::Black)
+        };
+        let mut scene = driven(all_on, 90);
+        scene.change_speed(1.0, 0.05);
+        scene.set_left_hand_traffic(false);
+        scene.set_paused(true);
+        let (track_s, heading, minute) = (scene.track_s(), scene.heading(), scene.minute_of_day());
+        let base = scene.base_kmh;
+        scene.reconfigure(all_on.original());
+        assert_eq!(scene.track_s(), track_s);
+        assert_eq!(scene.heading(), heading);
+        assert_eq!(scene.minute_of_day(), minute);
+        assert_eq!(scene.base_kmh, base);
+        assert!(scene.is_paused());
+        assert!(!scene.left_hand_traffic());
+        assert_eq!(scene.config.lamp_spacing, 45.0);
+        scene.set_paused(false);
+        for _ in 0..400 {
+            scene.update(0.05);
+        }
+        assert!(scene.track_s() > track_s);
+        assert!(scene.target_kmh() > 0.0 && !scene.in_tunnel());
+        // And back: the tunnels, the mountains and the bodies return.
+        scene.reconfigure(all_on);
+        assert_eq!(scene.config.lamp_spacing, 70.0);
+        for _ in 0..400 {
+            scene.update(0.05);
+        }
+        assert!(!scene.lights().is_empty());
     }
 
     #[test]

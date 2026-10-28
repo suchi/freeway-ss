@@ -34,6 +34,7 @@ const CAR_SHAPES: PCWSTR = w!("CarShapes");
 const CAR_COLOR: PCWSTR = w!("CarColor");
 const LANE_CHANGES: PCWSTR = w!("LaneChanges");
 const SPAN_MONITORS: PCWSTR = w!("SpanMonitors");
+const MODE: PCWSTR = w!("Mode");
 
 /// Reads the saved settings; anything missing or invalid is the default.
 pub fn load() -> Settings {
@@ -65,6 +66,7 @@ fn load_from(root: HKEY, key: PCWSTR) -> Settings {
         read_dword(root, key, LANE_CHANGES),
     )
     .with_span_monitors_raw(read_dword(root, key, SPAN_MONITORS))
+    .with_mode_raw(read_dword(root, key, MODE))
 }
 
 fn save_to(root: HKEY, key: PCWSTR, settings: &Settings) -> Result<()> {
@@ -104,6 +106,7 @@ fn save_to(root: HKEY, key: PCWSTR, settings: &Settings) -> Result<()> {
     write_dword(root, key, CAR_COLOR, settings.car_color.to_raw())?;
     write_dword(root, key, LANE_CHANGES, settings.lane_changes.to_raw())?;
     write_dword(root, key, SPAN_MONITORS, u32::from(settings.span_monitors))?;
+    write_dword(root, key, MODE, settings.mode.to_raw())?;
     write_dword(root, key, CAR_BODIES, settings.legacy_car_bodies())
 }
 
@@ -146,7 +149,8 @@ fn write_dword(root: HKEY, key: PCWSTR, name: PCWSTR, value: u32) -> Result<()> 
 mod tests {
     use freeway_core::settings::DEFAULT_SPEED_KMH;
     use freeway_core::{
-        CarColor, CarShapes, LaneChanges, Language, SpeedometerStyle, TruckStyle, TunnelLighting,
+        CarColor, CarShapes, LaneChanges, Language, SceneMode, SpeedometerStyle, TruckStyle,
+        TunnelLighting,
     };
     use windows::Win32::System::Registry::{REG_SZ, RegDeleteTreeW};
     use windows::core::HSTRING;
@@ -196,6 +200,7 @@ mod tests {
     fn saved_settings_are_read_back() -> Result<()> {
         let test = TestKey::new("round-trip");
         let settings = Settings {
+            mode: SceneMode::Original,
             speed_kmh: 60,
             left_hand_traffic: false,
             speedometer: SpeedometerStyle::DetailedDashboard,
@@ -240,6 +245,7 @@ mod tests {
         write_dword(HKEY_CURRENT_USER, test.key(), CAR_COLOR, 2)?;
         write_dword(HKEY_CURRENT_USER, test.key(), LANE_CHANGES, 3)?;
         write_dword(HKEY_CURRENT_USER, test.key(), SPAN_MONITORS, 2)?;
+        write_dword(HKEY_CURRENT_USER, test.key(), MODE, 2)?;
         let settings = test.load();
         assert_eq!(settings.speed_kmh, DEFAULT_SPEED_KMH);
         assert!(!settings.left_hand_traffic);
@@ -254,6 +260,31 @@ mod tests {
         assert_eq!(settings.language, Language::Auto);
         assert!(settings.vary_speed && settings.traffic_by_time && settings.scenery_zones);
         assert!(settings.span_monitors);
+        assert_eq!(settings.mode, SceneMode::KitchenSink);
+        Ok(())
+    }
+
+    #[test]
+    fn the_mode_is_read_back_and_kitchen_sink_by_default() -> Result<()> {
+        let test = TestKey::new("mode");
+        assert_eq!(test.load().mode, SceneMode::KitchenSink);
+        for mode in SceneMode::ALL {
+            let settings = Settings {
+                mode,
+                ..Settings::default()
+            };
+            save_to(HKEY_CURRENT_USER, test.key(), &settings)?;
+            assert_eq!(test.load().mode, mode);
+        }
+        // Settings saved before 1.18 have no mode: the road looks as it did.
+        let before = TestKey::new("mode-missing");
+        write_dword(HKEY_CURRENT_USER, before.key(), SPEED, 60)?;
+        assert_eq!(before.load().mode, SceneMode::KitchenSink);
+        // A value that is not 0 or 1 is the default.
+        for raw in [2, u32::MAX] {
+            write_dword(HKEY_CURRENT_USER, test.key(), MODE, raw)?;
+            assert_eq!(test.load().mode, SceneMode::KitchenSink, "{raw}");
+        }
         Ok(())
     }
 

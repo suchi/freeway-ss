@@ -40,6 +40,7 @@ pub enum Key {
     Space,
     D,
     F,
+    M,
     A,
     B,
     Other,
@@ -51,6 +52,8 @@ pub enum Command {
     TogglePause,
     ToggleSide,
     ToggleFullscreen,
+    /// Between the Original and the KitchenSink mode, for this run only.
+    ToggleMode,
     CallUfo,
 }
 
@@ -102,6 +105,7 @@ impl Controls {
             Key::Space => Some(Command::TogglePause),
             Key::D => Some(Command::ToggleSide),
             Key::F => Some(Command::ToggleFullscreen),
+            Key::M => Some(Command::ToggleMode),
             _ => None,
         }
     }
@@ -222,6 +226,7 @@ mod tests {
             controls.key_down(Key::F, false),
             Some(Command::ToggleFullscreen)
         );
+        assert_eq!(controls.key_down(Key::M, false), Some(Command::ToggleMode));
         for key in [
             Key::Up,
             Key::Down,
@@ -244,6 +249,8 @@ mod tests {
         }
         assert!(controls.key_down(Key::D, false).is_some());
         assert_eq!(controls.key_down(Key::D, true), None);
+        assert!(controls.key_down(Key::M, false).is_some());
+        assert_eq!(controls.key_down(Key::M, true), None);
     }
 
     #[test]
@@ -288,6 +295,17 @@ mod tests {
         assert_eq!(press(&mut controls, &SECRET[..9]), None);
         assert_eq!(controls.key_down(Key::A, false), Some(Command::CallUfo));
         // It starts over: the same keys call it again.
+        assert_eq!(press(&mut controls, &SECRET), Some(Command::CallUfo));
+    }
+
+    #[test]
+    fn the_mode_key_does_not_break_the_sequence_but_is_not_part_of_it() {
+        let mut controls = Controls::default();
+        // M asks for its command and, like any other key, breaks a sequence
+        // that is under way.
+        press(&mut controls, &SECRET[..5]);
+        assert_eq!(controls.key_down(Key::M, false), Some(Command::ToggleMode));
+        assert_eq!(press(&mut controls, &SECRET[5..]), None);
         assert_eq!(press(&mut controls, &SECRET), Some(Command::CallUfo));
     }
 
