@@ -13,6 +13,38 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  commits:
+    name: Commit messages
+    # Why: Dependabot writes its own messages (for example "build(deps): bump
+    # ..."), which follow its configuration rather than AGENTS.md.
+    if: github.event_name == 'pull_request' && github.event.pull_request.user.login != 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Check the first lines
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        # AGENTS.md: Conventional Commits with an allowed type, in English,
+        # at most 50 characters. Merge commits are left out.
+        run: |
+          status=0
+          while IFS= read -r subject; do
+            [ -n "$subject" ] || continue
+            if ! printf '%s\n' "$subject" | grep -Eq '^(feat|fix|docs|test|refactor|chore|style|ci)(\([a-z0-9-]+\))?!?: [^ ]'; then
+              echo "::error::Not a Conventional Commits subject with an allowed type: $subject"
+              status=1
+            fi
+            if [ "${#subject}" -gt 50 ]; then
+              echo "::error::Longer than 50 characters (${#subject}): $subject"
+              status=1
+            fi
+          done < <(git log --no-merges --format=%s "$BASE..$HEAD")
+          exit "$status"
+
   check:
     name: Check (${{ matrix.os }})
     strategy:
