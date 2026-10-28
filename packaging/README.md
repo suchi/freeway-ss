@@ -107,7 +107,7 @@ Windowsの「インストール」はファイルをコピーせず、展開し�
 
 ### 免責事項
 
-本ソフトウェアは、AIコーディングエージェントにコードの作成の大部分を任せる、いわゆるVibe Codingで開発しました。作者は設計の判断と実機での動作確認を行っていますが、すべてのコードを詳細に検証しているわけではありません。
+本ソフトウェアは、コードの作成の大部分をAIコーディングエージェントに任せて開発しました。作者は設計の判断と実機での動作確認を行っていますが、すべてのコードを詳細に検証しているわけではありません。
 
 そのため、作者は本ソフトウェアの品質・安全性・動作を保証せず、本ソフトウェアの利用によって生じた不具合・損害・トラブルについて責任を負いません。これは[MITライセンス](LICENSE)の無保証の条項を、改めて明示するものです。
 
@@ -218,6 +218,6 @@ The behavior and appearance of this software are based on [nightfreeway](https:/
 
 ### Disclaimer
 
-This software was developed by so-called vibe coding, in which most of the code is written by AI coding agents. The author made the design decisions and tested the software on real machines, but has not reviewed all of the code in detail.
+Most of the code of this software was written by AI coding agents. The author made the design decisions and tested the software on real machines, but has not reviewed all of the code in detail.
 
 Therefore, the author does not guarantee the quality, safety, or operation of this software, and is not responsible for any defects, damage, or trouble caused by its use. This restates the warranty disclaimer of the [MIT License](LICENSE).
