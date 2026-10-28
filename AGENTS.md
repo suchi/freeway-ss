@@ -88,7 +88,7 @@ Qiita、Zenn、note、AI生成記事、SEO目的の記事は、特定の記事�
 ## 開発フロー
 
 - GitHub Flow。`main`への直接コミット・プッシュは禁止。
-- ブランチ名は英語kebab-caseで`feature/xxx`・`fix/xxx`・`docs/xxx`・`chore/xxx`。
+- ブランチ名は英語kebab-caseで`feature/xxx`・`fix/xxx`・`docs/xxx`・`chore/xxx`・`ci/xxx`。作業環境(クラウドのセッションなど)がブランチ名を割り当てるときは、その名前を使う(2026-10-28のユーザー判断)。
 - 1コミット=1論理変更。節目ごとにプッシュする。
 - 先回りで機能・抽象化を追加しない(YAGNI)。
 
